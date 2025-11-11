@@ -1,0 +1,22 @@
+{
+  "name": "discord-location-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for tracking player locations in a game",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "game",
+    "location"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^14.24.2",
+    "express": "^4.19.0"
+  }
+}
