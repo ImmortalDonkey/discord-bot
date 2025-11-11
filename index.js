@@ -1,14 +1,16 @@
 // ----- Discord.js Setup -----
-const { 
-    Client, 
-    GatewayIntentBits, 
-    Collection, 
-    EmbedBuilder, 
-    PermissionFlagsBits 
+const {
+    Client,
+    GatewayIntentBits,
+    Collection,
+    EmbedBuilder,
+    PermissionFlagsBits
 } = require('discord.js');
+const express = require("express");
+const fetch = require("node-fetch"); // <-- for self-pinging
 
-const client = new Client({ 
-    intents: [GatewayIntentBits.Guilds] 
+const client = new Client({
+    intents: [GatewayIntentBits.Guilds]
 });
 
 const playerLocations = new Map();
@@ -206,15 +208,22 @@ client.on('interactionCreate', async interaction => {
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
     console.error('❌ ERROR: DISCORD_TOKEN not found in environment variables!');
-    console.error('Please set your Discord bot token.');
     process.exit(1);
 }
 
 client.login(token);
 
-// ----- Keep-Alive Server (for Render + UptimeRobot) -----
-const express = require("express");
+// ----- Keep-Alive Server (for Render + Self Ping) -----
 const app = express();
 
 app.get("/", (req, res) => res.send("Bot is alive!"));
 app.listen(3000, () => console.log("🌐 Keep-alive web server running on port 3000"));
+
+// ----- Self-Ping Every 4 Minutes -----
+const KEEP_ALIVE_URL = "https://discord-bot-146j.onrender.com";
+
+setInterval(() => {
+    fetch(KEEP_ALIVE_URL)
+        .then(() => console.log("🔄 Self-ping sent to keep bot alive"))
+        .catch(err => console.log("⚠️ Self-ping failed:", err.message));
+}, 240000); // every 4 minutes (240,000 ms)
