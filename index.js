@@ -6,8 +6,9 @@ const {
     EmbedBuilder,
     PermissionFlagsBits
 } = require('discord.js');
+
 const express = require("express");
-const fetch = require("node-fetch"); // <-- for self-pinging
+const app = express();
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
@@ -39,12 +40,12 @@ client.on('interactionCreate', async interaction => {
             const filtered = availableLocations.filter(location =>
                 location.toLowerCase().includes(focusedValue)
             );
-            
+
             const options = filtered.slice(0, 25).map(location => ({
                 name: location,
                 value: location
             }));
-            
+
             await interaction.respond(options);
         }
         return;
@@ -59,7 +60,7 @@ client.on('interactionCreate', async interaction => {
             const location = interaction.options.getString('location');
             const userId = interaction.user.id;
             const username = interaction.user.username;
-            
+
             playerLocations.set(userId, {
                 location: location,
                 username: username,
@@ -73,15 +74,15 @@ client.on('interactionCreate', async interaction => {
                 .setTimestamp();
 
             await interaction.reply({ embeds: [embed] });
-            
+
         } else if (commandName === 'whereami') {
             const userId = interaction.user.id;
             const playerData = playerLocations.get(userId);
 
             if (!playerData) {
-                await interaction.reply({ 
+                await interaction.reply({
                     content: '❌ You haven\'t set your location yet. Use `/setlocation` to set it!',
-                    ephemeral: true 
+                    ephemeral: true
                 });
                 return;
             }
@@ -102,9 +103,9 @@ client.on('interactionCreate', async interaction => {
             const playerData = playerLocations.get(targetUser.id);
 
             if (!playerData) {
-                await interaction.reply({ 
+                await interaction.reply({
                     content: `❌ ${targetUser.username} hasn't set their location yet.`,
-                    ephemeral: true 
+                    ephemeral: true
                 });
                 return;
             }
@@ -123,15 +124,15 @@ client.on('interactionCreate', async interaction => {
 
         } else if (commandName === 'locations') {
             if (playerLocations.size === 0) {
-                await interaction.reply({ 
+                await interaction.reply({
                     content: '❌ No players have set their locations yet.',
-                    ephemeral: true 
+                    ephemeral: true
                 });
                 return;
             }
 
             let locationList = '';
-            playerLocations.forEach((data, userId) => {
+            playerLocations.forEach((data) => {
                 locationList += `**${data.username}**: ${data.location}\n`;
             });
 
@@ -149,9 +150,9 @@ client.on('interactionCreate', async interaction => {
             const playerData = playerLocations.get(userId);
 
             if (!playerData) {
-                await interaction.reply({ 
+                await interaction.reply({
                     content: '❌ You don\'t have an active location set.',
-                    ephemeral: true 
+                    ephemeral: true
                 });
                 return;
             }
@@ -191,11 +192,11 @@ client.on('interactionCreate', async interaction => {
 
     } catch (error) {
         console.error('Error handling command:', error);
-        const errorMessage = { 
-            content: '❌ There was an error executing this command!', 
-            ephemeral: true 
+        const errorMessage = {
+            content: '❌ There was an error executing this command!',
+            ephemeral: true
         };
-        
+
         if (interaction.replied || interaction.deferred) {
             await interaction.followUp(errorMessage);
         } else {
@@ -213,17 +214,14 @@ if (!token) {
 
 client.login(token);
 
-// ----- Keep-Alive Server (for Render + Self Ping) -----
-const app = express();
-
+// ----- Keep-Alive Web Server (Render + UptimeRobot) -----
 app.get("/", (req, res) => res.send("Bot is alive!"));
 app.listen(3000, () => console.log("🌐 Keep-alive web server running on port 3000"));
 
-// ----- Self-Ping Every 4 Minutes -----
+// ----- Auto Self-Ping to Keep Alive -----
 const KEEP_ALIVE_URL = "https://discord-bot-146j.onrender.com";
-
 setInterval(() => {
     fetch(KEEP_ALIVE_URL)
-        .then(() => console.log("🔄 Self-ping sent to keep bot alive"))
-        .catch(err => console.log("⚠️ Self-ping failed:", err.message));
-}, 240000); // every 4 minutes (240,000 ms)
+        .then(res => console.log(`🔄 Self-ping successful: ${res.status}`))
+        .catch(err => console.error("⚠️ Self-ping failed:", err));
+}, 5 * 60 * 1000); // every 5 minutes
