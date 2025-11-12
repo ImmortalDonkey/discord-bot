@@ -114,52 +114,51 @@ client.once("ready", async () => {
 
 // ----- Detect Vortex Companion Reports -----
 client.on("messageCreate", async (message) => {
-    if (message.author.bot && message.author.id !== "858945228655951882") return;
+  // Ignore all other bots except Vortex Companion
+  if (message.author.bot && message.author.id !== "858945228655951882") return;
 
-    console.log(`[DEBUG] Message from ${message.author.username} (${message.author.id}): ${message.content}`);
+  console.log(`[DEBUG] Message from ${message.author.username} (${message.author.id}): ${message.content}`);
 
-    if (message.author.id === "858945228655951882") {
-        console.log("[DEBUG] ✅ Detected message from Vortex Companion!");
+  // Detect messages from Vortex Companion
+  if (message.author.id === "858945228655951882") {
+    console.log("[DEBUG] ✅ Detected message from Vortex Companion!");
 
-        const match = message.content.match(/created a report for (.+?) in (.+?), it will expire/i);
+    // Extract text from content or embeds (some bots send only embeds)
+    const content = message.content || message.embeds?.[0]?.description || message.embeds?.[0]?.title || "";
 
-        if (match) {
-            const pokemon = match[1];
-            const location = match[2];
-            console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
+    // Try to match report text pattern
+    const match = content.match(/created a report for (.+?) in (.+?), it will expire/i);
 
-            const reporter = message.interaction?.user || message.mentions.users.first() || message.author;
+    if (match) {
+      const pokemon = match[1];
+      const location = match[2];
+      console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
 
-            // Determine rarity
-            let rarity = "common";
-            for (const [group, list] of Object.entries(rarityGroups)) {
-                if (list.some(p => p.toLowerCase() === pokemon.toLowerCase())) {
-                    rarity = group;
-                    break;
-                }
-            }
+      // Find the reporter (user who triggered the interaction)
+      const referencedUser = message.interaction?.user || message.mentions.users.first();
 
-            const points = rarityPoints[rarity] || 1;
+      const points = 10;
 
-            try {
-                await addPoints(reporter.username, points);
-
-                const embed = new EmbedBuilder()
-                    .setColor(0xFFD700)
-                    .setTitle("⭐ Roamer Report Detected!")
-                    .setDescription(`🧭 **${pokemon}** reported in **${location}**\n+${points} points to **${reporter.username}** (${rarity})`)
-                    .setTimestamp();
-
-                await message.channel.send({ embeds: [embed] });
-                console.log(`[DEBUG] ✅ Added ${points} points to ${reporter.username}`);
-            } catch (err) {
-                console.error("[ERROR] Failed to add points:", err);
-            }
+      try {
+        if (referencedUser) {
+          await addPoints(referencedUser, points);
+          await message.channel.send(
+            `🧭 Detected a ${pokemon} report in ${location}! +${points} points to ${referencedUser.username}.`
+          );
         } else {
-            console.log("[DEBUG] ⚠️ Message did not match expected format.");
+          await message.channel.send(
+            `🧭 Detected a ${pokemon} report in ${location}! (Reporter unknown)`
+          );
         }
+      } catch (err) {
+        console.error("[ERROR] Failed to add points:", err);
+      }
+    } else {
+      console.log("[DEBUG] ⚠️ Message did not match pattern:", content);
     }
+  }
 });
+
 
 // ----- Slash Command Handling -----
 client.on("interactionCreate", async interaction => {
