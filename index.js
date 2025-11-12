@@ -36,6 +36,11 @@ const client = new Client({
     const clientId = process.env.CLIENT_ID;
     const guildId = process.env.GUILD_ID;
 
+    if (!clientId || !guildId) {
+      console.warn("⚠️ CLIENT_ID or GUILD_ID missing — skipping auto-deploy of commands.");
+      return;
+    }
+
     const commands = [
       {
         name: "setlocation",
@@ -44,7 +49,7 @@ const client = new Client({
           {
             name: "location",
             description: "Choose your current location",
-            type: 3,
+            type: 3, // STRING
             required: true,
             autocomplete: true
           }
@@ -58,7 +63,7 @@ const client = new Client({
           {
             name: "user",
             description: "The user to check",
-            type: 6,
+            type: 6, // USER
             required: true
           }
         ]
@@ -145,8 +150,12 @@ async function initGoogleSheet() {
 }
 
 // ----- Helper: Award Points -----
+// note: expects username (string)
 async function addPoints(username, pointsToAdd) {
-  if (!sheet) return console.error("⚠️ Google Sheet not initialized!");
+  if (!sheet) {
+    console.error("⚠️ Google Sheet not initialized!");
+    return;
+  }
 
   await sheet.loadHeaderRow();
   const rows = await sheet.getRows();
@@ -172,45 +181,118 @@ client.once("ready", async () => {
 // ----- Detect Vortex Companion Reports -----
 const VORTEX_ID = "858945228655951882"; // Vortex Companion bot ID
 
+/**
+ * Build a readable text from message content + embeds (title/description/fields)
+ */
+function extractReadableTextFromMessage(message) {
+  let parts = [];
+  if (message.content) parts.push(message.content);
+
+  if (Array.isArray(message.embeds) && message.embeds.length > 0) {
+    for (const embed of message.embeds) {
+      if (embed.title) parts.push(embed.title);
+      if (embed.description) parts.push(embed.description);
+      if (Array.isArray(embed.fields) && embed.fields.length > 0) {
+        for (const f of embed.fields) {
+          if (f.name) parts.push(f.name);
+          if (f.value) parts.push(f.value);
+        }
+      }
+      if (embed.author && embed.author.name) parts.push(embed.author.name);
+    }
+  }
+
+  return parts.join("\n").trim();
+}
+
 client.on("messageCreate", async (message) => {
   try {
     if (!message || !message.author) return;
 
+    // quick debug so you can confirm in logs what is being received
+    console.log(`[MSG] From: ${message.author.username} (${message.author.id}) bot=${message.author.bot} — ${message.content ? message.content.slice(0, 200) : "[no content]"}${message.embeds?.length ? ` (embeds:${message.embeds.length})` : ""}`);
+
+    // Only care about Vortex Companion messages here
     if (message.author.id !== VORTEX_ID) return;
 
-    console.log(`[DEBUG] ✅ Message from Vortex Companion detected`);
-    const content =
-      message.content ||
-      message.embeds?.[0]?.description ||
-      message.embeds?.[0]?.title ||
-      "";
+    console.log("[DEBUG] ✅ Message came from Vortex Companion (ID match).");
 
-    if (!content) return;
-
-    const match = content.match(/report for (.+?) in (.+?), it will expire/i);
-    if (!match) return;
-
-    const pokemon = match[1];
-    const location = match[2];
-
-    const reporter = message.interaction?.user || message.mentions?.users?.first();
-    const points = 10;
-
-    if (reporter) {
-      await addPoints(reporter.username, points);
-      await message.channel.send(
-        `🧭 Detected a ${pokemon} report in ${location}! +${points} points to ${reporter.username}.`
-      );
-    } else {
-      await message.channel.send(`🧭 Detected a ${pokemon} report in ${location}! (Reporter unknown)`);
+    const content = extractReadableTextFromMessage(message);
+    if (!content) {
+      console.log("[DEBUG] ⚠️ no readable content found in message or embeds.");
+      return;
     }
+
+    // Try flexible regex patterns to capture:
+    // "You successfully created a report for Entei in Route 2, it will expire in 51 minutes"
+    // or "You successfully created a report for Entei in Route 2,it will expire..."
+    // or small variations
+    const regex = /report\s+for\s+(.+?)\s+in\s+(.+?)(?:[,\.]?\s*it will expire|\s*\(|$)/i;
+    const match = content.match(regex);
+
+    if (!match) {
+      console.log("[DEBUG] ⚠️ Vortex message didn't match expected pattern. Content:\n", content);
+      return;
+    }
+
+    const pokemon = match[1].trim();
+    const location = match[2].trim();
+    console.log(`[DEBUG] Parsed -> pokemon: "${pokemon}", location: "${location}"`);
+
+    // determine reporter: prefer interaction.user, then mentions, then embed.author name if available
+    let reporterUser = message.interaction?.user || message.mentions?.users?.first() || null;
+    let reporterName = null;
+    if (reporterUser) {
+      reporterName = reporterUser.username;
+    } else {
+      // fallback to embed author or try to parse "You successfully created a report for X" — often the reporter is the user who invoked the command,
+      // which may not be visible in the message object; embed author sometimes contains the username
+      const embedAuthorName = message.embeds?.[0]?.author?.name;
+      if (embedAuthorName) reporterName = embedAuthorName;
+    }
+
+    const points = (function determinePointsByPokemon(name) {
+      if (!name) return 0;
+      const lowered = name.toLowerCase();
+      for (const [group, list] of Object.entries(rarityGroups)) {
+        if (list.some(p => p.toLowerCase() === lowered)) return rarityPoints[group] || 0;
+      }
+      // default small reward
+      return 10;
+    })(pokemon);
+
+    if (!reporterName) {
+      // no reporter found: log and optionally still post a notice
+      console.log(`[DEBUG] Reporter not found for ${pokemon} @ ${location}. Points: ${points}`);
+      try {
+        await message.channel.send(`🧭 Detected a **${pokemon}** report in **${location}**! Reporter unknown — points not awarded.`);
+      } catch (err) {
+        console.warn("Failed to send reporter-unknown message:", err);
+      }
+      return;
+    }
+
+    // Finally add points (addPoints expects a username string)
+    try {
+      await addPoints(reporterName, points);
+      // mention the user if we have their ID; otherwise just show name
+      const mention = reporterUser ? `<@${reporterUser.id}>` : `**${reporterName}**`;
+      await message.channel.send(`🧭 Detected a **${pokemon}** report in **${location}**! +${points} points to ${mention}.`);
+      console.log(`[DEBUG] Awarded ${points} pts to ${reporterName}`);
+    } catch (err) {
+      console.error("❌ Error awarding points:", err);
+    }
+
   } catch (err) {
-    console.error("❌ Error handling Vortex message:", err);
+    console.error("❌ Error in Vortex message handler:", err);
   }
 });
 
+// If Vortex edits messages, handle updates (re-run messageCreate logic)
 client.on("messageUpdate", async (_, newMsg) => {
-  await client.emit("messageCreate", newMsg);
+  // newMsg can be partial; fetch full if necessary - but try to forward as-is:
+  if (!newMsg) return;
+  client.emit("messageCreate", newMsg);
 });
 
 // ----- Slash Command Handling -----
