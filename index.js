@@ -2,18 +2,20 @@
 const {
     Client,
     GatewayIntentBits,
-    Collection,
     EmbedBuilder,
     PermissionFlagsBits
 } = require('discord.js');
 
 const express = require("express");
+const { GoogleSpreadsheet } = require('google-spreadsheet'); // ✅ Google Sheets
 const app = express();
 
+// ----- Discord Client -----
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
 });
 
+// ----- Player Data -----
 const playerLocations = new Map();
 
 const availableLocations = [
@@ -25,11 +27,30 @@ const availableLocations = [
     'Stillwater Quarry', 'Wild Overgrowth'
 ];
 
+// ----- Google Sheets Setup -----
+let sheet; // global sheet reference
+
+async function initGoogleSheet() {
+    try {
+        const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+        const doc = new GoogleSpreadsheet('17L4nw5CIw0s0_YomuJiCwSB592Nf9-IRVJ2zogpCEwc');
+
+        await doc.useServiceAccountAuth(creds);
+        await doc.loadInfo();
+
+        sheet = doc.sheetsByIndex[0]; // Use first sheet
+        console.log(`📄 Connected to Google Sheet: ${doc.title}`);
+    } catch (error) {
+        console.error('❌ Failed to connect to Google Sheets:', error);
+    }
+}
+
 // ----- Bot Ready Event -----
-client.once('ready', () => {
+client.once('ready', async () => {
     console.log(`✅ Bot is ready! Logged in as ${client.user.tag}`);
     console.log(`📍 Location tracking system initialized`);
     console.log(`📋 ${availableLocations.length} locations available`);
+    await initGoogleSheet();
 });
 
 // ----- Command Handling -----
@@ -74,6 +95,21 @@ client.on('interactionCreate', async interaction => {
                 .setTimestamp();
 
             await interaction.reply({ embeds: [embed] });
+
+            // ✅ Log to Google Sheets
+            if (sheet) {
+                try {
+                    await sheet.addRow({
+                        Username: username,
+                        UserID: userId,
+                        Location: location,
+                        Timestamp: new Date().toLocaleString()
+                    });
+                    console.log(`📊 Logged ${username}'s location to Google Sheets.`);
+                } catch (err) {
+                    console.error("⚠️ Failed to log to Google Sheets:", err);
+                }
+            }
 
         } else if (commandName === 'whereami') {
             const userId = interaction.user.id;
