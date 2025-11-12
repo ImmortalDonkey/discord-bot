@@ -127,16 +127,23 @@ client.on("messageCreate", async (message) => {
       const location = match[2];
       console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
 
-      // Example: points system or confirmation message
+      // Determine who to credit points to
       const reporter = message.interaction?.user || message.mentions.users.first() || message.author;
       const points = 10;
 
-      try {
-        await addPoints(reporter, points); // ✅ works now because the listener is async
-        await message.channel.send(`🧭 Detected a ${pokemon} report in ${location}! +${points} points to ${reporter.username}.`);
-      } catch (err) {
-        console.error("[ERROR] Failed to add points:", err);
-      }
+      // Run async logic safely inside its own scope
+      (async () => {
+        try {
+          await addPoints(reporter, points);
+          await message.channel.send(
+            `🧭 Detected a **${pokemon}** report in **${location}**! +${points} points to ${reporter.username}.`
+          );
+          console.log(`[DEBUG] ✅ Added ${points} points to ${reporter.username}`);
+        } catch (err) {
+          console.error("[ERROR] Failed to add points:", err);
+        }
+      })();
+
     } else {
       console.log("[DEBUG] ⚠️ Message did not match pattern.");
     }
