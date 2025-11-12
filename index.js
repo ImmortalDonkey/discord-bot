@@ -107,7 +107,7 @@ client.once('ready', async () => {
     await initGoogleSheet();
 });
 
-// ----- Detect Vortex Companion Messages -----
+// ----- Detect Vortex Companion Reports -----
 client.on('messageCreate', async (message) => {
     if (message.author.username !== "Vortex Companion") return;
 
@@ -144,6 +144,7 @@ client.on('interactionCreate', async interaction => {
     const { commandName } = interaction;
 
     try {
+        // --- Set Location ---
         if (commandName === 'setlocation') {
             const location = interaction.options.getString('location');
             const userId = interaction.user.id;
@@ -157,8 +158,10 @@ client.on('interactionCreate', async interaction => {
                 .setTimestamp();
 
             await interaction.reply({ embeds: [embed] });
+        }
 
-        } else if (commandName === 'whereami') {
+        // --- Where Am I ---
+        else if (commandName === 'whereami') {
             const data = playerLocations.get(interaction.user.id);
             if (!data)
                 return interaction.reply({ content: '❌ You haven\'t set your location yet!', ephemeral: true });
@@ -171,8 +174,10 @@ client.on('interactionCreate', async interaction => {
                     { name: 'Last Updated', value: data.timestamp.toLocaleString(), inline: true }
                 );
             await interaction.reply({ embeds: [embed] });
+        }
 
-        } else if (commandName === 'mypoints') {
+        // --- My Points ---
+        else if (commandName === 'mypoints') {
             if (!sheet) return interaction.reply({ content: '⚠️ Points system not ready yet!', ephemeral: true });
             await sheet.loadHeaderRow();
             const rows = await sheet.getRows();
@@ -190,6 +195,54 @@ client.on('interactionCreate', async interaction => {
                 .setFooter({ text: "1 point = 200,000 pkd" });
 
             await interaction.reply({ embeds: [embed], ephemeral: true });
+        }
+
+        // --- Leaderboard ---
+        else if (commandName === 'leaderboard') {
+            if (!sheet) {
+                await interaction.reply({
+                    content: '⚠️ Google Sheet not initialized. Try again later.',
+                    ephemeral: true
+                });
+                return;
+            }
+
+            try {
+                const rows = await sheet.getRows();
+                const leaderboard = [];
+                for (const row of rows) {
+                    const username = row.Username;
+                    const points = parseInt(row.Points || 0);
+                    if (username && !isNaN(points)) leaderboard.push({ username, points });
+                }
+
+                if (leaderboard.length === 0) {
+                    await interaction.reply({ content: '❌ No points have been logged yet.', ephemeral: true });
+                    return;
+                }
+
+                leaderboard.sort((a, b) => b.points - a.points);
+                const top = leaderboard.slice(0, 10);
+                let desc = '';
+                top.forEach((u, i) => {
+                    desc += `**#${i + 1}** 🏅 ${u.username} — ${u.points} pts (${(u.points * 200000).toLocaleString()} PKD)\n`;
+                });
+
+                const embed = new EmbedBuilder()
+                    .setColor(0xFFD700)
+                    .setTitle('🏆 Roaming Points Leaderboard')
+                    .setDescription(desc)
+                    .setFooter({ text: 'Top 10 Hunters • 1 point = 200,000 PKD' })
+                    .setTimestamp();
+
+                await interaction.reply({ embeds: [embed] });
+            } catch (err) {
+                console.error('⚠️ Failed to load leaderboard:', err);
+                await interaction.reply({
+                    content: '❌ Failed to load leaderboard data. Please try again later.',
+                    ephemeral: true
+                });
+            }
         }
 
     } catch (err) {
