@@ -3,14 +3,17 @@ const {
     Client,
     GatewayIntentBits,
     EmbedBuilder,
-    PermissionFlagsBits,
-    ApplicationCommandOptionType
-} = require('discord.js');
+    PermissionFlagsBits
+} = require("discord.js");
 
 const express = require("express");
-const { GoogleSpreadsheet } = require('google-spreadsheet');
-const { JWT } = require('google-auth-library');
+const { GoogleSpreadsheet } = require("google-spreadsheet");
+const { JWT } = require("google-auth-library");
 const app = express();
+
+// Optional fetch for keep-alive
+const fetch = (...args) =>
+    import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 // ----- Discord Client -----
 const client = new Client({
@@ -25,27 +28,30 @@ const client = new Client({
 const playerLocations = new Map();
 
 const availableLocations = [
-    'Route 1', 'Route 2', 'Route 3', 'Route 4', 'Route 6', 'Route 7',
-    'Route 8', 'Route 9', 'Route 10', 'Route 11', 'Route 12', 'Route 13',
-    'Route 14', 'Route 15', 'Route 16', 'Route 17', 'Route 18', 'Route 19',
-    'Route 20', 'Route 21', 'Route 22', 'Route 23', 'Route 24', 'Route 25',
-    'Mudbray Ranch', 'New Haven', 'Nightshade', 'Shore\'s End',
-    'Stillwater Quarry', 'Wild Overgrowth'
+    "Route 1", "Route 2", "Route 3", "Route 4", "Route 6", "Route 7",
+    "Route 8", "Route 9", "Route 10", "Route 11", "Route 12", "Route 13",
+    "Route 14", "Route 15", "Route 16", "Route 17", "Route 18", "Route 19",
+    "Route 20", "Route 21", "Route 22", "Route 23", "Route 24", "Route 25",
+    "Mudbray Ranch", "New Haven", "Nightshade", "Shore's End",
+    "Stillwater Quarry", "Wild Overgrowth"
 ];
 
 // ----- Roamer Lists -----
 const rarityGroups = {
     paradox: [
-        "Walking Wake", "Gouging Fire", "Raging Bolt", "Iron Leaves", "Iron Boulder", "Iron Crown"
+        "Walking Wake", "Gouging Fire", "Raging Bolt",
+        "Iron Leaves", "Iron Boulder", "Iron Crown"
     ],
     roamerMonth: [
-        "Clone Venusaur", "Clone Charizard", "Clone Blastoise", "Ancient Jigglypuff", "Ancient Alakazam",
-        "Ancient Gengar", "Crystal Onix", "Pink Rhyhorn", "Snorlax (Snowman)", "Mewtwo (Shadow)",
-        "Golden Sudowoodo", "XD001", "Reddy", "Meta Groudon", "Rayquaza (Illusion)",
-        "Dialga (Primal)", "Z2"
+        "Clone Venusaur", "Clone Charizard", "Clone Blastoise",
+        "Ancient Jigglypuff", "Ancient Alakazam", "Ancient Gengar",
+        "Crystal Onix", "Pink Rhyhorn", "Snorlax (Snowman)",
+        "Mewtwo (Shadow)", "Golden Sudowoodo", "XD001", "Reddy",
+        "Meta Groudon", "Rayquaza (Illusion)", "Dialga (Primal)", "Z2"
     ],
     legendary: [
-        "Raikou", "Entei", "Suicune", "Latias", "Latios", "Glastrier", "Spectrier", "Koraidon", "Miraidon"
+        "Raikou", "Entei", "Suicune", "Latias", "Latios",
+        "Glastrier", "Spectrier", "Koraidon", "Miraidon"
     ],
     rare: ["Cyclizar", "Gimmighoul (Roaming)"],
     common: ["Zygarde (Cell)", "Bramblin", "Bombirdier", "Varoom"]
@@ -60,7 +66,7 @@ const rarityPoints = {
 };
 
 // ----- Google Sheets Setup -----
-const SHEET_ID = '17L4nw5CIw0s0_YomuJiCwSB592Nf9-IRVJ2zogpCEwc';
+const SHEET_ID = "17L4nw5CIw0s0_YomuJiCwSB592Nf9-IRVJ2zogpCEwc";
 let sheet;
 
 async function initGoogleSheet() {
@@ -68,8 +74,8 @@ async function initGoogleSheet() {
         const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
         const serviceAccountAuth = new JWT({
             email: creds.client_email,
-            key: creds.private_key.replace(/\\n/g, '\n'),
-            scopes: ['https://www.googleapis.com/auth/spreadsheets']
+            key: creds.private_key.replace(/\\n/g, "\n"),
+            scopes: ["https://www.googleapis.com/auth/spreadsheets"]
         });
 
         const doc = new GoogleSpreadsheet(SHEET_ID, serviceAccountAuth);
@@ -77,7 +83,7 @@ async function initGoogleSheet() {
         sheet = doc.sheetsByIndex[0];
         console.log(`📄 Connected to Google Sheet: ${doc.title}`);
     } catch (error) {
-        console.error('❌ Failed to connect to Google Sheets:', error);
+        console.error("❌ Failed to connect to Google Sheets:", error);
     }
 }
 
@@ -101,96 +107,68 @@ async function addPoints(username, pointsToAdd) {
 }
 
 // ----- Bot Ready Event -----
-client.once('ready', async () => {
+client.once("ready", async () => {
     console.log(`✅ Bot is ready! Logged in as ${client.user.tag}`);
     await initGoogleSheet();
 });
 
 // ----- Detect Vortex Companion Reports -----
-client.on("messageCreate", (message) => {
-  // Ignore all other bots except Vortex Companion
-  if (message.author.bot && message.author.id !== "858945228655951882") return;
+client.on("messageCreate", async (message) => {
+    if (message.author.bot && message.author.id !== "858945228655951882") return;
 
-  // Debug log every visible message
-  console.log(`[DEBUG] Message from ${message.author.username} (${message.author.id}): ${message.content}`);
+    console.log(`[DEBUG] Message from ${message.author.username} (${message.author.id}): ${message.content}`);
 
-  // Detect messages from Vortex Companion
-  if (message.author.id === "858945228655951882") {
-    console.log("[DEBUG] ✅ Detected message from Vortex Companion!");
+    if (message.author.id === "858945228655951882") {
+        console.log("[DEBUG] ✅ Detected message from Vortex Companion!");
 
-    // Match messages like:
-    // "You successfully created a report for Entei in Route 2, it will expire in 51 minutes"
-    const match = message.content.match(/created a report for (.+?) in (.+?), it will expire/i);
+        const match = message.content.match(/created a report for (.+?) in (.+?), it will expire/i);
 
-    if (match) {
-      const pokemon = match[1];
-      const location = match[2];
-      console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
+        if (match) {
+            const pokemon = match[1];
+            const location = match[2];
+            console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
 
-      const reporter = message.interaction?.user || message.mentions.users.first() || message.author;
-      const points = 10;
+            const reporter = message.interaction?.user || message.mentions.users.first() || message.author;
 
-      // ✅ All async logic safely inside a self-contained async block
-      (async () => {
-        try {
-          await addPoints(reporter, points);
-          await message.channel.send(
-            `🧭 Detected a **${pokemon}** report in **${location}**! +${points} points to ${reporter.username}.`
-          );
-          console.log(`[DEBUG] ✅ Added ${points} points to ${reporter.username}`);
-        } catch (err) {
-          console.error("[ERROR] Failed to add points:", err);
-        }
-      })(); // <-- executes asynchronously and immediately
+            // Determine rarity
+            let rarity = "common";
+            for (const [group, list] of Object.entries(rarityGroups)) {
+                if (list.some(p => p.toLowerCase() === pokemon.toLowerCase())) {
+                    rarity = group;
+                    break;
+                }
+            }
 
-    } else {
-      console.log("[DEBUG] ⚠️ Message did not match expected format.");
-    }
-  }
-});
+            const points = rarityPoints[rarity] || 1;
 
+            try {
+                await addPoints(reporter.username, points);
 
-    } else {
-      console.log("[DEBUG] ⚠️ Message did not match pattern.");
-    }
-  }
-});
+                const embed = new EmbedBuilder()
+                    .setColor(0xFFD700)
+                    .setTitle("⭐ Roamer Report Detected!")
+                    .setDescription(`🧭 **${pokemon}** reported in **${location}**\n+${points} points to **${reporter.username}** (${rarity})`)
+                    .setTimestamp();
 
-    // Determine rarity group
-    let rarity = "common";
-    for (const [group, list] of Object.entries(rarityGroups)) {
-        if (list.some(p => p.toLowerCase() === pokemonName.toLowerCase())) {
-            rarity = group;
-            break;
+                await message.channel.send({ embeds: [embed] });
+                console.log(`[DEBUG] ✅ Added ${points} points to ${reporter.username}`);
+            } catch (err) {
+                console.error("[ERROR] Failed to add points:", err);
+            }
+        } else {
+            console.log("[DEBUG] ⚠️ Message did not match expected format.");
         }
     }
-
-    const points = rarityPoints[rarity] || 0;
-    if (points === 0) return;
-
-    await addPoints(reporter, points);
-
-    const embed = new EmbedBuilder()
-        .setColor(0xFFD700)
-        .setTitle("⭐ Points Awarded!")
-        .setDescription(`${reporter} earned **${points} points** for reporting **${pokemonName}** (${rarity})!`)
-        .setTimestamp();
-
-    await message.channel.send({ embeds: [embed] });
 });
-
 
 // ----- Slash Command Handling -----
-client.on('interactionCreate', async interaction => {
+client.on("interactionCreate", async interaction => {
     if (interaction.isAutocomplete()) {
         const focused = interaction.options.getFocused();
-        const filtered = availableLocations.filter(l =>
-            l.toLowerCase().includes(focused.toLowerCase())
-        ).slice(0, 25);
-
-        await interaction.respond(
-            filtered.map(l => ({ name: l, value: l }))
-        );
+        const filtered = availableLocations
+            .filter(l => l.toLowerCase().includes(focused.toLowerCase()))
+            .slice(0, 25);
+        await interaction.respond(filtered.map(l => ({ name: l, value: l })));
         return;
     }
 
@@ -198,41 +176,41 @@ client.on('interactionCreate', async interaction => {
     const { commandName } = interaction;
 
     try {
-        // --- Set Location ---
-        if (commandName === 'setlocation') {
-            const location = interaction.options.getString('location');
+        // --- /setlocation ---
+        if (commandName === "setlocation") {
+            const location = interaction.options.getString("location");
             const userId = interaction.user.id;
             const username = interaction.user.username;
             playerLocations.set(userId, { location, username, timestamp: new Date() });
 
             const embed = new EmbedBuilder()
                 .setColor(0x00FF00)
-                .setTitle('📍 Location Updated')
+                .setTitle("📍 Location Updated")
                 .setDescription(`Your location has been set to: **${location}**`)
                 .setTimestamp();
 
             await interaction.reply({ embeds: [embed] });
         }
 
-        // --- Where Am I ---
-        else if (commandName === 'whereami') {
+        // --- /whereami ---
+        else if (commandName === "whereami") {
             const data = playerLocations.get(interaction.user.id);
             if (!data)
-                return interaction.reply({ content: '❌ You haven\'t set your location yet!', ephemeral: true });
+                return interaction.reply({ content: "❌ You haven't set your location yet!", ephemeral: true });
 
             const embed = new EmbedBuilder()
                 .setColor(0x0099FF)
-                .setTitle('📍 Your Location')
+                .setTitle("📍 Your Location")
                 .addFields(
-                    { name: 'Current Location', value: data.location, inline: true },
-                    { name: 'Last Updated', value: data.timestamp.toLocaleString(), inline: true }
+                    { name: "Current Location", value: data.location, inline: true },
+                    { name: "Last Updated", value: data.timestamp.toLocaleString(), inline: true }
                 );
             await interaction.reply({ embeds: [embed] });
         }
 
-        // --- Where Is ---
-        else if (commandName === 'whereis') {
-            const user = interaction.options.getUser('user');
+        // --- /whereis ---
+        else if (commandName === "whereis") {
+            const user = interaction.options.getUser("user");
             const data = playerLocations.get(user.id);
             if (!data)
                 return interaction.reply({ content: `❌ ${user.username} hasn't set a location yet!`, ephemeral: true });
@@ -241,54 +219,56 @@ client.on('interactionCreate', async interaction => {
                 .setColor(0xFF9900)
                 .setTitle(`📍 ${user.username}'s Location`)
                 .addFields(
-                    { name: 'Location', value: data.location, inline: true },
-                    { name: 'Last Updated', value: data.timestamp.toLocaleString(), inline: true }
+                    { name: "Location", value: data.location, inline: true },
+                    { name: "Last Updated", value: data.timestamp.toLocaleString(), inline: true }
                 );
             await interaction.reply({ embeds: [embed] });
         }
 
-        // --- Locations ---
-        else if (commandName === 'locations') {
+        // --- /locations ---
+        else if (commandName === "locations") {
             if (playerLocations.size === 0)
-                return interaction.reply({ content: '❌ No active players have set a location.', ephemeral: true });
+                return interaction.reply({ content: "❌ No active players have set a location.", ephemeral: true });
 
-            let desc = '';
+            let desc = "";
             for (const [, data] of playerLocations) {
                 desc += `**${data.username}** — ${data.location}\n`;
             }
 
             const embed = new EmbedBuilder()
                 .setColor(0x33CCFF)
-                .setTitle('🌍 Active Player Locations')
+                .setTitle("🌍 Active Player Locations")
                 .setDescription(desc)
                 .setFooter({ text: `${playerLocations.size} active players` });
 
             await interaction.reply({ embeds: [embed] });
         }
 
-        // --- Clear Me ---
-        else if (commandName === 'clearme') {
+        // --- /clearme ---
+        else if (commandName === "clearme") {
             const userId = interaction.user.id;
             if (playerLocations.has(userId)) {
                 playerLocations.delete(userId);
-                await interaction.reply({ content: '✅ You have been marked as inactive.', ephemeral: true });
+                await interaction.reply({ content: "✅ You have been marked as inactive.", ephemeral: true });
             } else {
-                await interaction.reply({ content: '❌ You are not currently active.', ephemeral: true });
+                await interaction.reply({ content: "❌ You are not currently active.", ephemeral: true });
             }
         }
 
-        // --- Clear All (Admin Only) ---
-        else if (commandName === 'clearall') {
+        // --- /clearall (Admin only) ---
+        else if (commandName === "clearall") {
             if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator))
-                return interaction.reply({ content: '❌ You do not have permission to use this command.', ephemeral: true });
+                return interaction.reply({ content: "❌ You do not have permission to use this command.", ephemeral: true });
 
             playerLocations.clear();
-            await interaction.reply('🧹 All player location data has been reset!');
+            await interaction.reply("🧹 All player location data has been reset!");
         }
 
-        // --- My Points ---
-        else if (commandName === 'mypoints') {
-            if (!sheet) return interaction.reply({ content: '⚠️ Points system not ready yet!', ephemeral: true });
+        // --- /mypoints ---
+        else if (commandName === "mypoints") {
+            if (!sheet)
+                return interaction.reply({ content: "⚠️ Points system not ready yet!", ephemeral: true });
+
             await sheet.loadHeaderRow();
             const rows = await sheet.getRows();
             const userRow = rows.find(r => r.Username === interaction.user.username);
@@ -307,52 +287,46 @@ client.on('interactionCreate', async interaction => {
             await interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
-        // --- Leaderboard ---
-        else if (commandName === 'leaderboard') {
-            if (!sheet) {
-                await interaction.reply({
-                    content: '⚠️ Google Sheet not initialized. Try again later.',
-                    ephemeral: true
-                });
-                return;
-            }
+        // --- /leaderboard ---
+        else if (commandName === "leaderboard") {
+            if (!sheet)
+                return interaction.reply({ content: "⚠️ Google Sheet not initialized.", ephemeral: true });
 
             const rows = await sheet.getRows();
-            const leaderboard = [];
-            for (const row of rows) {
-                const username = row.Username;
-                const points = parseInt(row.Points || 0);
-                if (username && !isNaN(points)) leaderboard.push({ username, points });
-            }
+            const leaderboard = rows
+                .map(r => ({
+                    username: r.Username,
+                    points: parseInt(r.Points || 0)
+                }))
+                .filter(u => u.username && !isNaN(u.points))
+                .sort((a, b) => b.points - a.points)
+                .slice(0, 10);
 
-            leaderboard.sort((a, b) => b.points - a.points);
-            const top = leaderboard.slice(0, 10);
-            let desc = '';
-            top.forEach((u, i) => {
+            let desc = "";
+            leaderboard.forEach((u, i) => {
                 desc += `**#${i + 1}** 🏅 ${u.username} — ${u.points} pts (${(u.points * 200000).toLocaleString()} PKD)\n`;
             });
 
             const embed = new EmbedBuilder()
                 .setColor(0xFFD700)
-                .setTitle('🏆 Roaming Points Leaderboard')
+                .setTitle("🏆 Roaming Points Leaderboard")
                 .setDescription(desc)
-                .setFooter({ text: 'Top 10 Hunters • 1 point = 200,000 PKD' })
+                .setFooter({ text: "Top 10 Hunters • 1 point = 200,000 PKD" })
                 .setTimestamp();
 
             await interaction.reply({ embeds: [embed] });
         }
-
     } catch (err) {
         console.error("❌ Error in interaction:", err);
-        if (interaction.replied || interaction.deferred) return;
-        await interaction.reply({ content: "⚠️ Error executing command.", ephemeral: true });
+        if (!interaction.replied)
+            await interaction.reply({ content: "⚠️ Error executing command.", ephemeral: true });
     }
 });
 
 // ----- Login -----
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
-    console.error('❌ Missing DISCORD_TOKEN in environment variables!');
+    console.error("❌ Missing DISCORD_TOKEN in environment variables!");
     process.exit(1);
 }
 client.login(token);
