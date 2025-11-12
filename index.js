@@ -7,7 +7,8 @@ const {
 } = require('discord.js');
 
 const express = require("express");
-const { GoogleSpreadsheet } = require('google-spreadsheet'); // ✅ Google Sheets
+const { GoogleSpreadsheet } = require('google-spreadsheet');
+const { JWT } = require('google-auth-library'); // ✅ Required for new API
 const app = express();
 
 // ----- Discord Client -----
@@ -28,17 +29,26 @@ const availableLocations = [
 ];
 
 // ----- Google Sheets Setup -----
+const SHEET_ID = '17L4nw5CIw0s0_YomuJiCwSB592Nf9-IRVJ2zogpCEwc';
 let sheet; // global sheet reference
 
 async function initGoogleSheet() {
     try {
+        // Load service account credentials from environment variable
         const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-        const doc = new GoogleSpreadsheet('17L4nw5CIw0s0_YomuJiCwSB592Nf9-IRVJ2zogpCEwc');
 
-        await doc.useServiceAccountAuth(creds);
+        // Create authentication client using new JWT method
+        const serviceAccountAuth = new JWT({
+            email: creds.client_email,
+            key: creds.private_key.replace(/\\n/g, '\n'),
+            scopes: ['https://www.googleapis.com/auth/spreadsheets']
+        });
+
+        // Create GoogleSpreadsheet instance using auth client
+        const doc = new GoogleSpreadsheet(SHEET_ID, serviceAccountAuth);
         await doc.loadInfo();
 
-        sheet = doc.sheetsByIndex[0]; // Use first sheet
+        sheet = doc.sheetsByIndex[0];
         console.log(`📄 Connected to Google Sheet: ${doc.title}`);
     } catch (error) {
         console.error('❌ Failed to connect to Google Sheets:', error);
@@ -50,6 +60,7 @@ client.once('ready', async () => {
     console.log(`✅ Bot is ready! Logged in as ${client.user.tag}`);
     console.log(`📍 Location tracking system initialized`);
     console.log(`📋 ${availableLocations.length} locations available`);
+
     await initGoogleSheet();
 });
 
