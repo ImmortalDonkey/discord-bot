@@ -1,92 +1,88 @@
-// deploy-commands.js
-const { REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+// ===== Discord Slash Command Deployment =====
+const { REST, Routes, ApplicationCommandOptionType, PermissionFlagsBits } = require('discord.js');
+require('dotenv').config();
 
-// === Slash Commands ===
+// === All Commands ===
 const commands = [
     // --- Location Commands ---
-    new SlashCommandBuilder()
-        .setName('setlocation')
-        .setDescription('Set your current location in the game')
-        .addStringOption(option =>
-            option
-                .setName('location')
-                .setDescription('Type to search for your location')
-                .setRequired(true)
-                .setAutocomplete(true)
-        ),
-
-    new SlashCommandBuilder()
-        .setName('whereami')
-        .setDescription('Check your current location'),
-
-    new SlashCommandBuilder()
-        .setName('whereis')
-        .setDescription('Check where another player is located')
-        .addUserOption(option =>
-            option
-                .setName('user')
-                .setDescription('The player to check')
-                .setRequired(true)
-        ),
-
-    new SlashCommandBuilder()
-        .setName('locations')
-        .setDescription('List all tracked player locations'),
-
-    new SlashCommandBuilder()
-        .setName('clearme')
-        .setDescription('Remove yourself from location tracking (mark as inactive)'),
-
-    new SlashCommandBuilder()
-        .setName('clearall')
-        .setDescription('[ADMIN] Clear all player location data')
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    {
+        name: 'setlocation',
+        description: 'Set your current location',
+        options: [
+            {
+                name: 'location',
+                description: 'Choose your current location',
+                type: ApplicationCommandOptionType.String,
+                required: true,
+                autocomplete: true
+            }
+        ]
+    },
+    {
+        name: 'whereami',
+        description: 'Check your current location'
+    },
+    {
+        name: 'whereis',
+        description: 'Check another player\'s location',
+        options: [
+            {
+                name: 'user',
+                description: 'The user to check',
+                type: ApplicationCommandOptionType.User,
+                required: true
+            }
+        ]
+    },
+    {
+        name: 'locations',
+        description: 'View all active player locations'
+    },
+    {
+        name: 'clearme',
+        description: 'Mark yourself as inactive'
+    },
+    {
+        name: 'clearall',
+        description: 'Clear all player locations (Admin only)',
+        default_member_permissions: PermissionFlagsBits.Administrator.toString()
+    },
 
     // --- Points System Commands ---
-    new SlashCommandBuilder()
-        .setName('mypoints')
-        .setDescription('Show your current points and PKD value'),
+    {
+        name: 'mypoints',
+        description: 'Check your current roaming points and PKD value'
+    },
+    {
+        name: 'leaderboard',
+        description: 'View the top 10 hunters by points'
+    }
+];
 
-    new SlashCommandBuilder()
-        .setName('leaderboard')
-        .setDescription('Show the top point holders')
-].map(command => command.toJSON());
-
-// === Deployment Setup ===
+// === Environment Variables ===
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
-const guildId = process.env.GUILD_ID;
+const guildId = '1435654694319030302'; // Your Guild ID
 
 if (!token || !clientId) {
-    console.error('❌ ERROR: Missing required environment variables!');
-    console.error('Please set: DISCORD_TOKEN and CLIENT_ID');
-    console.error('Optional: GUILD_ID (for faster guild-only deployment)');
+    console.error('❌ Missing DISCORD_TOKEN or CLIENT_ID in .env file!');
     process.exit(1);
 }
 
-const rest = new REST().setToken(token);
+const rest = new REST({ version: '10' }).setToken(token);
 
+// === Deploy Commands to Guild ===
 (async () => {
     try {
-        console.log(`🔄 Started refreshing ${commands.length} application (/) commands.`);
+        console.log(`🔄 Deploying ${commands.length} commands to guild: ${guildId}`);
 
-        let data;
-        if (guildId) {
-            console.log(`📍 Deploying to specific guild: ${guildId}`);
-            data = await rest.put(
-                Routes.applicationGuildCommands(clientId, guildId),
-                { body: commands },
-            );
-        } else {
-            console.log('🌍 Deploying globally (this may take up to 1 hour to propagate)');
-            data = await rest.put(
-                Routes.applicationCommands(clientId),
-                { body: commands },
-            );
-        }
+        const data = await rest.put(
+            Routes.applicationGuildCommands(clientId, guildId),
+            { body: commands }
+        );
 
-        console.log(`✅ Successfully reloaded ${data.length} application (/) commands.`);
-        console.log('\nCommands registered:');
+        console.log(`✅ Successfully reloaded ${data.length} guild (/) commands.`);
+        console.log('\nRegistered commands:');
         data.forEach(cmd => console.log(`  - /${cmd.name}: ${cmd.description}`));
     } catch (error) {
         console.error('❌ Error deploying commands:', error);
