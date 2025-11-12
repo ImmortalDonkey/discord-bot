@@ -56,7 +56,7 @@ async function initGoogleSheet() {
 }
 
 // ----- Bot Ready Event -----
-client.once('ready', async () => {
+client.once('clientReady', async () => {
     console.log(`✅ Bot is ready! Logged in as ${client.user.tag}`);
     console.log(`📍 Location tracking system initialized`);
     console.log(`📋 ${availableLocations.length} locations available`);
