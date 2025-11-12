@@ -107,33 +107,34 @@ client.once('ready', async () => {
 });
 
 // ----- Detect Vortex Companion Reports -----
-client.on('messageCreate', async (message) => {
-    // Ignore non-bot messages and DMs
-    if (!message.guild || !message.author.bot) return;
+client.on("messageCreate", async (message) => {
+  // Ignore own messages
+  if (message.author.bot && message.author.id !== "VORTEX_BOT_ID") return;
 
-    // Check if the message is from Vortex Companion by ID or name
-    if (
-        message.author.username.toLowerCase() !== "vortex companion" &&
-        !message.author.tag.toLowerCase().includes("vortex companion")
-    ) return;
+  // Debug log every message to confirm visibility
+  console.log(`[DEBUG] Message from ${message.author.username}: ${message.content}`);
 
-    // Try to match the report text
-    const match = message.content.match(/report for (.*?) in/i);
-    if (!match) return;
+  // Replace this with the actual ID of Vortex Companion bot
+  const vortexId = "YOUR_VORTEX_COMPANION_BOT_ID";
 
-    const pokemonName = match[1].trim();
+  if (message.author.id === vortexId) {
+    console.log("[DEBUG] Detected message from Vortex Companion!");
 
-    // Find the user who triggered the report (the "Used /roaming report" part)
-    const reporter = message.interaction?.user?.username
-        || message.reference?.author?.username
-        || message.mentions.users.first()?.username
-        || message.content.match(/^(.+?) used/i)?.[1]
-        || "Unknown";
+    // Test parse pattern
+    const match = message.content.match(/created a report for (.+?) in (.+?), it will expire/i);
+    if (match) {
+      const pokemon = match[1];
+      const location = match[2];
+      console.log(`[DEBUG] Parsed Pokémon: ${pokemon}, Location: ${location}`);
 
-    if (!reporter || reporter === "Unknown") {
-        console.warn("⚠️ Could not identify the reporter for:", message.content);
-        return;
+      // Send test reply
+      message.channel.send(`🧭 Detected a ${pokemon} report in ${location}!`);
+    } else {
+      console.log("[DEBUG] Message did not match pattern.");
     }
+  }
+});
+
 
     // Determine rarity group
     let rarity = "common";
