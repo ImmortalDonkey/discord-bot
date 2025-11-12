@@ -108,33 +108,31 @@ client.once('ready', async () => {
 
 // ----- Detect Vortex Companion Reports -----
 client.on("messageCreate", async (message) => {
-  // Ignore own messages
-  if (message.author.bot && message.author.id !== "VORTEX_BOT_ID") return;
+  // Ignore all other bots except Vortex Companion
+  if (message.author.bot && message.author.id !== "858945228655951882") return;
 
-  // Debug log every message to confirm visibility
-  console.log(`[DEBUG] Message from ${message.author.username}: ${message.content}`);
+  // Log every visible message to confirm reception
+  console.log(`[DEBUG] Message from ${message.author.username} (${message.author.id}): ${message.content}`);
 
-  // Replace this with the actual ID of Vortex Companion bot
-  const vortexId = "YOUR_VORTEX_COMPANION_BOT_ID";
+  // Detect messages from Vortex Companion
+  if (message.author.id === "858945228655951882") {
+    console.log("[DEBUG] ✅ Detected message from Vortex Companion!");
 
-  if (message.author.id === vortexId) {
-    console.log("[DEBUG] Detected message from Vortex Companion!");
-
-    // Test parse pattern
+    // Match pattern like: "You successfully created a report for Entei in Route 2, it will expire in 51 minutes"
     const match = message.content.match(/created a report for (.+?) in (.+?), it will expire/i);
+
     if (match) {
       const pokemon = match[1];
       const location = match[2];
-      console.log(`[DEBUG] Parsed Pokémon: ${pokemon}, Location: ${location}`);
+      console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
 
-      // Send test reply
+      // Send test confirmation message in same channel
       message.channel.send(`🧭 Detected a ${pokemon} report in ${location}!`);
     } else {
-      console.log("[DEBUG] Message did not match pattern.");
+      console.log("[DEBUG] ⚠️ Message did not match pattern.");
     }
   }
 });
-
 
     // Determine rarity group
     let rarity = "common";
