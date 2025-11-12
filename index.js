@@ -111,14 +111,15 @@ client.on("messageCreate", async (message) => {
   // Ignore all other bots except Vortex Companion
   if (message.author.bot && message.author.id !== "858945228655951882") return;
 
-  // Log every visible message to confirm reception
+  // Debug log every visible message
   console.log(`[DEBUG] Message from ${message.author.username} (${message.author.id}): ${message.content}`);
 
   // Detect messages from Vortex Companion
   if (message.author.id === "858945228655951882") {
     console.log("[DEBUG] ✅ Detected message from Vortex Companion!");
 
-    // Match pattern like: "You successfully created a report for Entei in Route 2, it will expire in 51 minutes"
+    // Match messages like:
+    // "You successfully created a report for Entei in Route 2, it will expire in 51 minutes"
     const match = message.content.match(/created a report for (.+?) in (.+?), it will expire/i);
 
     if (match) {
@@ -126,8 +127,16 @@ client.on("messageCreate", async (message) => {
       const location = match[2];
       console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
 
-      // Send test confirmation message in same channel
-      message.channel.send(`🧭 Detected a ${pokemon} report in ${location}!`);
+      // Example: points system or confirmation message
+      const reporter = message.interaction?.user || message.mentions.users.first() || message.author;
+      const points = 10;
+
+      try {
+        await addPoints(reporter, points); // ✅ works now because the listener is async
+        await message.channel.send(`🧭 Detected a ${pokemon} report in ${location}! +${points} points to ${reporter.username}.`);
+      } catch (err) {
+        console.error("[ERROR] Failed to add points:", err);
+      }
     } else {
       console.log("[DEBUG] ⚠️ Message did not match pattern.");
     }
