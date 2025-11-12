@@ -113,11 +113,72 @@ client.once("ready", async () => {
 });
 
 // ----- Detect Vortex Companion Reports -----
-client.on("messageCreate", async (message) => {
-  // Ignore all other bots except Vortex Companion
-  if (message.author.bot && message.author.id !== "858945228655951882") return;
+const VORTEX_ID = "858945228655951882"; // Vortex Companion bot ID
 
-  console.log(`[DEBUG] Message from ${message.author.username} (${message.author.id}): ${message.content}`);
+async function handleVortexMessage(message) {
+  try {
+    if (!message || !message.author) return;
+
+    // Only handle messages from Vortex Companion
+    if (message.author.id !== VORTEX_ID) return;
+
+    console.log(`[DEBUG] ✅ Message from Vortex Companion detected`);
+    console.log(`[DEBUG] Raw content: ${message.content || "[no text]"}`);
+
+    // Extract text from message or embed
+    const content =
+      message.content ||
+      message.embeds?.[0]?.description ||
+      message.embeds?.[0]?.title ||
+      "";
+
+    if (!content) {
+      console.log("[DEBUG] ⚠️ No readable text found in message or embed.");
+      return;
+    }
+
+    // Match format like:
+    // "You successfully created a report for Entei in Route 2, it will expire in 51 minutes"
+    const match = content.match(/report for (.+?) in (.+?), it will expire/i);
+
+    if (!match) {
+      console.log("[DEBUG] ⚠️ Message did not match Vortex pattern:", content);
+      return;
+    }
+
+    const pokemon = match[1];
+    const location = match[2];
+    console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
+
+    // Determine who triggered the interaction (the reporter)
+    const reporter =
+      message.interaction?.user || message.mentions?.users?.first();
+
+    const points = 10;
+
+    if (reporter) {
+      await addPoints(reporter.username, points);
+      await message.channel.send(
+        `🧭 Detected a ${pokemon} report in ${location}! +${points} points to ${reporter.username}.`
+      );
+      console.log(`[DEBUG] ✅ Points added to ${reporter.username}`);
+    } else {
+      console.log("[DEBUG] ⚠️ Reporter not found in interaction data.");
+      await message.channel.send(
+        `🧭 Detected a ${pokemon} report in ${location}! (Reporter unknown)`
+      );
+    }
+  } catch (err) {
+    console.error("❌ Error handling Vortex message:", err);
+  }
+}
+
+// Listen to new messages
+client.on("messageCreate", handleVortexMessage);
+
+// Listen to edited messages (Vortex messages often update instead of send new)
+client.on("messageUpdate", (_, newMsg) => handleVortexMessage(newMsg));
+
 
   // Detect messages from Vortex Companion
   if (message.author.id === "858945228655951882") {
