@@ -1,8 +1,9 @@
 // deploy-commands.js
 const { REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
-// === Existing Location Commands ===
+// === Slash Commands ===
 const commands = [
+    // --- Location Commands ---
     new SlashCommandBuilder()
         .setName('setlocation')
         .setDescription('Set your current location in the game')
@@ -13,11 +14,11 @@ const commands = [
                 .setRequired(true)
                 .setAutocomplete(true)
         ),
-    
+
     new SlashCommandBuilder()
         .setName('whereami')
         .setDescription('Check your current location'),
-    
+
     new SlashCommandBuilder()
         .setName('whereis')
         .setDescription('Check where another player is located')
@@ -27,32 +28,21 @@ const commands = [
                 .setDescription('The player to check')
                 .setRequired(true)
         ),
-    
+
     new SlashCommandBuilder()
         .setName('locations')
         .setDescription('List all tracked player locations'),
-    
+
     new SlashCommandBuilder()
         .setName('clearme')
         .setDescription('Remove yourself from location tracking (mark as inactive)'),
-    
+
     new SlashCommandBuilder()
         .setName('clearall')
         .setDescription('[ADMIN] Clear all player location data')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-    // === NEW POINT SYSTEM COMMANDS ===
-
-    new SlashCommandBuilder()
-        .setName('catch')
-        .setDescription('Confirm a catch to validate a pending sighting')
-        .addStringOption(option =>
-            option
-                .setName('pokemon')
-                .setDescription('The Pokémon name to confirm')
-                .setRequired(true)
-        ),
-
+    // --- Points System Commands ---
     new SlashCommandBuilder()
         .setName('mypoints')
         .setDescription('Show your current points and PKD value'),
