@@ -3,12 +3,15 @@ const {
   Client,
   GatewayIntentBits,
   EmbedBuilder,
-  PermissionFlagsBits
+  PermissionFlagsBits,
+  REST,
+  Routes
 } = require("discord.js");
 
 const express = require("express");
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const { JWT } = require("google-auth-library");
+require("dotenv").config();
 const app = express();
 
 // Optional fetch for keep-alive
@@ -23,6 +26,60 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
+
+// =============================
+// 🔄 AUTO SLASH COMMAND DEPLOY
+// =============================
+(async () => {
+  try {
+    const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+    const clientId = process.env.CLIENT_ID;
+    const guildId = process.env.GUILD_ID;
+
+    const commands = [
+      {
+        name: "setlocation",
+        description: "Set your current location",
+        options: [
+          {
+            name: "location",
+            description: "Choose your current location",
+            type: 3,
+            required: true,
+            autocomplete: true
+          }
+        ]
+      },
+      { name: "whereami", description: "Check your current location" },
+      {
+        name: "whereis",
+        description: "Check another player's location",
+        options: [
+          {
+            name: "user",
+            description: "The user to check",
+            type: 6,
+            required: true
+          }
+        ]
+      },
+      { name: "locations", description: "View all active player locations" },
+      { name: "clearme", description: "Mark yourself as inactive" },
+      {
+        name: "clearall",
+        description: "Clear all player locations (Admin only)",
+        default_member_permissions: PermissionFlagsBits.Administrator.toString()
+      },
+      { name: "mypoints", description: "Check your current roaming points and PKD value" },
+      { name: "leaderboard", description: "View the top 10 hunters by points" }
+    ];
+
+    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
+    console.log("✅ Slash commands deployed successfully on startup!");
+  } catch (err) {
+    console.error("❌ Failed to deploy commands automatically:", err);
+  }
+})();
 
 // ----- Player Data -----
 const playerLocations = new Map();
@@ -119,41 +176,24 @@ client.on("messageCreate", async (message) => {
   try {
     if (!message || !message.author) return;
 
-    // Only handle messages from Vortex Companion
     if (message.author.id !== VORTEX_ID) return;
 
     console.log(`[DEBUG] ✅ Message from Vortex Companion detected`);
-    console.log(`[DEBUG] Raw content: ${message.content || "[no text]"}`);
-
-    // Extract text from message or embed
     const content =
       message.content ||
       message.embeds?.[0]?.description ||
       message.embeds?.[0]?.title ||
       "";
 
-    if (!content) {
-      console.log("[DEBUG] ⚠️ No readable text found in message or embed.");
-      return;
-    }
+    if (!content) return;
 
-    // Match format like:
-    // "You successfully created a report for Entei in Route 2, it will expire in 51 minutes"
     const match = content.match(/report for (.+?) in (.+?), it will expire/i);
-
-    if (!match) {
-      console.log("[DEBUG] ⚠️ Message did not match Vortex pattern:", content);
-      return;
-    }
+    if (!match) return;
 
     const pokemon = match[1];
     const location = match[2];
-    console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
 
-    // Determine who triggered the interaction (the reporter)
-    const reporter =
-      message.interaction?.user || message.mentions?.users?.first();
-
+    const reporter = message.interaction?.user || message.mentions?.users?.first();
     const points = 10;
 
     if (reporter) {
@@ -161,19 +201,14 @@ client.on("messageCreate", async (message) => {
       await message.channel.send(
         `🧭 Detected a ${pokemon} report in ${location}! +${points} points to ${reporter.username}.`
       );
-      console.log(`[DEBUG] ✅ Points added to ${reporter.username}`);
     } else {
-      console.log("[DEBUG] ⚠️ Reporter not found in interaction data.");
-      await message.channel.send(
-        `🧭 Detected a ${pokemon} report in ${location}! (Reporter unknown)`
-      );
+      await message.channel.send(`🧭 Detected a ${pokemon} report in ${location}! (Reporter unknown)`);
     }
   } catch (err) {
     console.error("❌ Error handling Vortex message:", err);
   }
 });
 
-// Listen to edited messages (Vortex messages often update instead of send new)
 client.on("messageUpdate", async (_, newMsg) => {
   await client.emit("messageCreate", newMsg);
 });
@@ -193,7 +228,6 @@ client.on("interactionCreate", async (interaction) => {
   const { commandName } = interaction;
 
   try {
-    // --- /setlocation ---
     if (commandName === "setlocation") {
       const location = interaction.options.getString("location");
       const userId = interaction.user.id;
@@ -209,7 +243,6 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ embeds: [embed] });
     }
 
-    // --- /whereami ---
     else if (commandName === "whereami") {
       const data = playerLocations.get(interaction.user.id);
       if (!data)
@@ -225,7 +258,6 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ embeds: [embed] });
     }
 
-    // --- /whereis ---
     else if (commandName === "whereis") {
       const user = interaction.options.getUser("user");
       const data = playerLocations.get(user.id);
@@ -242,7 +274,6 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ embeds: [embed] });
     }
 
-    // --- /locations ---
     else if (commandName === "locations") {
       if (playerLocations.size === 0)
         return interaction.reply({ content: "❌ No active players have set a location.", ephemeral: true });
@@ -261,7 +292,6 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ embeds: [embed] });
     }
 
-    // --- /clearme ---
     else if (commandName === "clearme") {
       const userId = interaction.user.id;
       if (playerLocations.has(userId)) {
@@ -272,7 +302,6 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // --- /clearall (Admin only) ---
     else if (commandName === "clearall") {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator))
         return interaction.reply({ content: "❌ You do not have permission to use this command.", ephemeral: true });
@@ -281,7 +310,6 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply("🧹 All player location data has been reset!");
     }
 
-    // --- /mypoints ---
     else if (commandName === "mypoints") {
       if (!sheet)
         return interaction.reply({ content: "⚠️ Points system not ready yet!", ephemeral: true });
@@ -304,7 +332,6 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // --- /leaderboard ---
     else if (commandName === "leaderboard") {
       if (!sheet)
         return interaction.reply({ content: "⚠️ Google Sheet not initialized.", ephemeral: true });
