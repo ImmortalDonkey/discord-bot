@@ -3,7 +3,8 @@ const {
     Client,
     GatewayIntentBits,
     EmbedBuilder,
-    PermissionFlagsBits
+    PermissionFlagsBits,
+    ApplicationCommandOptionType
 } = require('discord.js');
 
 const express = require("express");
@@ -102,8 +103,6 @@ async function addPoints(username, pointsToAdd) {
 // ----- Bot Ready Event -----
 client.once('ready', async () => {
     console.log(`✅ Bot is ready! Logged in as ${client.user.tag}`);
-    console.log(`📍 Location tracking initialized`);
-    console.log(`📋 ${availableLocations.length} locations available`);
     await initGoogleSheet();
 });
 
@@ -132,7 +131,7 @@ client.on('messageCreate', async (message) => {
     const embed = new EmbedBuilder()
         .setColor(0xFFD700)
         .setTitle("⭐ Points Awarded!")
-        .setDescription(`${reporter} earned **${points} points** for reporting **${pokemonName}** (${rarity.replace(/([A-Z])/g, ' $1').trim()})!`)
+        .setDescription(`${reporter} earned **${points} points** for reporting **${pokemonName}** (${rarity})!`)
         .setTimestamp();
 
     await message.channel.send({ embeds: [embed] });
@@ -140,6 +139,18 @@ client.on('messageCreate', async (message) => {
 
 // ----- Slash Command Handling -----
 client.on('interactionCreate', async interaction => {
+    if (interaction.isAutocomplete()) {
+        const focused = interaction.options.getFocused();
+        const filtered = availableLocations.filter(l =>
+            l.toLowerCase().includes(focused.toLowerCase())
+        ).slice(0, 25);
+
+        await interaction.respond(
+            filtered.map(l => ({ name: l, value: l }))
+        );
+        return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
     const { commandName } = interaction;
 
@@ -176,6 +187,62 @@ client.on('interactionCreate', async interaction => {
             await interaction.reply({ embeds: [embed] });
         }
 
+        // --- Where Is ---
+        else if (commandName === 'whereis') {
+            const user = interaction.options.getUser('user');
+            const data = playerLocations.get(user.id);
+            if (!data)
+                return interaction.reply({ content: `❌ ${user.username} hasn't set a location yet!`, ephemeral: true });
+
+            const embed = new EmbedBuilder()
+                .setColor(0xFF9900)
+                .setTitle(`📍 ${user.username}'s Location`)
+                .addFields(
+                    { name: 'Location', value: data.location, inline: true },
+                    { name: 'Last Updated', value: data.timestamp.toLocaleString(), inline: true }
+                );
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        // --- Locations ---
+        else if (commandName === 'locations') {
+            if (playerLocations.size === 0)
+                return interaction.reply({ content: '❌ No active players have set a location.', ephemeral: true });
+
+            let desc = '';
+            for (const [, data] of playerLocations) {
+                desc += `**${data.username}** — ${data.location}\n`;
+            }
+
+            const embed = new EmbedBuilder()
+                .setColor(0x33CCFF)
+                .setTitle('🌍 Active Player Locations')
+                .setDescription(desc)
+                .setFooter({ text: `${playerLocations.size} active players` });
+
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        // --- Clear Me ---
+        else if (commandName === 'clearme') {
+            const userId = interaction.user.id;
+            if (playerLocations.has(userId)) {
+                playerLocations.delete(userId);
+                await interaction.reply({ content: '✅ You have been marked as inactive.', ephemeral: true });
+            } else {
+                await interaction.reply({ content: '❌ You are not currently active.', ephemeral: true });
+            }
+        }
+
+        // --- Clear All (Admin Only) ---
+        else if (commandName === 'clearall') {
+            if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator))
+                return interaction.reply({ content: '❌ You do not have permission to use this command.', ephemeral: true });
+
+            playerLocations.clear();
+            await interaction.reply('🧹 All player location data has been reset!');
+        }
+
         // --- My Points ---
         else if (commandName === 'mypoints') {
             if (!sheet) return interaction.reply({ content: '⚠️ Points system not ready yet!', ephemeral: true });
@@ -207,46 +274,34 @@ client.on('interactionCreate', async interaction => {
                 return;
             }
 
-            try {
-                const rows = await sheet.getRows();
-                const leaderboard = [];
-                for (const row of rows) {
-                    const username = row.Username;
-                    const points = parseInt(row.Points || 0);
-                    if (username && !isNaN(points)) leaderboard.push({ username, points });
-                }
-
-                if (leaderboard.length === 0) {
-                    await interaction.reply({ content: '❌ No points have been logged yet.', ephemeral: true });
-                    return;
-                }
-
-                leaderboard.sort((a, b) => b.points - a.points);
-                const top = leaderboard.slice(0, 10);
-                let desc = '';
-                top.forEach((u, i) => {
-                    desc += `**#${i + 1}** 🏅 ${u.username} — ${u.points} pts (${(u.points * 200000).toLocaleString()} PKD)\n`;
-                });
-
-                const embed = new EmbedBuilder()
-                    .setColor(0xFFD700)
-                    .setTitle('🏆 Roaming Points Leaderboard')
-                    .setDescription(desc)
-                    .setFooter({ text: 'Top 10 Hunters • 1 point = 200,000 PKD' })
-                    .setTimestamp();
-
-                await interaction.reply({ embeds: [embed] });
-            } catch (err) {
-                console.error('⚠️ Failed to load leaderboard:', err);
-                await interaction.reply({
-                    content: '❌ Failed to load leaderboard data. Please try again later.',
-                    ephemeral: true
-                });
+            const rows = await sheet.getRows();
+            const leaderboard = [];
+            for (const row of rows) {
+                const username = row.Username;
+                const points = parseInt(row.Points || 0);
+                if (username && !isNaN(points)) leaderboard.push({ username, points });
             }
+
+            leaderboard.sort((a, b) => b.points - a.points);
+            const top = leaderboard.slice(0, 10);
+            let desc = '';
+            top.forEach((u, i) => {
+                desc += `**#${i + 1}** 🏅 ${u.username} — ${u.points} pts (${(u.points * 200000).toLocaleString()} PKD)\n`;
+            });
+
+            const embed = new EmbedBuilder()
+                .setColor(0xFFD700)
+                .setTitle('🏆 Roaming Points Leaderboard')
+                .setDescription(desc)
+                .setFooter({ text: 'Top 10 Hunters • 1 point = 200,000 PKD' })
+                .setTimestamp();
+
+            await interaction.reply({ embeds: [embed] });
         }
 
     } catch (err) {
         console.error("❌ Error in interaction:", err);
+        if (interaction.replied || interaction.deferred) return;
         await interaction.reply({ content: "⚠️ Error executing command.", ephemeral: true });
     }
 });
