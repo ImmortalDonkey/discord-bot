@@ -107,7 +107,7 @@ client.once('ready', async () => {
 });
 
 // ----- Detect Vortex Companion Reports -----
-client.on("messageCreate", async (message) => {
+client.on("messageCreate", (message) => {
   // Ignore all other bots except Vortex Companion
   if (message.author.bot && message.author.id !== "858945228655951882") return;
 
@@ -127,11 +127,10 @@ client.on("messageCreate", async (message) => {
       const location = match[2];
       console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
 
-      // Determine who to credit points to
       const reporter = message.interaction?.user || message.mentions.users.first() || message.author;
       const points = 10;
 
-      // Run async logic safely inside its own scope
+      // ✅ All async logic safely inside a self-contained async block
       (async () => {
         try {
           await addPoints(reporter, points);
@@ -142,7 +141,14 @@ client.on("messageCreate", async (message) => {
         } catch (err) {
           console.error("[ERROR] Failed to add points:", err);
         }
-      })();
+      })(); // <-- executes asynchronously and immediately
+
+    } else {
+      console.log("[DEBUG] ⚠️ Message did not match expected format.");
+    }
+  }
+});
+
 
     } else {
       console.log("[DEBUG] ⚠️ Message did not match pattern.");
