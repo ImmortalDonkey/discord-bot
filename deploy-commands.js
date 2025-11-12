@@ -1,5 +1,7 @@
+// deploy-commands.js
 const { REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
+// === Existing Location Commands ===
 const commands = [
     new SlashCommandBuilder()
         .setName('setlocation')
@@ -37,9 +39,30 @@ const commands = [
     new SlashCommandBuilder()
         .setName('clearall')
         .setDescription('[ADMIN] Clear all player location data')
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    // === NEW POINT SYSTEM COMMANDS ===
+
+    new SlashCommandBuilder()
+        .setName('catch')
+        .setDescription('Confirm a catch to validate a pending sighting')
+        .addStringOption(option =>
+            option
+                .setName('pokemon')
+                .setDescription('The Pokémon name to confirm')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('mypoints')
+        .setDescription('Show your current points and PKD value'),
+
+    new SlashCommandBuilder()
+        .setName('leaderboard')
+        .setDescription('Show the top point holders')
 ].map(command => command.toJSON());
 
+// === Deployment Setup ===
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
