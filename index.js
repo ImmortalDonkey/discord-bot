@@ -108,15 +108,34 @@ client.once('ready', async () => {
 
 // ----- Detect Vortex Companion Reports -----
 client.on('messageCreate', async (message) => {
-    if (message.author.username !== "Vortex Companion") return;
+    // Ignore non-bot messages and DMs
+    if (!message.guild || !message.author.bot) return;
 
+    // Check if the message is from Vortex Companion by ID or name
+    if (
+        message.author.username.toLowerCase() !== "vortex companion" &&
+        !message.author.tag.toLowerCase().includes("vortex companion")
+    ) return;
+
+    // Try to match the report text
     const match = message.content.match(/report for (.*?) in/i);
     if (!match) return;
 
     const pokemonName = match[1].trim();
-    const reporter = message.interaction?.user?.username || message.mentions.users.first()?.username;
-    if (!reporter) return;
 
+    // Find the user who triggered the report (the "Used /roaming report" part)
+    const reporter = message.interaction?.user?.username
+        || message.reference?.author?.username
+        || message.mentions.users.first()?.username
+        || message.content.match(/^(.+?) used/i)?.[1]
+        || "Unknown";
+
+    if (!reporter || reporter === "Unknown") {
+        console.warn("⚠️ Could not identify the reporter for:", message.content);
+        return;
+    }
+
+    // Determine rarity group
     let rarity = "common";
     for (const [group, list] of Object.entries(rarityGroups)) {
         if (list.some(p => p.toLowerCase() === pokemonName.toLowerCase())) {
@@ -125,7 +144,9 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    const points = rarityPoints[rarity];
+    const points = rarityPoints[rarity] || 0;
+    if (points === 0) return;
+
     await addPoints(reporter, points);
 
     const embed = new EmbedBuilder()
@@ -136,6 +157,7 @@ client.on('messageCreate', async (message) => {
 
     await message.channel.send({ embeds: [embed] });
 });
+
 
 // ----- Slash Command Handling -----
 client.on('interactionCreate', async interaction => {
