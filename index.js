@@ -139,14 +139,23 @@ async function initGoogleSheet() {
     await doc.loadInfo();
     sheet = doc.sheetsByIndex[0];
     console.log(`📄 Connected to Google Sheet: ${doc.title}`);
+
+    // ⭐ AUTO-CREATE DiscordID column if missing
+    await sheet.loadHeaderRow();
+    const headers = sheet.headerValues;
+
+    if (!headers.includes("DiscordID")) {
+      console.log("🔧 Adding missing DiscordID column...");
+      await sheet.setHeaderRow([...headers, "DiscordID"]);
+      console.log("✅ DiscordID column added!");
+    }
+
   } catch (error) {
     console.error("❌ Failed to connect to Google Sheets:", error);
   }
 }
 
 // ----- Helper: Award Points -----
-// NOTE: now accepts (username, discordId, pointsToAdd)
-// looks up by DiscordID first, then falls back to Username
 async function addPoints(username, discordId, pointsToAdd) {
   if (!sheet) {
     console.error("⚠️ Google Sheet not initialized!");
@@ -156,16 +165,16 @@ async function addPoints(username, discordId, pointsToAdd) {
   await sheet.loadHeaderRow();
   const rows = await sheet.getRows();
 
-  // Prefer exact match by DiscordID
   let row = null;
+
+  // Prefer match by DiscordID
   if (discordId) {
     row = rows.find(r => String(r.DiscordID) === String(discordId));
   }
 
-  // If not found by ID, try by username (case-insensitive)
+  // Fallback: match by username
   if (!row && username) {
     row = rows.find(r => String(r.Username || "").toLowerCase() === String(username).toLowerCase());
-    // If found by username but no DiscordID, set it
     if (row && discordId && (!row.DiscordID || row.DiscordID !== discordId)) {
       row.DiscordID = discordId;
       await row.save();
@@ -176,10 +185,9 @@ async function addPoints(username, discordId, pointsToAdd) {
     const currentPoints = parseInt(row.Points || 0) || 0;
     row.Points = currentPoints + pointsToAdd;
     await row.save();
-    console.log(`⭐ Updated ${username} (${discordId}): +${pointsToAdd} points (total ${row.Points})`);
+    console.log(`⭐ Updated ${username} (${discordId}): +${pointsToAdd} (total ${row.Points})`);
     return parseInt(row.Points || 0);
   } else {
-    // Create a new row with Username, DiscordID, Points
     const newRow = {
       Username: username || "Unknown",
       DiscordID: discordId || "",
@@ -204,38 +212,25 @@ client.on("messageCreate", async (message) => {
   try {
     if (!message || !message.author) return;
 
-    // Only handle Vortex Companion messages
     if (message.author.id !== VORTEX_ID) return;
 
-    console.log(`[DEBUG] ✅ Message from Vortex Companion detected`);
+    console.log(`[DEBUG] Message from Vortex Companion detected`);
     const content =
       message.content ||
       message.embeds?.[0]?.description ||
       message.embeds?.[0]?.title ||
       "";
 
-    if (!content) {
-      console.log("[DEBUG] ⚠️ No readable text found in message or embed.");
-      return;
-    }
+    if (!content) return;
 
-    // Match "You successfully created a report for Entei in Route 2, it will expire in 51 minutes"
     const match = content.match(/report for (.+?) in (.+?), it will expire/i);
-    if (!match) {
-      console.log("[DEBUG] ⚠️ Message did not match Vortex pattern:", content);
-      return;
-    }
+    if (!match) return;
 
     const pokemon = match[1];
     const location = match[2];
-    console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
+    console.log(`[DEBUG] Parsed Pokémon: ${pokemon}, Location: ${location}`);
 
-    // Reporter detection:
-    // - attempt message.interaction.user (if Vortex includes interaction info)
-    // - then try mentions
-    // - otherwise unknown (can't safely credit)
     const reporterUser = message.interaction?.user || message.mentions?.users?.first();
-
     const points = 10;
 
     if (reporterUser) {
@@ -243,9 +238,7 @@ client.on("messageCreate", async (message) => {
       await message.channel.send(
         `🧭 Detected a **${pokemon}** report in **${location}**! +${points} points to ${reporterUser.username}.`
       );
-      console.log(`[DEBUG] ✅ Points added to ${reporterUser.username} (${reporterUser.id})`);
     } else {
-      console.log("[DEBUG] ⚠️ Reporter not found in interaction data.");
       await message.channel.send(
         `🧭 Detected a **${pokemon}** report in **${location}**! (Reporter unknown — not credited)`
       );
@@ -255,13 +248,11 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-// Listen to edited messages (Vortex messages often update instead of send new)
 client.on("messageUpdate", async (_, newMsg) => {
-  // forward to messageCreate handler for re-use
   try {
     if (newMsg) client.emit("messageCreate", newMsg);
   } catch (err) {
-    console.error("❌ Error forwarding messageUpdate to messageCreate:", err);
+    console.error("❌ Error forwarding messageUpdate:", err);
   }
 });
 
@@ -369,13 +360,13 @@ client.on("interactionCreate", async (interaction) => {
       await sheet.loadHeaderRow();
       const rows = await sheet.getRows();
 
-      // prefer DiscordID lookup
       const discordId = interaction.user.id;
       let row = rows.find(r => String(r.DiscordID) === String(discordId));
 
-      // fallback to username (legacy)
       if (!row) {
-        row = rows.find(r => String(r.Username || "").toLowerCase() === String(interaction.user.username).toLowerCase());
+        row = rows.find(
+          r => String(r.Username || "").toLowerCase() === interaction.user.username.toLowerCase()
+        );
       }
 
       const points = row ? parseInt(row.Points || 0) : 0;
