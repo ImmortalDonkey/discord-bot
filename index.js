@@ -36,11 +36,6 @@ const client = new Client({
     const clientId = process.env.CLIENT_ID;
     const guildId = process.env.GUILD_ID;
 
-    if (!clientId || !guildId) {
-      console.warn("⚠️ CLIENT_ID or GUILD_ID missing — skipping auto-deploy of commands.");
-      return;
-    }
-
     const commands = [
       {
         name: "setlocation",
@@ -49,7 +44,7 @@ const client = new Client({
           {
             name: "location",
             description: "Choose your current location",
-            type: 3, // STRING
+            type: 3,
             required: true,
             autocomplete: true
           }
@@ -63,7 +58,7 @@ const client = new Client({
           {
             name: "user",
             description: "The user to check",
-            type: 6, // USER
+            type: 6,
             required: true
           }
         ]
@@ -150,25 +145,49 @@ async function initGoogleSheet() {
 }
 
 // ----- Helper: Award Points -----
-// note: expects username (string)
-async function addPoints(username, pointsToAdd) {
+// NOTE: now accepts (username, discordId, pointsToAdd)
+// looks up by DiscordID first, then falls back to Username
+async function addPoints(username, discordId, pointsToAdd) {
   if (!sheet) {
     console.error("⚠️ Google Sheet not initialized!");
-    return;
+    return null;
   }
 
   await sheet.loadHeaderRow();
   const rows = await sheet.getRows();
-  let row = rows.find(r => r.Username === username);
+
+  // Prefer exact match by DiscordID
+  let row = null;
+  if (discordId) {
+    row = rows.find(r => String(r.DiscordID) === String(discordId));
+  }
+
+  // If not found by ID, try by username (case-insensitive)
+  if (!row && username) {
+    row = rows.find(r => String(r.Username || "").toLowerCase() === String(username).toLowerCase());
+    // If found by username but no DiscordID, set it
+    if (row && discordId && (!row.DiscordID || row.DiscordID !== discordId)) {
+      row.DiscordID = discordId;
+      await row.save();
+    }
+  }
 
   if (row) {
-    const currentPoints = parseInt(row.Points || 0);
+    const currentPoints = parseInt(row.Points || 0) || 0;
     row.Points = currentPoints + pointsToAdd;
     await row.save();
-    console.log(`⭐ Updated ${username}: +${pointsToAdd} points (total ${row.Points})`);
+    console.log(`⭐ Updated ${username} (${discordId}): +${pointsToAdd} points (total ${row.Points})`);
+    return parseInt(row.Points || 0);
   } else {
-    await sheet.addRow({ Username: username, Points: pointsToAdd });
-    console.log(`🆕 Added new user ${username} with ${pointsToAdd} points`);
+    // Create a new row with Username, DiscordID, Points
+    const newRow = {
+      Username: username || "Unknown",
+      DiscordID: discordId || "",
+      Points: pointsToAdd
+    };
+    await sheet.addRow(newRow);
+    console.log(`🆕 Added new user ${newRow.Username} (${newRow.DiscordID}) with ${pointsToAdd} points`);
+    return pointsToAdd;
   }
 }
 
@@ -181,118 +200,69 @@ client.once("ready", async () => {
 // ----- Detect Vortex Companion Reports -----
 const VORTEX_ID = "858945228655951882"; // Vortex Companion bot ID
 
-/**
- * Build a readable text from message content + embeds (title/description/fields)
- */
-function extractReadableTextFromMessage(message) {
-  let parts = [];
-  if (message.content) parts.push(message.content);
-
-  if (Array.isArray(message.embeds) && message.embeds.length > 0) {
-    for (const embed of message.embeds) {
-      if (embed.title) parts.push(embed.title);
-      if (embed.description) parts.push(embed.description);
-      if (Array.isArray(embed.fields) && embed.fields.length > 0) {
-        for (const f of embed.fields) {
-          if (f.name) parts.push(f.name);
-          if (f.value) parts.push(f.value);
-        }
-      }
-      if (embed.author && embed.author.name) parts.push(embed.author.name);
-    }
-  }
-
-  return parts.join("\n").trim();
-}
-
 client.on("messageCreate", async (message) => {
   try {
     if (!message || !message.author) return;
 
-    // quick debug so you can confirm in logs what is being received
-    console.log(`[MSG] From: ${message.author.username} (${message.author.id}) bot=${message.author.bot} — ${message.content ? message.content.slice(0, 200) : "[no content]"}${message.embeds?.length ? ` (embeds:${message.embeds.length})` : ""}`);
-
-    // Only care about Vortex Companion messages here
+    // Only handle Vortex Companion messages
     if (message.author.id !== VORTEX_ID) return;
 
-    console.log("[DEBUG] ✅ Message came from Vortex Companion (ID match).");
+    console.log(`[DEBUG] ✅ Message from Vortex Companion detected`);
+    const content =
+      message.content ||
+      message.embeds?.[0]?.description ||
+      message.embeds?.[0]?.title ||
+      "";
 
-    const content = extractReadableTextFromMessage(message);
     if (!content) {
-      console.log("[DEBUG] ⚠️ no readable content found in message or embeds.");
+      console.log("[DEBUG] ⚠️ No readable text found in message or embed.");
       return;
     }
 
-    // Try flexible regex patterns to capture:
-    // "You successfully created a report for Entei in Route 2, it will expire in 51 minutes"
-    // or "You successfully created a report for Entei in Route 2,it will expire..."
-    // or small variations
-    const regex = /report\s+for\s+(.+?)\s+in\s+(.+?)(?:[,\.]?\s*it will expire|\s*\(|$)/i;
-    const match = content.match(regex);
-
+    // Match "You successfully created a report for Entei in Route 2, it will expire in 51 minutes"
+    const match = content.match(/report for (.+?) in (.+?), it will expire/i);
     if (!match) {
-      console.log("[DEBUG] ⚠️ Vortex message didn't match expected pattern. Content:\n", content);
+      console.log("[DEBUG] ⚠️ Message did not match Vortex pattern:", content);
       return;
     }
 
-    const pokemon = match[1].trim();
-    const location = match[2].trim();
-    console.log(`[DEBUG] Parsed -> pokemon: "${pokemon}", location: "${location}"`);
+    const pokemon = match[1];
+    const location = match[2];
+    console.log(`[DEBUG] 🧩 Parsed Pokémon: ${pokemon}, Location: ${location}`);
 
-    // determine reporter: prefer interaction.user, then mentions, then embed.author name if available
-    let reporterUser = message.interaction?.user || message.mentions?.users?.first() || null;
-    let reporterName = null;
+    // Reporter detection:
+    // - attempt message.interaction.user (if Vortex includes interaction info)
+    // - then try mentions
+    // - otherwise unknown (can't safely credit)
+    const reporterUser = message.interaction?.user || message.mentions?.users?.first();
+
+    const points = 10;
+
     if (reporterUser) {
-      reporterName = reporterUser.username;
+      await addPoints(reporterUser.username, reporterUser.id, points);
+      await message.channel.send(
+        `🧭 Detected a **${pokemon}** report in **${location}**! +${points} points to ${reporterUser.username}.`
+      );
+      console.log(`[DEBUG] ✅ Points added to ${reporterUser.username} (${reporterUser.id})`);
     } else {
-      // fallback to embed author or try to parse "You successfully created a report for X" — often the reporter is the user who invoked the command,
-      // which may not be visible in the message object; embed author sometimes contains the username
-      const embedAuthorName = message.embeds?.[0]?.author?.name;
-      if (embedAuthorName) reporterName = embedAuthorName;
+      console.log("[DEBUG] ⚠️ Reporter not found in interaction data.");
+      await message.channel.send(
+        `🧭 Detected a **${pokemon}** report in **${location}**! (Reporter unknown — not credited)`
+      );
     }
-
-    const points = (function determinePointsByPokemon(name) {
-      if (!name) return 0;
-      const lowered = name.toLowerCase();
-      for (const [group, list] of Object.entries(rarityGroups)) {
-        if (list.some(p => p.toLowerCase() === lowered)) return rarityPoints[group] || 0;
-      }
-      // default small reward
-      return 10;
-    })(pokemon);
-
-    if (!reporterName) {
-      // no reporter found: log and optionally still post a notice
-      console.log(`[DEBUG] Reporter not found for ${pokemon} @ ${location}. Points: ${points}`);
-      try {
-        await message.channel.send(`🧭 Detected a **${pokemon}** report in **${location}**! Reporter unknown — points not awarded.`);
-      } catch (err) {
-        console.warn("Failed to send reporter-unknown message:", err);
-      }
-      return;
-    }
-
-    // Finally add points (addPoints expects a username string)
-    try {
-      await addPoints(reporterName, points);
-      // mention the user if we have their ID; otherwise just show name
-      const mention = reporterUser ? `<@${reporterUser.id}>` : `**${reporterName}**`;
-      await message.channel.send(`🧭 Detected a **${pokemon}** report in **${location}**! +${points} points to ${mention}.`);
-      console.log(`[DEBUG] Awarded ${points} pts to ${reporterName}`);
-    } catch (err) {
-      console.error("❌ Error awarding points:", err);
-    }
-
   } catch (err) {
-    console.error("❌ Error in Vortex message handler:", err);
+    console.error("❌ Error handling Vortex message:", err);
   }
 });
 
-// If Vortex edits messages, handle updates (re-run messageCreate logic)
+// Listen to edited messages (Vortex messages often update instead of send new)
 client.on("messageUpdate", async (_, newMsg) => {
-  // newMsg can be partial; fetch full if necessary - but try to forward as-is:
-  if (!newMsg) return;
-  client.emit("messageCreate", newMsg);
+  // forward to messageCreate handler for re-use
+  try {
+    if (newMsg) client.emit("messageCreate", newMsg);
+  } catch (err) {
+    console.error("❌ Error forwarding messageUpdate to messageCreate:", err);
+  }
 });
 
 // ----- Slash Command Handling -----
@@ -398,8 +368,17 @@ client.on("interactionCreate", async (interaction) => {
 
       await sheet.loadHeaderRow();
       const rows = await sheet.getRows();
-      const userRow = rows.find(r => r.Username === interaction.user.username);
-      const points = userRow ? parseInt(userRow.Points || 0) : 0;
+
+      // prefer DiscordID lookup
+      const discordId = interaction.user.id;
+      let row = rows.find(r => String(r.DiscordID) === String(discordId));
+
+      // fallback to username (legacy)
+      if (!row) {
+        row = rows.find(r => String(r.Username || "").toLowerCase() === String(interaction.user.username).toLowerCase());
+      }
+
+      const points = row ? parseInt(row.Points || 0) : 0;
       const value = points * 200000;
 
       const embed = new EmbedBuilder()
