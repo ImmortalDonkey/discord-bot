@@ -19,7 +19,7 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
   }
 });
 
-// Promisify helper
+// Promisify helpers
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
@@ -55,7 +55,6 @@ async function init() {
     points INTEGER DEFAULT 0,
     last_updated INTEGER
   )`);
-  // optional logs
   await run(`CREATE TABLE IF NOT EXISTS point_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     discord_id TEXT,
@@ -76,12 +75,11 @@ async function getUserById(discordId) {
 // Get by username (case-insensitive)
 async function getUserByUsername(username) {
   if (!username) return null;
-  // simple case-insensitive match
   const rows = await all(`SELECT * FROM points WHERE LOWER(username) = LOWER(?)`, [String(username)]);
   return rows[0] || null;
 }
 
-// Add points (prioritize discordId). Choice B: update username only when adding points.
+// Add points (prioritise discordId). Username updates only when points are added (Choice B).
 async function addPoints(discordId, username, delta, reason = '') {
   const ts = Date.now();
   if (!discordId) {
@@ -100,7 +98,7 @@ async function addPoints(discordId, username, delta, reason = '') {
       );
       return { discord_id: existing.discord_id, username: existing.username, points: newPoints };
     } else {
-      // no discordId and no matching username — create a new row with discord_id empty string
+      // create entry with empty discord_id
       const newPoints = delta;
       const did = '';
       await run(
@@ -114,11 +112,9 @@ async function addPoints(discordId, username, delta, reason = '') {
       return { discord_id: did, username: username || 'Unknown', points: newPoints };
     }
   } else {
-    // We have a discordId (preferred)
     const existing = await getUserById(discordId);
     if (existing) {
       const newPoints = (existing.points || 0) + delta;
-      // Update points and *only* update username when adding points (Choice B)
       await run(
         `UPDATE points SET points = ?, username = ?, last_updated = ? WHERE discord_id = ?`,
         [newPoints, username || existing.username, ts, discordId]
@@ -129,7 +125,6 @@ async function addPoints(discordId, username, delta, reason = '') {
       );
       return { discord_id: discordId, username: username || existing.username, points: newPoints };
     } else {
-      // create new row
       const newPoints = delta;
       await run(
         `INSERT INTO points (discord_id, username, points, last_updated) VALUES (?, ?, ?, ?)`,
