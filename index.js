@@ -1,7 +1,7 @@
 // index.js (CLEANED + SQLite points + hourly Sheets backup)
 const { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 require('dotenv').config();
-const express = require('express'); // optional: keep for compatibility but not used for keep-alive by default
+const express = require('express'); // optional small web endpoint
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
@@ -173,7 +173,6 @@ client.on('messageUpdate', async (_, newMsg) => {
 });
 
 // ----- Interaction handling (commands) -----
-// NOTE: We do NOT deploy commands here. Keep deploy-commands.js as the place that registers commands.
 client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isAutocomplete()) {
@@ -285,7 +284,6 @@ client.on('interactionCreate', async (interaction) => {
     // ----- mypoints -----
     if (commandName === 'mypoints') {
       try {
-        // Try by Discord ID first (authoritative)
         const discordId = interaction.user.id;
         let row = await db.getUserById(discordId);
 
@@ -351,7 +349,6 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ----- Hourly Google Sheets sync (top of every hour) -----
-// Strategy: wait until the next :00, then run hourly.
 function msUntilNextHour() {
   const now = new Date();
   const next = new Date(now);
@@ -368,19 +365,18 @@ async function syncSqliteToSheets() {
 
   try {
     const rows = await db.getAllUsers(); // [{discord_id, username, points, last_updated}, ...]
-    const values = rows.map(r => [
-      r.username || '',
-      r.discord_id || '',
-      r.points != null ? String(r.points) : '0',
-      r.last_updated ? new Date(r.last_updated).toISOString() : ''
-    ]);
+    const values = rows.map(r => ({
+      Username: r.username || '',
+      DiscordID: r.discord_id || '',
+      Points: r.points != null ? String(r.points) : '0',
+      LastUpdated: r.last_updated ? new Date(r.last_updated).toISOString() : ''
+    }));
 
-    // Overwrite the sheet rows starting at A2 (keep header row)
-    // We will clear existing rows and add fresh rows to avoid mismatches.
+    // Overwrite the sheet rows: set header, then add rows
     await sheet.clear(); // clears header + data
     await sheet.setHeaderRow(['Username', 'DiscordID', 'Points', 'LastUpdated']);
     if (values.length > 0) {
-      await sheet.addRows(values.map(v => ({ Username: v[0], DiscordID: v[1], Points: v[2], LastUpdated: v[3] })));
+      await sheet.addRows(values);
     }
     console.log(`✅ Synced ${values.length} rows to Google Sheets at ${new Date().toISOString()}`);
   } catch (err) {
@@ -413,7 +409,6 @@ client.once('ready', async () => {
 });
 
 // ----- Login -----
-// Use DISCORD_TOKEN in .env
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
   console.error('❌ Missing DISCORD_TOKEN in environment variables!');
@@ -421,7 +416,7 @@ if (!token) {
 }
 client.login(token);
 
-// Optional: expose simple web server (not required for Pi). Keep small endpoint.
+// Optional: tiny web server (not used for keep-alive on Pi)
 app.get('/', (req, res) => res.send('Bot (SQLite) is running'));
 const webPort = process.env.WEB_PORT || 3000;
 app.listen(webPort, () => console.log(`🌐 Web server listening on ${webPort}`));
