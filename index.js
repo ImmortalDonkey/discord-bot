@@ -1,87 +1,21 @@
-// ----- Discord.js Setup -----
-const {
-  Client,
-  GatewayIntentBits,
-  EmbedBuilder,
-  PermissionFlagsBits,
-  REST,
-  Routes
-} = require("discord.js");
+// index.js (CLEANED + SQLite points + hourly Sheets backup)
+const { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+require('dotenv').config();
+const express = require('express'); // optional: keep for compatibility but not used for keep-alive by default
+const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+const { GoogleSpreadsheet } = require('google-spreadsheet');
+const { JWT } = require('google-auth-library');
 
-const express = require("express");
-const { GoogleSpreadsheet } = require("google-spreadsheet");
-const { JWT } = require("google-auth-library");
-require("dotenv").config();
+const db = require('./database');
+
 const app = express();
-
-// Optional fetch for keep-alive
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 // ----- Discord Client -----
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
 
-// =============================
-// 🔄 AUTO SLASH COMMAND DEPLOY
-// =============================
-(async () => {
-  try {
-    const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
-    const clientId = process.env.CLIENT_ID;
-    const guildId = process.env.GUILD_ID;
-
-    const commands = [
-      {
-        name: "setlocation",
-        description: "Set your current location",
-        options: [
-          {
-            name: "location",
-            description: "Choose your current location",
-            type: 3,
-            required: true,
-            autocomplete: true
-          }
-        ]
-      },
-      { name: "whereami", description: "Check your current location" },
-      {
-        name: "whereis",
-        description: "Check another player's location",
-        options: [
-          {
-            name: "user",
-            description: "The user to check",
-            type: 6,
-            required: true
-          }
-        ]
-      },
-      { name: "locations", description: "View all active player locations" },
-      { name: "clearme", description: "Mark yourself as inactive" },
-      {
-        name: "clearall",
-        description: "Clear all player locations (Admin only)",
-        default_member_permissions: PermissionFlagsBits.Administrator.toString()
-      },
-      { name: "mypoints", description: "Check your current roaming points and PKD value" },
-      { name: "leaderboard", description: "View the top 10 hunters by points" }
-    ];
-
-    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-    console.log("✅ Slash commands deployed successfully on startup!");
-  } catch (err) {
-    console.error("❌ Failed to deploy commands automatically:", err);
-  }
-})();
-
-// ----- Player Data -----
+// ----- In-memory locations (unchanged) -----
 const playerLocations = new Map();
 
 const availableLocations = [
@@ -93,7 +27,7 @@ const availableLocations = [
   "Stillwater Quarry", "Wild Overgrowth"
 ];
 
-// ----- Roamer Lists -----
+// ----- Rarity groups & points (unchanged) -----
 const rarityGroups = {
   paradox: [
     "Walking Wake", "Gouging Fire", "Raging Bolt",
@@ -122,104 +56,90 @@ const rarityPoints = {
   common: 1
 };
 
-// ----- Google Sheets Setup -----
-const SHEET_ID = "17L4nw5CIw0s0_YomuJiCwSB592Nf9-IRVJ2zogpCEwc";
-let sheet;
+// ----- Google Sheets setup (sheet is backup) -----
+const SHEET_ID = process.env.GOOGLE_SHEET_ID || '17L4nw5CIw0s0_YomuJiCwSB592Nf9-IRVJ2zogpCEwc';
+let sheetDoc = null;
+let sheet = null;
 
 async function initGoogleSheet() {
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
+    console.warn('⚠️ GOOGLE_SERVICE_ACCOUNT not provided — Sheets backup disabled.');
+    return;
+  }
+
   try {
     const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
     const serviceAccountAuth = new JWT({
       email: creds.client_email,
-      key: creds.private_key.replace(/\\n/g, "\n"),
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+      key: creds.private_key.replace(/\\n/g, '\n'),
+      scopes: ['https://www.googleapis.com/auth/spreadsheets']
     });
 
-    const doc = new GoogleSpreadsheet(SHEET_ID, serviceAccountAuth);
-    await doc.loadInfo();
-    sheet = doc.sheetsByIndex[0];
-    console.log(`📄 Connected to Google Sheet: ${doc.title}`);
+    sheetDoc = new GoogleSpreadsheet(SHEET_ID, serviceAccountAuth);
+    await sheetDoc.loadInfo();
+    sheet = sheetDoc.sheetsByIndex[0];
+    console.log('📄 Connected to Google Sheet:', sheet.title);
 
-    // ⭐ AUTO-CREATE DiscordID column if missing
+    // Ensure header
     await sheet.loadHeaderRow();
-    const headers = sheet.headerValues;
-
-    if (!headers.includes("DiscordID")) {
-      console.log("🔧 Adding missing DiscordID column...");
-      await sheet.setHeaderRow([...headers, "DiscordID"]);
-      console.log("✅ DiscordID column added!");
+    const headers = sheet.headerValues || [];
+    const desired = ['Username', 'DiscordID', 'Points', 'LastUpdated'];
+    if (!desired.every(h => headers.includes(h))) {
+      console.log('🔧 Setting sheet headers to:', desired);
+      await sheet.setHeaderRow(desired);
     }
 
-  } catch (error) {
-    console.error("❌ Failed to connect to Google Sheets:", error);
+  } catch (err) {
+    console.error('❌ Failed to initialize Google Sheet:', err);
+    sheet = null;
+    sheetDoc = null;
   }
 }
 
-// ----- Helper: Award Points -----
-async function addPoints(username, discordId, pointsToAdd) {
-  if (!sheet) {
-    console.error("⚠️ Google Sheet not initialized!");
-    return null;
+// ---- SQLite init ----
+(async () => {
+  try {
+    await db.init();
+    console.log('✅ Database initialized');
+  } catch (err) {
+    console.error('❌ DB init failed:', err);
   }
+})();
 
-  await sheet.loadHeaderRow();
-  const rows = await sheet.getRows();
+// ----- Helper: determine rarity points -----
+function getRarityPoints(pokemonName) {
+  const group = Object.keys(rarityGroups).find(g =>
+    rarityGroups[g].some(p => String(p).toLowerCase() === String(pokemonName).toLowerCase())
+  );
+  if (group) return rarityPoints[group] || 10;
+  return 10; // default fallback
+}
 
-  let row = null;
-
-  // Prefer match by DiscordID
-  if (discordId) {
-    row = rows.find(r => String(r.DiscordID) === String(discordId));
-  }
-
-  // Fallback: match by username
-  if (!row && username) {
-    row = rows.find(r => String(r.Username || "").toLowerCase() === String(username).toLowerCase());
-    if (row && discordId && (!row.DiscordID || row.DiscordID !== discordId)) {
-      row.DiscordID = discordId;
-      await row.save();
-    }
-  }
-
-  if (row) {
-    const currentPoints = parseInt(row.Points || 0) || 0;
-    row.Points = currentPoints + pointsToAdd;
-    await row.save();
-    console.log(`⭐ Updated ${username} (${discordId}): +${pointsToAdd} (total ${row.Points})`);
-    return parseInt(row.Points || 0);
-  } else {
-    const newRow = {
-      Username: username || "Unknown",
-      DiscordID: discordId || "",
-      Points: pointsToAdd
-    };
-    await sheet.addRow(newRow);
-    console.log(`🆕 Added new user ${newRow.Username} (${newRow.DiscordID}) with ${pointsToAdd} points`);
-    return pointsToAdd;
+// ----- Add points wrapper (uses db.addPoints) -----
+// reason is optional string for logs
+async function awardPoints(discordId, username, pointsToAdd, reason = '') {
+  try {
+    const result = await db.addPoints(discordId, username, pointsToAdd, reason);
+    return result;
+  } catch (err) {
+    console.error('❌ Failed to award points:', err);
+    throw err;
   }
 }
 
-// ----- Bot Ready Event -----
-client.once("ready", async () => {
-  console.log(`✅ Bot is ready! Logged in as ${client.user.tag}`);
-  await initGoogleSheet();
-});
+// ----- Vortex Companion message detection (same as before) -----
+const VORTEX_ID = process.env.VORTEX_ID || '858945228655951882';
 
-// ----- Detect Vortex Companion Reports -----
-const VORTEX_ID = "858945228655951882"; // Vortex Companion bot ID
-
-client.on("messageCreate", async (message) => {
+client.on('messageCreate', async (message) => {
   try {
     if (!message || !message.author) return;
-
     if (message.author.id !== VORTEX_ID) return;
 
-    console.log(`[DEBUG] Message from Vortex Companion detected`);
     const content =
       message.content ||
       message.embeds?.[0]?.description ||
       message.embeds?.[0]?.title ||
-      "";
+      '';
 
     if (!content) return;
 
@@ -228,81 +148,83 @@ client.on("messageCreate", async (message) => {
 
     const pokemon = match[1];
     const location = match[2];
-    console.log(`[DEBUG] Parsed Pokémon: ${pokemon}, Location: ${location}`);
 
+    // Try to find reporter user: message.interaction?.user or mentions
     const reporterUser = message.interaction?.user || message.mentions?.users?.first();
-    const points = 10;
+    const points = getRarityPoints(pokemon);
 
     if (reporterUser) {
-      await addPoints(reporterUser.username, reporterUser.id, points);
-      await message.channel.send(
-        `🧭 Detected a **${pokemon}** report in **${location}**! +${points} points to ${reporterUser.username}.`
-      );
+      await awardPoints(reporterUser.id, reporterUser.username, points, `Vortex report: ${pokemon} @ ${location}`);
+      await message.channel.send(`🧭 Detected a **${pokemon}** report in **${location}**! +${points} points to ${reporterUser.username}.`);
     } else {
-      await message.channel.send(
-        `🧭 Detected a **${pokemon}** report in **${location}**! (Reporter unknown — not credited)`
-      );
+      await message.channel.send(`🧭 Detected a **${pokemon}** report in **${location}**! (Reporter unknown — not credited)`);
     }
   } catch (err) {
-    console.error("❌ Error handling Vortex message:", err);
+    console.error('❌ Error handling Vortex message:', err);
   }
 });
 
-client.on("messageUpdate", async (_, newMsg) => {
+client.on('messageUpdate', async (_, newMsg) => {
   try {
-    if (newMsg) client.emit("messageCreate", newMsg);
+    if (newMsg) client.emit('messageCreate', newMsg);
   } catch (err) {
-    console.error("❌ Error forwarding messageUpdate:", err);
+    console.error('❌ Error forwarding messageUpdate:', err);
   }
 });
 
-// ----- Slash Command Handling -----
-client.on("interactionCreate", async (interaction) => {
-  if (interaction.isAutocomplete()) {
-    const focused = interaction.options.getFocused();
-    const filtered = availableLocations
-      .filter(l => l.toLowerCase().includes(focused.toLowerCase()))
-      .slice(0, 25);
-    await interaction.respond(filtered.map(l => ({ name: l, value: l })));
-    return;
-  }
-
-  if (!interaction.isChatInputCommand()) return;
-  const { commandName } = interaction;
-
+// ----- Interaction handling (commands) -----
+// NOTE: We do NOT deploy commands here. Keep deploy-commands.js as the place that registers commands.
+client.on('interactionCreate', async (interaction) => {
   try {
-    if (commandName === "setlocation") {
-      const location = interaction.options.getString("location");
+    if (interaction.isAutocomplete()) {
+      const focused = interaction.options.getFocused();
+      const filtered = availableLocations
+        .filter(l => l.toLowerCase().includes(focused.toLowerCase()))
+        .slice(0, 25);
+      await interaction.respond(filtered.map(l => ({ name: l, value: l })));
+      return;
+    }
+
+    if (!interaction.isChatInputCommand()) return;
+    const { commandName } = interaction;
+
+    // ----- setlocation -----
+    if (commandName === 'setlocation') {
+      const location = interaction.options.getString('location');
       const userId = interaction.user.id;
       const username = interaction.user.username;
       playerLocations.set(userId, { location, username, timestamp: new Date() });
 
       const embed = new EmbedBuilder()
         .setColor(0x00FF00)
-        .setTitle("📍 Location Updated")
+        .setTitle('📍 Location Updated')
         .setDescription(`Your location has been set to: **${location}**`)
         .setTimestamp();
 
       await interaction.reply({ embeds: [embed] });
+      return;
     }
 
-    else if (commandName === "whereami") {
+    // ----- whereami -----
+    if (commandName === 'whereami') {
       const data = playerLocations.get(interaction.user.id);
       if (!data)
         return interaction.reply({ content: "❌ You haven't set your location yet!", ephemeral: true });
 
       const embed = new EmbedBuilder()
         .setColor(0x0099FF)
-        .setTitle("📍 Your Location")
+        .setTitle('📍 Your Location')
         .addFields(
-          { name: "Current Location", value: data.location, inline: true },
-          { name: "Last Updated", value: data.timestamp.toLocaleString(), inline: true }
+          { name: 'Current Location', value: data.location, inline: true },
+          { name: 'Last Updated', value: data.timestamp.toLocaleString(), inline: true }
         );
       await interaction.reply({ embeds: [embed] });
+      return;
     }
 
-    else if (commandName === "whereis") {
-      const user = interaction.options.getUser("user");
+    // ----- whereis -----
+    if (commandName === 'whereis') {
+      const user = interaction.options.getUser('user');
       const data = playerLocations.get(user.id);
       if (!data)
         return interaction.reply({ content: `❌ ${user.username} hasn't set a location yet!`, ephemeral: true });
@@ -311,123 +233,195 @@ client.on("interactionCreate", async (interaction) => {
         .setColor(0xFF9900)
         .setTitle(`📍 ${user.username}'s Location`)
         .addFields(
-          { name: "Location", value: data.location, inline: true },
-          { name: "Last Updated", value: data.timestamp.toLocaleString(), inline: true }
+          { name: 'Location', value: data.location, inline: true },
+          { name: 'Last Updated', value: data.timestamp.toLocaleString(), inline: true }
         );
       await interaction.reply({ embeds: [embed] });
+      return;
     }
 
-    else if (commandName === "locations") {
+    // ----- locations -----
+    if (commandName === 'locations') {
       if (playerLocations.size === 0)
-        return interaction.reply({ content: "❌ No active players have set a location.", ephemeral: true });
+        return interaction.reply({ content: '❌ No active players have set a location.', ephemeral: true });
 
-      let desc = "";
+      let desc = '';
       for (const [, data] of playerLocations) {
         desc += `**${data.username}** — ${data.location}\n`;
       }
 
       const embed = new EmbedBuilder()
         .setColor(0x33CCFF)
-        .setTitle("🌍 Active Player Locations")
+        .setTitle('🌍 Active Player Locations')
         .setDescription(desc)
         .setFooter({ text: `${playerLocations.size} active players` });
 
       await interaction.reply({ embeds: [embed] });
+      return;
     }
 
-    else if (commandName === "clearme") {
+    // ----- clearme -----
+    if (commandName === 'clearme') {
       const userId = interaction.user.id;
       if (playerLocations.has(userId)) {
         playerLocations.delete(userId);
-        await interaction.reply({ content: "✅ You have been marked as inactive.", ephemeral: true });
+        await interaction.reply({ content: '✅ You have been marked as inactive.', ephemeral: true });
       } else {
-        await interaction.reply({ content: "❌ You are not currently active.", ephemeral: true });
+        await interaction.reply({ content: '❌ You are not currently active.', ephemeral: true });
       }
+      return;
     }
 
-    else if (commandName === "clearall") {
+    // ----- clearall -----
+    if (commandName === 'clearall') {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator))
-        return interaction.reply({ content: "❌ You do not have permission to use this command.", ephemeral: true });
+        return interaction.reply({ content: '❌ You do not have permission to use this command.', ephemeral: true });
 
       playerLocations.clear();
-      await interaction.reply("🧹 All player location data has been reset!");
+      await interaction.reply('🧹 All player location data has been reset!');
+      return;
     }
 
-    else if (commandName === "mypoints") {
-      if (!sheet)
-        return interaction.reply({ content: "⚠️ Points system not ready yet!", ephemeral: true });
+    // ----- mypoints -----
+    if (commandName === 'mypoints') {
+      try {
+        // Try by Discord ID first (authoritative)
+        const discordId = interaction.user.id;
+        let row = await db.getUserById(discordId);
 
-      await sheet.loadHeaderRow();
-      const rows = await sheet.getRows();
+        // Fallback to username (case-insensitive) if not found
+        if (!row) {
+          row = await db.getUserByUsername(interaction.user.username);
+        }
 
-      const discordId = interaction.user.id;
-      let row = rows.find(r => String(r.DiscordID) === String(discordId));
+        const points = row ? parseInt(row.points || 0) : 0;
+        const value = points * 200000;
 
-      if (!row) {
-        row = rows.find(
-          r => String(r.Username || "").toLowerCase() === interaction.user.username.toLowerCase()
-        );
+        const embed = new EmbedBuilder()
+          .setColor(0xFFD700)
+          .setTitle('💰 Your Points')
+          .addFields(
+            { name: 'Total Points', value: `${points.toLocaleString()} pts`, inline: true },
+            { name: 'PKD Value', value: `${value.toLocaleString()} pkd`, inline: true }
+          )
+          .setFooter({ text: '1 point = 200,000 pkd' });
+
+        await interaction.reply({ embeds: [embed], ephemeral: true });
+      } catch (err) {
+        console.error('❌ /mypoints error:', err);
+        await interaction.reply({ content: '⚠️ Error retrieving your points.', ephemeral: true });
       }
-
-      const points = row ? parseInt(row.Points || 0) : 0;
-      const value = points * 200000;
-
-      const embed = new EmbedBuilder()
-        .setColor(0xFFD700)
-        .setTitle("💰 Your Points")
-        .addFields(
-          { name: "Total Points", value: `${points.toLocaleString()} pts`, inline: true },
-          { name: "PKD Value", value: `${value.toLocaleString()} pkd`, inline: true }
-        )
-        .setFooter({ text: "1 point = 200,000 pkd" });
-
-      await interaction.reply({ embeds: [embed], ephemeral: true });
+      return;
     }
 
-    else if (commandName === "leaderboard") {
-      if (!sheet)
-        return interaction.reply({ content: "⚠️ Google Sheet not initialized.", ephemeral: true });
+    // ----- leaderboard -----
+    if (commandName === 'leaderboard') {
+      try {
+        const rows = await db.getLeaderboard(10);
+        if (!rows || rows.length === 0)
+          return interaction.reply({ content: '⚠️ No point data available yet.', ephemeral: true });
 
-      const rows = await sheet.getRows();
-      const leaderboard = rows
-        .map(r => ({
-          username: r.Username,
-          points: parseInt(r.Points || 0)
-        }))
-        .filter(u => u.username && !isNaN(u.points))
-        .sort((a, b) => b.points - a.points)
-        .slice(0, 10);
+        let desc = '';
+        rows.forEach((u, i) => {
+          const name = u.username || 'Unknown';
+          desc += `**#${i + 1}** 🏅 ${name} — ${u.points} pts (${(u.points * 200000).toLocaleString()} PKD)\n`;
+        });
 
-      let desc = "";
-      leaderboard.forEach((u, i) => {
-        desc += `**#${i + 1}** 🏅 ${u.username} — ${u.points} pts (${(u.points * 200000).toLocaleString()} PKD)\n`;
-      });
+        const embed = new EmbedBuilder()
+          .setColor(0xFFD700)
+          .setTitle('🏆 Roaming Points Leaderboard')
+          .setDescription(desc)
+          .setFooter({ text: 'Top 10 Hunters • 1 point = 200,000 PKD' })
+          .setTimestamp();
 
-      const embed = new EmbedBuilder()
-        .setColor(0xFFD700)
-        .setTitle("🏆 Roaming Points Leaderboard")
-        .setDescription(desc)
-        .setFooter({ text: "Top 10 Hunters • 1 point = 200,000 PKD" })
-        .setTimestamp();
-
-      await interaction.reply({ embeds: [embed] });
+        await interaction.reply({ embeds: [embed] });
+      } catch (err) {
+        console.error('❌ /leaderboard error:', err);
+        await interaction.reply({ content: '⚠️ Error generating leaderboard.', ephemeral: true });
+      }
+      return;
     }
+
   } catch (err) {
-    console.error("❌ Error in interaction:", err);
-    if (!interaction.replied)
-      await interaction.reply({ content: "⚠️ Error executing command.", ephemeral: true });
+    console.error('❌ Error in interaction handler:', err);
+    if (!interaction.replied) {
+      try { await interaction.reply({ content: '⚠️ Error executing command.', ephemeral: true }); } catch (e) {}
+    }
   }
 });
 
+// ----- Hourly Google Sheets sync (top of every hour) -----
+// Strategy: wait until the next :00, then run hourly.
+function msUntilNextHour() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setMinutes(0, 0, 0);
+  next.setHours(now.getHours() + 1);
+  return next - now;
+}
+
+async function syncSqliteToSheets() {
+  if (!sheet) {
+    console.warn('⚠️ Sheets not configured; skipping hourly sync.');
+    return;
+  }
+
+  try {
+    const rows = await db.getAllUsers(); // [{discord_id, username, points, last_updated}, ...]
+    const values = rows.map(r => [
+      r.username || '',
+      r.discord_id || '',
+      r.points != null ? String(r.points) : '0',
+      r.last_updated ? new Date(r.last_updated).toISOString() : ''
+    ]);
+
+    // Overwrite the sheet rows starting at A2 (keep header row)
+    // We will clear existing rows and add fresh rows to avoid mismatches.
+    await sheet.clear(); // clears header + data
+    await sheet.setHeaderRow(['Username', 'DiscordID', 'Points', 'LastUpdated']);
+    if (values.length > 0) {
+      await sheet.addRows(values.map(v => ({ Username: v[0], DiscordID: v[1], Points: v[2], LastUpdated: v[3] })));
+    }
+    console.log(`✅ Synced ${values.length} rows to Google Sheets at ${new Date().toISOString()}`);
+  } catch (err) {
+    console.error('❌ Failed to sync to Google Sheets:', err);
+  }
+}
+
+function scheduleHourlySync() {
+  const first = msUntilNextHour();
+  console.log(`⏱ Hourly sync will start in ${Math.round(first / 1000)}s, then every 1 hour on the hour.`);
+  setTimeout(() => {
+    // run immediately at top of hour
+    syncSqliteToSheets().catch(e => console.error(e));
+    // then set interval for hourly runs
+    setInterval(() => {
+      syncSqliteToSheets().catch(e => console.error(e));
+    }, 60 * 60 * 1000);
+  }, first);
+}
+
+// ----- Client ready -----
+client.once('ready', async () => {
+  console.log(`✅ Bot ready as ${client.user.tag}`);
+
+  // Initialize Google sheets (if credentials provided)
+  await initGoogleSheet();
+
+  // Schedule hourly sync if sheet is available
+  scheduleHourlySync();
+});
+
 // ----- Login -----
+// Use DISCORD_TOKEN in .env
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
-  console.error("❌ Missing DISCORD_TOKEN in environment variables!");
+  console.error('❌ Missing DISCORD_TOKEN in environment variables!');
   process.exit(1);
 }
 client.login(token);
 
-// ----- Keep-Alive Web Server -----
-app.get("/", (req, res) => res.send("Bot is alive!"));
-app.listen(3000, () => console.log("🌐 Keep-alive web server running on port 3000"));
-setInterval(() => fetch("https://discord-bot-146j.onrender.com"), 5 * 60 * 1000);
+// Optional: expose simple web server (not required for Pi). Keep small endpoint.
+app.get('/', (req, res) => res.send('Bot (SQLite) is running'));
+const webPort = process.env.WEB_PORT || 3000;
+app.listen(webPort, () => console.log(`🌐 Web server listening on ${webPort}`));
