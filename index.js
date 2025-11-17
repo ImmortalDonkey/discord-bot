@@ -1,23 +1,21 @@
-// index.js (v13-compatible)
+// index.js (Discord.js v13 compatible)
 require('dotenv').config();
-
-const { Client, Intents, MessageEmbed, Permissions } = require('discord.js');
 const express = require('express');
-const fetch = require('node-fetch'); // v2
+const fetch = require('node-fetch');
+const { Client, Intents, MessageEmbed, Permissions } = require('discord.js');
+
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
 
 const db = require('./database');
-
 const app = express();
 
-// ----- Discord Client -----
+// ----- Discord Client (v13 syntax) -----
 const client = new Client({
-  ws: { intents: [
-    Intents.FLAGS.GUILDS,
-    Intents.FLAGS.GUILD_MESSAGES,
-    Intents.FLAGS.MESSAGE_CONTENT // NOTE: MESSAGE_CONTENT intent in v13 may require privileged intent enabled
-  ] }
+  intents: [
+    Intents.FLAGS.GUILDS, 
+    Intents.FLAGS.GUILD_MESSAGES
+  ]
 });
 
 // ----- In-memory locations -----
@@ -32,7 +30,7 @@ const availableLocations = [
   "Stillwater Quarry", "Wild Overgrowth"
 ];
 
-// ----- Rarity groups & points -----
+// ----- Rarity groups -----
 const rarityGroups = {
   paradox: [
     "Walking Wake", "Gouging Fire", "Raging Bolt",
@@ -61,325 +59,236 @@ const rarityPoints = {
   common: 1
 };
 
-// ----- Google Sheets setup -----
-const SHEET_ID = process.env.GOOGLE_SHEET_ID || '17L4nw5CIw0s0_YomuJiCwSB592Nf9-IRVJ2zogpCEwc';
+// ----- Google Sheets Setup -----
+const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 let sheetDoc = null;
 let sheet = null;
 
 async function initGoogleSheet() {
   if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-    console.warn('⚠️ GOOGLE_SERVICE_ACCOUNT not provided — Sheets disabled.');
+    console.log("⚠ Sheets disabled.");
     return;
   }
-  try {
-    const creds = typeof process.env.GOOGLE_SERVICE_ACCOUNT === 'string'
-      ? JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT)
-      : process.env.GOOGLE_SERVICE_ACCOUNT;
 
-    const serviceAccountAuth = new JWT({
+  try {
+    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+
+    const serviceAuth = new JWT({
       email: creds.client_email,
-      key: creds.private_key.replace(/\\n/g, '\n'),
+      key: creds.private_key.replace(/\\n/g, "\n"),
       scopes: ['https://www.googleapis.com/auth/spreadsheets']
     });
 
-    sheetDoc = new GoogleSpreadsheet(SHEET_ID, serviceAccountAuth);
+    sheetDoc = new GoogleSpreadsheet(SHEET_ID, serviceAuth);
     await sheetDoc.loadInfo();
     sheet = sheetDoc.sheetsByIndex[0];
-    console.log('📄 Connected to Google Sheet:', sheet.title);
+    console.log("📄 Connected to Google Sheet:", sheet.title);
 
     await sheet.loadHeaderRow();
-    const headers = sheet.headerValues || [];
-    const desired = ['Username', 'DiscordID', 'Points', 'LastUpdated'];
-    if (!desired.every(h => headers.includes(h))) {
-      await sheet.setHeaderRow(desired);
+    if (!sheet.headerValues.includes("Username")) {
+      await sheet.setHeaderRow(['Username', 'DiscordID', 'Points', 'LastUpdated']);
     }
+
   } catch (err) {
-    console.error('❌ Failed to initialize Google Sheet:', err);
-    sheet = null;
-    sheetDoc = null;
+    console.error("❌ Sheets init failed:", err);
   }
 }
 
-// ---- SQLite init ----
+// ----- DB Init -----
 (async () => {
   try {
     await db.init();
-    console.log('✅ Database initialized');
+    console.log("✅ Database OK");
   } catch (err) {
-    console.error('❌ DB init failed:', err);
+    console.error("❌ DB error:", err);
   }
 })();
 
-function getRarityPoints(pokemonName) {
-  const group = Object.keys(rarityGroups).find(g =>
-    rarityGroups[g].some(p => String(p).toLowerCase() === String(pokemonName).toLowerCase())
+// ----- Point calculation -----
+function getRarityPoints(pokemon) {
+  const key = Object.keys(rarityGroups).find(k =>
+    rarityGroups[k].some(p => p.toLowerCase() === pokemon.toLowerCase())
   );
-  if (group) return rarityPoints[group] || 10;
-  return 10;
+  return key ? (rarityPoints[key] || 10) : 10;
 }
 
-async function awardPoints(discordId, username, pointsToAdd, reason = '') {
-  try {
-    const res = await db.addPoints(discordId, username, pointsToAdd, reason);
-    return res;
-  } catch (err) {
-    console.error('❌ Failed to award points:', err);
-    throw err;
-  }
+// Award points helper
+async function awardPoints(discordId, username, points, reason = "") {
+  return await db.addPoints(discordId, username, points, reason);
 }
 
-const VORTEX_ID = process.env.VORTEX_ID || '858945228655951882';
+// ----- Vortex Message Detection -----
+const VORTEX_ID = process.env.VORTEX_ID || "858945228655951882";
 
-client.on('messageCreate', async (message) => {
+client.on("messageCreate", async message => {
   try {
-    if (!message || !message.author) return;
     if (message.author.id !== VORTEX_ID) return;
 
-    const content =
+    const text =
       message.content ||
-      (message.embeds && message.embeds[0] && message.embeds[0].description) ||
-      (message.embeds && message.embeds[0] && message.embeds[0].title) ||
-      '';
+      message.embeds?.[0]?.description ||
+      message.embeds?.[0]?.title ||
+      "";
 
-    if (!content) return;
-
-    const match = content.match(/report for (.+?) in (.+?), it will expire/i);
+    const match = text.match(/report for (.+?) in (.+?), it will expire/i);
     if (!match) return;
 
     const pokemon = match[1];
     const location = match[2];
+    const reporter = message.mentions.users.first();
 
-    const reporterUser = (message.interaction && message.interaction.user) || (message.mentions && message.mentions.users && message.mentions.users.first && message.mentions.users.first());
-    const points = getRarityPoints(pokemon);
+    const pts = getRarityPoints(pokemon);
 
-    if (reporterUser) {
-      await awardPoints(reporterUser.id, reporterUser.username, points, `Vortex report: ${pokemon} @ ${location}`);
-      await message.channel.send(`🧭 Detected a **${pokemon}** report in **${location}**! +${points} points to ${reporterUser.username}.`);
+    if (reporter) {
+      await awardPoints(reporter.id, reporter.username, pts, `Vortex: ${pokemon} @ ${location}`);
+      message.channel.send(
+        `🧭 **${pokemon}** spotted in **${location}** — +${pts} points to **${reporter.username}**`
+      );
     } else {
-      await message.channel.send(`🧭 Detected a **${pokemon}** report in **${location}**! (Reporter unknown — not credited)`);
+      message.channel.send(`🧭 **${pokemon}** at **${location}** (Reporter unknown)`);
     }
+
   } catch (err) {
-    console.error('❌ Error handling Vortex message:', err);
+    console.error("❌ Vortex error:", err);
   }
 });
 
-client.on('messageUpdate', async (_, newMsg) => {
+// ----- Slash Command Handling (v13) -----
+client.on("interactionCreate", async interaction => {
   try {
-    if (newMsg) client.emit('messageCreate', newMsg);
-  } catch (err) {
-    console.error('❌ Error forwarding messageUpdate:', err);
-  }
-});
+    if (!interaction.isCommand()) return;
+    const { commandName } = interaction;
 
-// Interaction handling (slash commands + autocomplete)
-client.on('interactionCreate', async (interaction) => {
-  try {
-    if (interaction.isAutocomplete && interaction.isAutocomplete()) {
-      const focused = interaction.options.getFocused();
-      const filtered = availableLocations
-        .filter(l => l.toLowerCase().includes(String(focused).toLowerCase()))
-        .slice(0, 25);
-      await interaction.respond(filtered.map(l => ({ name: l, value: l })));
-      return;
-    }
-
-    if (!interaction.isCommand || !interaction.isCommand()) return;
-    const commandName = interaction.commandName;
-
-    if (commandName === 'setlocation') {
-      const location = interaction.options.getString('location');
-      const userId = interaction.user.id;
-      const username = interaction.user.username;
-      playerLocations.set(userId, { location, username, timestamp: new Date() });
+    // ====== setlocation ======
+    if (commandName === "setlocation") {
+      const loc = interaction.options.getString("location");
+      playerLocations.set(interaction.user.id, {
+        location: loc,
+        username: interaction.user.username,
+        timestamp: new Date()
+      });
 
       const embed = new MessageEmbed()
-        .setColor('#00FF00')
-        .setTitle('📍 Location Updated')
-        .setDescription(`Your location has been set to: **${location}**`)
+        .setColor("GREEN")
+        .setTitle("📍 Location Updated")
+        .setDescription(`Your location is now **${loc}**`)
         .setTimestamp();
 
-      await interaction.reply({ embeds: [embed] });
-      return;
+      return interaction.reply({ embeds: [embed] });
     }
 
-    if (commandName === 'whereami') {
+    // ====== whereami ======
+    if (commandName === "whereami") {
       const data = playerLocations.get(interaction.user.id);
-      if (!data) return interaction.reply({ content: "❌ You haven't set your location yet!", ephemeral: true });
+      if (!data)
+        return interaction.reply({ content: "❌ You haven't set a location!", ephemeral: true });
 
       const embed = new MessageEmbed()
-        .setColor('#0099FF')
-        .setTitle('📍 Your Location')
-        .addField('Current Location', data.location, true)
-        .addField('Last Updated', data.timestamp.toLocaleString(), true);
+        .setColor("BLUE")
+        .setTitle("📍 Your Location")
+        .addField("Location", data.location)
+        .addField("Updated", data.timestamp.toLocaleString());
 
-      await interaction.reply({ embeds: [embed] });
-      return;
+      return interaction.reply({ embeds: [embed] });
     }
 
-    if (commandName === 'whereis') {
-      const user = interaction.options.getUser('user');
+    // ====== whereis ======
+    if (commandName === "whereis") {
+      const user = interaction.options.getUser("user");
       const data = playerLocations.get(user.id);
-      if (!data) return interaction.reply({ content: `❌ ${user.username} hasn't set a location yet!`, ephemeral: true });
+      if (!data)
+        return interaction.reply({ content: "❌ They haven't set a location!", ephemeral: true });
 
       const embed = new MessageEmbed()
-        .setColor('#FF9900')
+        .setColor("ORANGE")
         .setTitle(`📍 ${user.username}'s Location`)
-        .addField('Location', data.location, true)
-        .addField('Last Updated', data.timestamp.toLocaleString(), true);
+        .addField("Location", data.location)
+        .addField("Updated", data.timestamp.toLocaleString());
 
-      await interaction.reply({ embeds: [embed] });
-      return;
+      return interaction.reply({ embeds: [embed] });
     }
 
-    if (commandName === 'locations') {
-      if (playerLocations.size === 0) return interaction.reply({ content: '❌ No active players have set a location.', ephemeral: true });
+    // ====== locations ======
+    if (commandName === "locations") {
+      if (playerLocations.size === 0)
+        return interaction.reply({ content: "❌ No active locations.", ephemeral: true });
 
-      let desc = '';
-      for (const [, data] of playerLocations) desc += `**${data.username}** — ${data.location}\n`;
+      let text = "";
+      playerLocations.forEach(v => {
+        text += `**${v.username}** — ${v.location}\n`;
+      });
 
       const embed = new MessageEmbed()
-        .setColor('#33CCFF')
-        .setTitle('🌍 Active Player Locations')
-        .setDescription(desc)
-        .setFooter(`${playerLocations.size} active players`);
+        .setColor("CYAN")
+        .setTitle("🌍 Active Player Locations")
+        .setDescription(text);
 
-      await interaction.reply({ embeds: [embed] });
-      return;
+      return interaction.reply({ embeds: [embed] });
     }
 
-    if (commandName === 'clearme') {
-      const userId = interaction.user.id;
-      if (playerLocations.has(userId)) {
-        playerLocations.delete(userId);
-        await interaction.reply({ content: '✅ You have been marked as inactive.', ephemeral: true });
-      } else {
-        await interaction.reply({ content: '❌ You are not currently active.', ephemeral: true });
-      }
-      return;
+    // ====== clearme ======
+    if (commandName === "clearme") {
+      playerLocations.delete(interaction.user.id);
+      return interaction.reply({ content: "✅ You were marked inactive.", ephemeral: true });
     }
 
-    if (commandName === 'clearall') {
-      // permission check: v13
+    // ====== clearall ======
+    if (commandName === "clearall") {
       if (!interaction.member.permissions.has(Permissions.FLAGS.ADMINISTRATOR))
-        return interaction.reply({ content: '❌ You do not have permission to use this command.', ephemeral: true });
+        return interaction.reply({ content: "❌ Admins only.", ephemeral: true });
 
       playerLocations.clear();
-      await interaction.reply('🧹 All player location data has been reset!');
-      return;
+      return interaction.reply("🧹 All locations cleared.");
     }
 
-    if (commandName === 'mypoints') {
-      try {
-        const discordId = interaction.user.id;
-        let row = await db.getUserById(discordId);
-        if (!row) row = await db.getUserByUsername(interaction.user.username);
+    // ====== mypoints ======
+    if (commandName === "mypoints") {
+      const row = await db.getUserById(interaction.user.id);
+      const pts = row ? row.points : 0;
+      const value = pts * 200000;
 
-        const points = row ? parseInt(row.points || 0) : 0;
-        const value = points * 200000;
+      const embed = new MessageEmbed()
+        .setColor("GOLD")
+        .setTitle("💰 Your Points")
+        .addField("Total Points", String(pts))
+        .addField("PKD Value", value.toLocaleString() + " pkd");
 
-        const embed = new MessageEmbed()
-          .setColor('#FFD700')
-          .setTitle('💰 Your Points')
-          .addField('Total Points', `${points.toLocaleString()} pts`, true)
-          .addField('PKD Value', `${value.toLocaleString()} pkd`, true)
-          .setFooter('1 point = 200,000 pkd');
-
-        await interaction.reply({ embeds: [embed], ephemeral: true });
-      } catch (err) {
-        console.error('❌ /mypoints error:', err);
-        await interaction.reply({ content: '⚠️ Error retrieving your points.', ephemeral: true });
-      }
-      return;
+      return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    if (commandName === 'leaderboard') {
-      try {
-        const rows = await db.getLeaderboard(10);
-        if (!rows || rows.length === 0) return interaction.reply({ content: '⚠️ No point data available yet.', ephemeral: true });
+    // ====== leaderboard ======
+    if (commandName === "leaderboard") {
+      const rows = await db.getLeaderboard(10);
+      if (rows.length === 0)
+        return interaction.reply({ content: "No data yet.", ephemeral: true });
 
-        let desc = '';
-        rows.forEach((u, i) => {
-          const name = u.username || 'Unknown';
-          desc += `**#${i + 1}** 🏅 ${name} — ${u.points} pts (${(u.points * 200000).toLocaleString()} PKD)\n`;
-        });
+      let desc = "";
+      rows.forEach((u, i) => {
+        desc += `**#${i + 1}** — ${u.username} — ${u.points} pts\n`;
+      });
 
-        const embed = new MessageEmbed()
-          .setColor('#FFD700')
-          .setTitle('🏆 Roaming Points Leaderboard')
-          .setDescription(desc)
-          .setTimestamp();
+      const embed = new MessageEmbed()
+        .setColor("GOLD")
+        .setTitle("🏆 Top Hunters")
+        .setDescription(desc);
 
-        await interaction.reply({ embeds: [embed] });
-      } catch (err) {
-        console.error('❌ /leaderboard error:', err);
-        await interaction.reply({ content: '⚠️ Error generating leaderboard.', ephemeral: true });
-      }
-      return;
+      return interaction.reply({ embeds: [embed] });
     }
+
   } catch (err) {
-    console.error('❌ Error in interaction handler:', err);
-    try { if (!interaction.replied) await interaction.reply({ content: '⚠️ Error executing command.', ephemeral: true }); } catch(e){}
+    console.error("❌ Command error:", err);
   }
 });
 
-// ---- Google Sheets sync (hourly) ----
-function msUntilNextHour() {
-  const now = new Date();
-  const next = new Date(now);
-  next.setMinutes(0, 0, 0);
-  next.setHours(now.getHours() + 1);
-  return next - now;
-}
-
-async function syncSqliteToSheets() {
-  if (!sheet) {
-    console.warn('⚠️ Sheets not configured; skipping hourly sync.');
-    return;
-  }
-
-  try {
-    const rows = await db.getAllUsers();
-    const values = rows.map(r => ({
-      Username: r.username || '',
-      DiscordID: r.discord_id || '',
-      Points: r.points != null ? String(r.points) : '0',
-      LastUpdated: r.last_updated ? new Date(r.last_updated).toISOString() : ''
-    }));
-
-    await sheet.clear();
-    await sheet.setHeaderRow(['Username', 'DiscordID', 'Points', 'LastUpdated']);
-    if (values.length) await sheet.addRows(values);
-
-    console.log(`✅ Synced ${values.length} rows to Google Sheets at ${new Date().toISOString()}`);
-  } catch (err) {
-    console.error('❌ Failed to sync to Google Sheets:', err);
-  }
-}
-
-function scheduleHourlySync() {
-  const first = msUntilNextHour();
-  console.log(`⏱ Hourly sync will start in ${Math.round(first / 1000)}s, then every 1 hour.`);
-  setTimeout(() => {
-    syncSqliteToSheets().catch(e => console.error(e));
-    setInterval(() => syncSqliteToSheets().catch(e => console.error(e)), 60 * 60 * 1000);
-  }, first);
-}
-
-// ----- ready & login -----
-client.once('ready', async () => {
-  console.log(`✅ Bot ready as ${client.user.tag}`);
+// ----- Ready -----
+client.once("ready", async () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
   await initGoogleSheet();
-  scheduleHourlySync();
 });
 
-const token = process.env.DISCORD_TOKEN;
-if (!token) {
-  console.error('❌ Missing DISCORD_TOKEN in environment variables!');
-  process.exit(1);
-}
-client.login(token);
+// ----- Login -----
+client.login(process.env.DISCORD_TOKEN);
 
-// optional small web server
-app.get('/', (req, res) => res.send('Bot (SQLite) is running'));
-const webPort = process.env.WEB_PORT || 3000;
-app.listen(webPort, () => console.log(`🌐 Web server listening on ${webPort}`));
+// ----- Web server -----
+app.get("/", (req, res) => res.send("Bot running on Pi (v13)"));
+app.listen(3000, () => console.log("🌐 Web server on 3000"));
