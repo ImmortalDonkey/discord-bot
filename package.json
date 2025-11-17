@@ -1,31 +1,24 @@
 {
   "name": "discord-location-bot",
   "version": "1.0.0",
-  "description": "Discord bot for tracking player locations and roaming points.",
+  "description": "Discord bot for tracking player locations and roaming points (v13)",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "deploy": "node deploy-commands.js"
   },
-  "keywords": [
-    "discord",
-    "bot",
-    "game",
-    "location",
-    "google-sheets",
-    "tracking"
-  ],
-  "author": "Immortal Donkey",
-  "license": "ISC",
   "dependencies": {
-    "discord.js": "^14.24.2",
-    "dotenv": "^16.6.1",
-    "express": "^4.21.2",
-    "google-auth-library": "^9.15.1",
-    "google-spreadsheet": "^4.1.5",
-    "node-fetch": "^3.3.2"
+    "discord.js": "^13.14.0",
+    "@discordjs/rest": "^0.3.0",
+    "discord-api-types": "^0.25.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "google-auth-library": "^9.0.0",
+    "google-spreadsheet": "^4.1.1",
+    "node-fetch": "^2.6.7",
+    "sqlite3": "^5.1.6"
   },
   "engines": {
-    "node": ">=18.x"
+    "node": ">=16.6.0"
   }
 }
