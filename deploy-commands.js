@@ -1,9 +1,7 @@
-// ===== Slash Command Deployment for v13 =====
 require('dotenv').config();
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord-api-types/v9');
 
-// Slash commands for v13 (same as v14)
 const commands = [
   {
     name: 'setlocation',
@@ -13,7 +11,8 @@ const commands = [
         name: 'location',
         description: 'Choose your current location',
         type: 3, // STRING
-        required: true
+        required: true,
+        autocomplete: true // 🔹 Enable autocomplete
       }
     ]
   },
@@ -24,40 +23,32 @@ const commands = [
     options: [
       {
         name: 'user',
-        description: 'The user to check',
+        description: 'Select a user',
         type: 6, // USER
         required: true
       }
     ]
   },
-  { name: 'locations', description: 'View all active player locations' },
-  { name: 'clearme', description: 'Mark yourself as inactive' },
-  {
-    name: 'clearall',
-    description: 'Clear all player locations (Admin only)',
-    default_permission: false
-  },
+  { name: 'locations', description: 'View active player locations' },
+  { name: 'clearme', description: 'Mark yourself inactive' },
+  { name: 'clearall', description: 'Admin: clear all locations', default_permission: false },
   { name: 'mypoints', description: 'Check your roaming points' },
-  { name: 'leaderboard', description: 'View the top hunters' }
+  { name: 'leaderboard', description: 'View top hunters' }
 ];
 
-const token = process.env.DISCORD_TOKEN;
-const clientId = process.env.CLIENT_ID;
-const guildId = '1435654694319030302';
-
-const rest = new REST({ version: '9' }).setToken(token);
+const rest = new REST({ version: '9' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
     console.log(`🔄 Deploying ${commands.length} commands...`);
 
     await rest.put(
-      Routes.applicationGuildCommands(clientId, guildId),
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, '1435654694319030302'),
       { body: commands }
     );
 
-    console.log("✅ Commands deployed!");
+    console.log('✅ Commands deployed successfully!');
   } catch (err) {
-    console.error("❌ Error:", err);
+    console.error('❌ Deployment failed:', err);
   }
 })();
