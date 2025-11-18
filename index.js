@@ -1,4 +1,4 @@
-// index.js (Discord.js v13 compatible)
+// index.js (Discord.js v13 compatible with autocomplete)
 require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
@@ -59,7 +59,7 @@ const rarityPoints = {
   common: 1
 };
 
-// ----- Google Sheets Setup -----
+// ----- Sheets Setup -----
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 let sheetDoc = null;
 let sheet = null;
@@ -72,7 +72,6 @@ async function initGoogleSheet() {
 
   try {
     const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-
     const serviceAuth = new JWT({
       email: creds.client_email,
       key: creds.private_key.replace(/\\n/g, "\n"),
@@ -82,7 +81,7 @@ async function initGoogleSheet() {
     sheetDoc = new GoogleSpreadsheet(SHEET_ID, serviceAuth);
     await sheetDoc.loadInfo();
     sheet = sheetDoc.sheetsByIndex[0];
-    console.log("📄 Connected to Google Sheet:", sheet.title);
+    console.log("📄 Connected to Sheet:", sheet.title);
 
     await sheet.loadHeaderRow();
     if (!sheet.headerValues.includes("Username")) {
@@ -100,11 +99,11 @@ async function initGoogleSheet() {
     await db.init();
     console.log("✅ Database OK");
   } catch (err) {
-    console.error("❌ DB error:", err);
+    console.error("❌ DB init failed:", err);
   }
 })();
 
-// ----- Point calculation -----
+// ----- Point logic -----
 function getRarityPoints(pokemon) {
   const key = Object.keys(rarityGroups).find(k =>
     rarityGroups[k].some(p => p.toLowerCase() === pokemon.toLowerCase())
@@ -112,12 +111,11 @@ function getRarityPoints(pokemon) {
   return key ? (rarityPoints[key] || 10) : 10;
 }
 
-// Award points helper
 async function awardPoints(discordId, username, points, reason = "") {
   return await db.addPoints(discordId, username, points, reason);
 }
 
-// ----- Vortex Message Detection -----
+// ----- Vortex Detection -----
 const VORTEX_ID = process.env.VORTEX_ID || "858945228655951882";
 
 client.on("messageCreate", async message => {
@@ -136,14 +134,11 @@ client.on("messageCreate", async message => {
     const pokemon = match[1];
     const location = match[2];
     const reporter = message.mentions.users.first();
-
     const pts = getRarityPoints(pokemon);
 
     if (reporter) {
       await awardPoints(reporter.id, reporter.username, pts, `Vortex: ${pokemon} @ ${location}`);
-      message.channel.send(
-        `🧭 **${pokemon}** spotted in **${location}** — +${pts} points to **${reporter.username}**`
-      );
+      message.channel.send(`🧭 **${pokemon}** at **${location}** — +${pts} pts to **${reporter.username}**`);
     } else {
       message.channel.send(`🧭 **${pokemon}** at **${location}** (Reporter unknown)`);
     }
@@ -153,13 +148,27 @@ client.on("messageCreate", async message => {
   }
 });
 
-// ----- Slash Command Handling (v13) -----
+// ----- Interaction Handling -----
 client.on("interactionCreate", async interaction => {
   try {
+    // 🔹 Handle Autocomplete
+    if (interaction.isAutocomplete()) {
+      const focused = interaction.options.getFocused();
+      const filtered = availableLocations
+        .filter(loc => loc.toLowerCase().includes(focused.toLowerCase()))
+        .slice(0, 25);
+
+      await interaction.respond(filtered.map(loc => ({
+        name: loc,
+        value: loc
+      })));
+      return;
+    }
+
+    // 🔻 Slash Commands
     if (!interaction.isCommand()) return;
     const { commandName } = interaction;
 
-    // ====== setlocation ======
     if (commandName === "setlocation") {
       const loc = interaction.options.getString("location");
       playerLocations.set(interaction.user.id, {
@@ -168,47 +177,46 @@ client.on("interactionCreate", async interaction => {
         timestamp: new Date()
       });
 
-      const embed = new MessageEmbed()
-        .setColor("GREEN")
-        .setTitle("📍 Location Updated")
-        .setDescription(`Your location is now **${loc}**`)
-        .setTimestamp();
-
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({
+        embeds: [new MessageEmbed()
+          .setColor("GREEN")
+          .setTitle("📍 Location Updated")
+          .setDescription(`Your location is now **${loc}**`)
+        ]
+      });
     }
 
-    // ====== whereami ======
     if (commandName === "whereami") {
       const data = playerLocations.get(interaction.user.id);
       if (!data)
         return interaction.reply({ content: "❌ You haven't set a location!", ephemeral: true });
 
-      const embed = new MessageEmbed()
-        .setColor("BLUE")
-        .setTitle("📍 Your Location")
-        .addField("Location", data.location)
-        .addField("Updated", data.timestamp.toLocaleString());
-
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({
+        embeds: [new MessageEmbed()
+          .setColor("BLUE")
+          .setTitle("📍 Your Location")
+          .addField("Location", data.location)
+          .addField("Updated", data.timestamp.toLocaleString())
+        ]
+      });
     }
 
-    // ====== whereis ======
     if (commandName === "whereis") {
       const user = interaction.options.getUser("user");
       const data = playerLocations.get(user.id);
       if (!data)
         return interaction.reply({ content: "❌ They haven't set a location!", ephemeral: true });
 
-      const embed = new MessageEmbed()
-        .setColor("ORANGE")
-        .setTitle(`📍 ${user.username}'s Location`)
-        .addField("Location", data.location)
-        .addField("Updated", data.timestamp.toLocaleString());
-
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({
+        embeds: [new MessageEmbed()
+          .setColor("ORANGE")
+          .setTitle(`📍 ${user.username}'s Location`)
+          .addField("Location", data.location)
+          .addField("Updated", data.timestamp.toLocaleString())
+        ]
+      });
     }
 
-    // ====== locations ======
     if (commandName === "locations") {
       if (playerLocations.size === 0)
         return interaction.reply({ content: "❌ No active locations.", ephemeral: true });
@@ -218,21 +226,20 @@ client.on("interactionCreate", async interaction => {
         text += `**${v.username}** — ${v.location}\n`;
       });
 
-      const embed = new MessageEmbed()
-        .setColor("CYAN")
-        .setTitle("🌍 Active Player Locations")
-        .setDescription(text);
-
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({
+        embeds: [new MessageEmbed()
+          .setColor("CYAN")
+          .setTitle("🌍 Active Player Locations")
+          .setDescription(text)
+        ]
+      });
     }
 
-    // ====== clearme ======
     if (commandName === "clearme") {
       playerLocations.delete(interaction.user.id);
       return interaction.reply({ content: "✅ You were marked inactive.", ephemeral: true });
     }
 
-    // ====== clearall ======
     if (commandName === "clearall") {
       if (!interaction.member.permissions.has(Permissions.FLAGS.ADMINISTRATOR))
         return interaction.reply({ content: "❌ Admins only.", ephemeral: true });
@@ -241,22 +248,22 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply("🧹 All locations cleared.");
     }
 
-    // ====== mypoints ======
     if (commandName === "mypoints") {
       const row = await db.getUserById(interaction.user.id);
       const pts = row ? row.points : 0;
       const value = pts * 200000;
 
-      const embed = new MessageEmbed()
-        .setColor("GOLD")
-        .setTitle("💰 Your Points")
-        .addField("Total Points", String(pts))
-        .addField("PKD Value", value.toLocaleString() + " pkd");
-
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return interaction.reply({
+        embeds: [new MessageEmbed()
+          .setColor("GOLD")
+          .setTitle("💰 Your Points")
+          .addField("Total Points", String(pts))
+          .addField("PKD Value", value.toLocaleString() + " pkd")
+        ],
+        ephemeral: true
+      });
     }
 
-    // ====== leaderboard ======
     if (commandName === "leaderboard") {
       const rows = await db.getLeaderboard(10);
       if (rows.length === 0)
@@ -267,16 +274,17 @@ client.on("interactionCreate", async interaction => {
         desc += `**#${i + 1}** — ${u.username} — ${u.points} pts\n`;
       });
 
-      const embed = new MessageEmbed()
-        .setColor("GOLD")
-        .setTitle("🏆 Top Hunters")
-        .setDescription(desc);
-
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({
+        embeds: [new MessageEmbed()
+          .setColor("GOLD")
+          .setTitle("🏆 Top Hunters")
+          .setDescription(desc)
+        ]
+      });
     }
 
   } catch (err) {
-    console.error("❌ Command error:", err);
+    console.error("❌ Interaction error:", err);
   }
 });
 
@@ -289,6 +297,6 @@ client.once("ready", async () => {
 // ----- Login -----
 client.login(process.env.DISCORD_TOKEN);
 
-// ----- Web server -----
-app.get("/", (req, res) => res.send("Bot running on Pi (v13)"));
-app.listen(3000, () => console.log("🌐 Web server on 3000"));
+// ----- Web Server -----
+app.get("/", (req, res) => res.send("Bot running (v13)"));
+app.listen(3000, () => console.log("🌐 Web server running on port 3000"));
