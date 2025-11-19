@@ -39,11 +39,11 @@ const availableLocations = [
 ];
 
 const rarityGroups = {
-  roamerMonth: [ "Clone Venusaur", "Clone Charizard", "Clone Blastoise", "Ancient Jigglypuff", "Ancient Alakazam", "Ancient Gengar", "Crystal Onix", "Pink Rhyhorn", "Snorlax (Snowman)", "Mewtwo (Shadow)", "Golden Sudowoodo", "XD001", "Reddy", "Meta Groudon", "Rayquaza (Illusion)", "Dialga (Primal)", "Z2" ],
-  paradox: [ "Walking Wake", "Gouging Fire", "Raging Bolt", "Iron Leaves", "Iron Boulder", "Iron Crown" ],
-  legendary: [ "Raikou", "Entei", "Suicune", "Latias", "Latios", "Glastrier", "Spectrier", "Koraidon", "Miraidon" ],
-  rare: [ "Cyclizar", "Gimmighoul (Roaming)" ],
-  common: [ "Zygarde (Cell)", "Bramblin", "Bombirdier", "Varoom" ]
+  roamerMonth: ["Clone Venusaur", "Clone Charizard", "Clone Blastoise", "Ancient Jigglypuff", "Ancient Alakazam", "Ancient Gengar", "Crystal Onix", "Pink Rhyhorn", "Snorlax (Snowman)", "Mewtwo (Shadow)", "Golden Sudowoodo", "XD001", "Reddy", "Meta Groudon", "Rayquaza (Illusion)", "Dialga (Primal)", "Z2"],
+  paradox: ["Walking Wake", "Gouging Fire", "Raging Bolt", "Iron Leaves", "Iron Boulder", "Iron Crown"],
+  legendary: ["Raikou", "Entei", "Suicune", "Latias", "Latios", "Glastrier", "Spectrier", "Koraidon", "Miraidon"],
+  rare: ["Cyclizar", "Gimmighoul (Roaming)"],
+  common: ["Zygarde (Cell)", "Bramblin", "Bombirdier", "Varoom"]
 };
 
 const rarityPoints = {
@@ -61,13 +61,16 @@ const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 let sheet = null;
 
 async function initGoogleSheet() {
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT) return console.log("⚠ Sheets disabled.");
+  // Only enable sheets if BOTH values exist
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || !process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) {
+    console.log("⚠ Sheets disabled (missing private key or email).");
+    return;
+  }
 
   try {
-    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
     const serviceAuth = new JWT({
-      email: creds.client_email,
-      key: creds.private_key.replace(/\\n/g, "\n"),
+      email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, '\n'),
       scopes: ['https://www.googleapis.com/auth/spreadsheets']
     });
 
@@ -110,7 +113,7 @@ client.on('interactionCreate', async interaction => {
         ? Object.values(rarityGroups).flat()
         : availableLocations;
     }
-    if (["setlocation"].includes(interaction.commandName)) {
+    if (interaction.commandName === "setlocation") {
       choices = availableLocations;
     }
 
@@ -130,7 +133,6 @@ client.on('interactionCreate', async interaction => {
     if (commandName === "setlocation") {
       const loc = interaction.options.getString("location");
       playerLocations.set(user.id, { location: loc, timestamp: new Date(), username: user.username });
-
       return interaction.reply({
         embeds: [new EmbedBuilder()
           .setColor("Green")
@@ -144,7 +146,6 @@ client.on('interactionCreate', async interaction => {
     if (commandName === "whereami") {
       const data = playerLocations.get(user.id);
       if (!data) return interaction.reply({ content: "❌ You haven't set a location!", ephemeral: true });
-
       return interaction.reply({
         embeds: [new EmbedBuilder()
           .setColor("Blue")
@@ -162,7 +163,6 @@ client.on('interactionCreate', async interaction => {
       const targetUser = interaction.options.getUser("user");
       const data = playerLocations.get(targetUser.id);
       if (!data) return interaction.reply({ content: "❌ They haven't set a location.", ephemeral: true });
-
       return interaction.reply({
         embeds: [new EmbedBuilder()
           .setColor("Orange")
@@ -181,7 +181,7 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ content: "🧹 You were marked inactive.", ephemeral: true });
     }
 
-    // === /clearall (admin only) ===
+    // === /clearall ===
     if (commandName === "clearall") {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return interaction.reply({ content: "❌ Admins only.", ephemeral: true });
@@ -195,7 +195,6 @@ client.on('interactionCreate', async interaction => {
       const row = await db.getUserById(user.id);
       const pts = row?.points || 0;
       const value = pts * 200000;
-
       return interaction.reply({
         embeds: [new EmbedBuilder()
           .setColor("Gold")
@@ -215,7 +214,6 @@ client.on('interactionCreate', async interaction => {
       if (rows.length === 0) return interaction.reply({ content: "No data yet.", ephemeral: true });
 
       let desc = rows.map((u, i) => `**#${i + 1}** — ${u.username} — ${u.points} pts`).join("\n");
-
       return interaction.reply({
         embeds: [new EmbedBuilder()
           .setColor("Gold")
@@ -240,6 +238,7 @@ client.on('interactionCreate', async interaction => {
         setTimeout(() => interaction.deleteReply().catch(() => {}), 10000);
       }
 
+      // Expiry time = 1h later
       const expiry = new Date();
       expiry.setHours(expiry.getHours() + 1);
       const expiryTime = expiry.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
