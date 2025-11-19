@@ -6,52 +6,44 @@ const db = require('./database');
 (async () => {
   console.log("🚀 Starting Google Sheet ➝ SQLite migration...");
 
-  // ================================
-  // Setup Google Sheets authentication
-  // ================================
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || !process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) {
-    console.error("❌ Missing Google Sheets credentials in .env");
-    process.exit(1);
-  }
-
+  // Google Sheets auth
   const serviceAuth = new JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, '\n'),
     scopes: ['https://www.googleapis.com/auth/spreadsheets']
   });
 
-  // ================================
-  // Load sheet
-  // ================================
   const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, serviceAuth);
   await doc.loadInfo();
   const sheet = doc.sheetsByIndex[0];
   console.log(`📄 Connected to Sheet: ${sheet.title}`);
 
   const rows = await sheet.getRows();
-  let countImported = 0;
-  let totalPointsImported = 0;
+  await db.init();
 
-  // ================================
-  // Import each row
-  // ================================
-  console.log("🔄 Importing rows...");
-  await db.init(); // Initialize database
+  let imported = 0;
+  let total = 0;
+
+  console.log("📦 Importing rows...");
 
   for (const row of rows) {
-    const username = row.Username;
-    const userId = row.DiscordID;
-    const points = parseInt(row.Points);
+    const data = row._rawData;
+    if (!data || data.length < 3) continue;
+
+    const username = data[0];
+    const userId = data[1];
+    const points = parseInt(data[2]);
 
     if (!userId || isNaN(points)) continue;
 
     await db.addPoints(userId, username || "Unknown", points, "Sheet migration");
-    countImported++;
-    totalPointsImported += points;
+    imported++;
+    total += points;
   }
 
-  console.log("🎉 Migration complete!");
-  console.log(`📌 Rows imported: ${countImported}`);
-  console.log(`🪙 Total points migrated: ${totalPointsImported}`);
+  console.log(`🎉 Migration complete!`);
+  console.log(`📌 Rows imported: ${imported}`);
+  console.log(`🪙 Total points migrated: ${total}`);
+
   process.exit(0);
 })();
