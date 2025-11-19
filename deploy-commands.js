@@ -69,7 +69,29 @@ const commands = [
   // /cancelreport
   new SlashCommandBuilder()
     .setName('cancelreport')
-    .setDescription('Cancel your pending report')
+    .setDescription('Cancel your pending report'),
+
+  // /claim
+  new SlashCommandBuilder()
+    .setName('claim')
+    .setDescription('Convert your points into PKD (opens a staff ticket)')
+    .addIntegerOption(option =>
+      option.setName('points')
+        .setDescription('How many points you want to claim')
+        .setRequired(true)
+    ),
+
+  // /approveclaim
+  new SlashCommandBuilder()
+    .setName('approveclaim')
+    .setDescription('[STAFF] Approve a point claim ticket')
+    .setDefaultMemberPermissions(8), // Admin/mod only
+
+  // /denyclaim
+  new SlashCommandBuilder()
+    .setName('denyclaim')
+    .setDescription('[STAFF] Deny a point claim ticket')
+    .setDefaultMemberPermissions(8) // Admin/mod only
 ]
 .map(command => command.toJSON());
 
