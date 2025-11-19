@@ -7,7 +7,8 @@ const {
   PermissionFlagsBits,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  ChannelType
 } = require('discord.js');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
@@ -105,7 +106,7 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand() && !interaction.isAutocomplete() && !interaction.isButton()) return;
 
   // ======================
-  // BUTTON HANDLERS (NEW)
+  // BUTTON HANDLERS
   // ======================
   if (interaction.isButton()) {
     if (interaction.customId.startsWith("approveclaim_")) {
@@ -175,6 +176,7 @@ client.on('interactionCreate', async interaction => {
     const { commandName } = interaction;
     const user = interaction.user;
 
+    // Location Commands
     if (commandName === "setlocation") {
       const loc = interaction.options.getString("location");
       playerLocations.set(user.id, { location: loc, timestamp: new Date(), username: user.username });
@@ -219,6 +221,7 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply("🧹 All locations cleared.");
     }
 
+    // Points and Leaderboard
     if (commandName === "mypoints") {
       const row = await db.getUserById(user.id);
       const pts = row?.points || 0;
@@ -242,6 +245,7 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
+    // Report
     if (commandName === "report") {
       const pokemon = interaction.options.getString("pokemon");
       const route = interaction.options.getString("route");
@@ -261,6 +265,14 @@ client.on('interactionCreate', async interaction => {
       expiry.setMinutes(59, 59, 999);
       const expiryTime = expiry.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+      const rarityLabel = {
+        roamerMonth: "Roamer of the Month",
+        paradox: "Paradox",
+        legendary: "Legendary",
+        rare: "Rare",
+        common: "Common"
+      }[rarity] || rarity;
+
       const points = rarityPoints[rarity] || 10;
       await awardPoints(user.id, user.username, points, `Report: ${pokemon}`);
 
@@ -269,20 +281,31 @@ client.on('interactionCreate', async interaction => {
         .setTitle(`🐾 Wild ${pokemon} spotted!`)
         .setDescription(`**${user.username}** has found a wild **${pokemon}**!\n📍 Location: **${route}**\n⏳ Available until **${expiryTime}**`)
         .addFields(
-          { name: '📊 Rarity', value: rarity, inline: true },
+          { name: '📊 Rarity', value: rarityLabel, inline: true },
           { name: '🏆 Points Awarded', value: String(points), inline: true }
         )
         .setThumbnail(`https://img.pokemondb.net/artwork/${pokemon.toLowerCase().replace(/\s/g, '-')}.jpg`)
         .setTimestamp();
 
       const targetChannel = await interaction.guild.channels.fetch(channelId);
-      await targetChannel.send({ content: `<@${user.id}> <@&${roleId}>`, embeds: [embed] });
+      await targetChannel.send({
+        content: `<@${user.id}> <@&${roleId}>`,
+        embeds: [embed]
+      });
 
       return interaction.reply({ content: `✔ Report submitted in <#${channelId}>.`, ephemeral: true });
     }
 
+    if (commandName === "cancelreport") {
+      if (!pendingReports.has(user.id)) {
+        return interaction.reply({ content: "❌ No report to cancel.", ephemeral: true });
+      }
+      pendingReports.delete(user.id);
+      return interaction.reply({ content: "🛑 Report cancelled.", ephemeral: true });
+    }
+
     // ===========================
-    // NEW CLAIM COMMANDS
+    // CLAIM COMMAND
     // ===========================
     if (commandName === 'claim') {
       const pointsRequested = interaction.options.getInteger('points');
@@ -295,24 +318,26 @@ client.on('interactionCreate', async interaction => {
       if (currentPoints < pointsRequested)
         return interaction.reply({ content: `❌ You only have **${currentPoints}** points.`, ephemeral: true });
 
-      const staffRoles = process.env.STAFF_ROLES.split(',').filter(Boolean);
+      const staffRoles = process.env.STAFF_ROLES.split(',');
 
       const ticketChannel = await interaction.guild.channels.create({
         name: `claim-${user.username}-${Date.now().toString().slice(-3)}`,
+        type: ChannelType.GuildText,
         permissionOverwrites: [
           { id: interaction.guild.id, deny: ['ViewChannel'] },
-          { id: user.id, allow: ['ViewChannel', 'SendMessages'] },
-          ...staffRoles.map(r => ({ id: r, allow: ['ViewChannel', 'SendMessages'] }))
+          { id: user.id, allow: ['ViewChannel', 'SendMessages', 'EmbedLinks'] },
+          ...staffRoles.map(r => ({ id: r, allow: ['ViewChannel', 'SendMessages', 'EmbedLinks'] })),
+          { id: client.user.id, allow: ['ViewChannel', 'SendMessages', 'EmbedLinks'] }
         ],
         reason: `Point claim by ${user.username}`
       });
 
-      // 🔥 Correct fix (do not remove)
-      await ticketChannel.edit({ topic: JSON.stringify({ userId: user.id, points: pointsRequested }) });
+      const readyChannel = await interaction.guild.channels.fetch(ticketChannel.id).catch(() => null);
+      if (!readyChannel) return interaction.reply({ content: '❌ Ticket channel created but not accessible.', ephemeral: true });
 
-      await interaction.reply({ content: `🎫 Claim created: <#${ticketChannel.id}>`, ephemeral: true });
+      await interaction.reply({ content: `🎫 Claim created: <#${readyChannel.id}>`, ephemeral: true });
 
-      await ticketChannel.send({
+      await readyChannel.send({
         content: `<@${user.id}> ${staffRoles.map(r => `<@&${r}>`).join(' ')}`,
         embeds: [
           new EmbedBuilder()
@@ -334,10 +359,11 @@ client.on('interactionCreate', async interaction => {
               .setStyle(ButtonStyle.Success)
           )
         ]
-      });
+      }).catch(err => console.error('❌ Ticket message failed:', err));
       return;
     }
 
+    // Override legacy commands
     if (commandName === 'approveclaim') {
       return interaction.reply({ content: '⚠ Use the approval button instead.', ephemeral: true });
     }
