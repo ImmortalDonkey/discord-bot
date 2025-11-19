@@ -4,7 +4,10 @@ const {
   Client,
   GatewayIntentBits,
   EmbedBuilder,
-  PermissionFlagsBits
+  PermissionFlagsBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require('discord.js');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
@@ -99,18 +102,60 @@ async function awardPoints(id, username, pts, reason = "") {
 // Interaction Handling
 // ==========================
 client.on('interactionCreate', async interaction => {
-  if (!interaction.isCommand() && !interaction.isAutocomplete()) return;
+  if (!interaction.isCommand() && !interaction.isAutocomplete() && !interaction.isButton()) return;
 
-  // Autocomplete
+  // ======================
+  // BUTTON HANDLERS (NEW)
+  // ======================
+  if (interaction.isButton()) {
+    if (interaction.customId.startsWith("approveclaim_")) {
+      const [_, userId, pointsRequested] = interaction.customId.split("_");
+
+      const userRow = await db.getUserById(userId);
+      const oldPoints = userRow?.points || 0;
+      const newPoints = oldPoints - parseInt(pointsRequested);
+
+      await db.addPoints(userId, userRow.username, -parseInt(pointsRequested), "PKD Claim");
+
+      const embed = new EmbedBuilder()
+        .setColor('Green')
+        .setTitle('✔ Claim Approved')
+        .setDescription(`Points successfully deducted for <@${userId}>.`)
+        .addFields(
+          { name: 'Points Requested', value: pointsRequested, inline: true },
+          { name: 'Old Total', value: oldPoints.toString(), inline: true },
+          { name: 'New Total', value: newPoints.toString(), inline: true }
+        )
+        .setTimestamp();
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("close_ticket")
+          .setLabel("Close Ticket")
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      await interaction.reply({ embeds: [embed], components: [row] });
+      return;
+    }
+
+    if (interaction.customId === "close_ticket") {
+      await interaction.reply({ content: "🔒 Ticket will close shortly...", ephemeral: true });
+      setTimeout(() => interaction.channel.delete().catch(() => {}), 4000);
+      return;
+    }
+  }
+
+  // ======================
+  // AUTOCOMPLETE
+  // ======================
   if (interaction.isAutocomplete()) {
     const focused = interaction.options.getFocused();
     let choices = [];
 
     if (interaction.commandName === "report") {
       const option = interaction.options.getFocused(true).name;
-      choices = option === "pokemon"
-        ? Object.values(rarityGroups).flat()
-        : availableLocations;
+      choices = option === "pokemon" ? Object.values(rarityGroups).flat() : availableLocations;
     }
     if (interaction.commandName === "setlocation") {
       choices = availableLocations;
@@ -123,11 +168,14 @@ client.on('interactionCreate', async interaction => {
     return interaction.respond(filtered.map(c => ({ name: c, value: c })));
   }
 
-  // Slash Commands
+  // ======================
+  // SLASH COMMANDS
+  // ======================
   if (interaction.isCommand()) {
     const { commandName } = interaction;
     const user = interaction.user;
 
+    // --- Location commands ---
     if (commandName === "setlocation") {
       const loc = interaction.options.getString("location");
       playerLocations.set(user.id, { location: loc, timestamp: new Date(), username: user.username });
@@ -172,6 +220,7 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply("🧹 All locations cleared.");
     }
 
+    // --- Points / Leaderboard ---
     if (commandName === "mypoints") {
       const row = await db.getUserById(user.id);
       const pts = row?.points || 0;
@@ -195,6 +244,7 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
+    // --- Report ---
     if (commandName === "report") {
       const pokemon = interaction.options.getString("pokemon");
       const route = interaction.options.getString("route");
@@ -280,12 +330,7 @@ client.on('interactionCreate', async interaction => {
         reason: `Point claim by ${user.username}`
       });
 
-      await interaction.reply({
-        content: `🎫 Claim created: <#${ticketChannel.id}>`,
-        ephemeral: true
-      });
-
-      ticketChannel.topic = JSON.stringify({ userId: user.id, points: pointsRequested });
+      await interaction.reply({ content: `🎫 Claim created: <#${ticketChannel.id}>`, ephemeral: true });
 
       await ticketChannel.send({
         content: `<@${user.id}> ${staffRoles.map(r => `<@&${r}>`).join(' ')}`,
@@ -299,23 +344,23 @@ client.on('interactionCreate', async interaction => {
               { name: 'Points Requested', value: `${pointsRequested}`, inline: true },
               { name: 'Current Points', value: `${currentPoints}`, inline: true }
             )
-            .setFooter({ text: 'Use /approveclaim or /denyclaim' })
             .setTimestamp()
+        ],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`approveclaim_${user.id}_${pointsRequested}`)
+              .setLabel("Approve")
+              .setStyle(ButtonStyle.Success)
+          )
         ]
       });
       return;
     }
 
+    // Override /approveclaim to force button usage
     if (commandName === 'approveclaim') {
-      const data = JSON.parse(interaction.channel.topic || '{}');
-      if (!data.userId) return interaction.reply({ content: '❌ Invalid ticket.', ephemeral: true });
-
-      const row = await db.getUserById(data.userId);
-      await db.addPoints(data.userId, row.username, -data.points, 'PKD Claim');
-
-      await interaction.reply(`✔ Claim approved. Deducted **${data.points}** points.`);
-      setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
-      return;
+      return interaction.reply({ content: '⚠ Use the approval button instead.', ephemeral: true });
     }
 
     if (commandName === 'denyclaim') {
@@ -339,5 +384,6 @@ client.once('ready', async () => {
 // Login + Web Server
 // ==========================
 client.login(process.env.DISCORD_TOKEN);
+
 app.get("/", (_, res) => res.send("Bot running (v14)"));
 app.listen(3000, () => console.log("🌐 Web server running on port 3000"));
