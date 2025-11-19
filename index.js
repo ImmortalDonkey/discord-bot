@@ -1,25 +1,27 @@
-// index.js (Discord.js v13 compatible with autocomplete)
 require('dotenv').config();
 const express = require('express');
-const fetch = require('node-fetch');
-const { Client, Intents, MessageEmbed, Permissions } = require('discord.js');
-
+const { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
 
 const db = require('./database');
 const app = express();
 
-// ----- Discord Client (v13 syntax) -----
+// ==========================
+//  Discord Client (v14)
+// ==========================
 const client = new Client({
   intents: [
-    Intents.FLAGS.GUILDS,
-    Intents.FLAGS.GUILD_MESSAGES
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
   ]
 });
 
-// ----- In-memory locations -----
-const playerLocations = new Map();
+// ==========================
+//  In-memory Data
+// ==========================
+const pendingReports = new Map(); // For cancel support
 
 const availableLocations = [
   "Route 1", "Route 2", "Route 3", "Route 4", "Route 6", "Route 7",
@@ -30,268 +32,162 @@ const availableLocations = [
   "Stillwater Quarry", "Wild Overgrowth"
 ];
 
-// ----- Rarity groups -----
 const rarityGroups = {
-  paradox: [
-    "Walking Wake", "Gouging Fire", "Raging Bolt",
-    "Iron Leaves", "Iron Boulder", "Iron Crown"
-  ],
-  roamerMonth: [
-    "Clone Venusaur", "Clone Charizard", "Clone Blastoise",
-    "Ancient Jigglypuff", "Ancient Alakazam", "Ancient Gengar",
-    "Crystal Onix", "Pink Rhyhorn", "Snorlax (Snowman)",
-    "Mewtwo (Shadow)", "Golden Sudowoodo", "XD001", "Reddy",
-    "Meta Groudon", "Rayquaza (Illusion)", "Dialga (Primal)", "Z2"
-  ],
-  legendary: [
-    "Raikou", "Entei", "Suicune", "Latias", "Latios",
-    "Glastrier", "Spectrier", "Koraidon", "Miraidon"
-  ],
-  rare: ["Cyclizar", "Gimmighoul (Roaming)"],
-  common: ["Zygarde (Cell)", "Bramblin", "Bombirdier", "Varoom"]
+  roamerMonth: [ "Clone Venusaur", "Clone Charizard", "Clone Blastoise", "Ancient Jigglypuff", "Ancient Alakazam", "Ancient Gengar", "Crystal Onix", "Pink Rhyhorn", "Snorlax (Snowman)", "Mewtwo (Shadow)", "Golden Sudowoodo", "XD001", "Reddy", "Meta Groudon", "Rayquaza (Illusion)", "Dialga (Primal)", "Z2" ],
+  paradox: [ "Walking Wake", "Gouging Fire", "Raging Bolt", "Iron Leaves", "Iron Boulder", "Iron Crown" ],
+  legendary: [ "Raikou", "Entei", "Suicune", "Latias", "Latios", "Glastrier", "Spectrier", "Koraidon", "Miraidon" ],
+  rare: [ "Cyclizar", "Gimmighoul (Roaming)" ],
+  common: [ "Zygarde (Cell)", "Bramblin", "Bombirdier", "Varoom" ]
 };
 
 const rarityPoints = {
-  paradox: 200,
   roamerMonth: 30,
+  paradox: 200,
   legendary: 20,
   rare: 20,
   common: 1
 };
 
-// ----- Sheets Setup -----
+// ==========================
+//  Google Sheets Setup
+// ==========================
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
-let sheetDoc = null;
 let sheet = null;
 
 async function initGoogleSheet() {
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) {
-    console.log("⚠ Sheets disabled. Missing Google credentials.");
-    return;
-  }
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT) return console.log("⚠ Sheets disabled.");
 
   try {
-    console.log("🔎 Using Google Sheets credentials...");
-    console.log("🔎 Email:", process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL);
-    console.log("🔎 Sheet ID:", SHEET_ID);
-
+    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
     const serviceAuth = new JWT({
-      email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      email: creds.client_email,
+      key: creds.private_key.replace(/\\n/g, "\n"),
       scopes: ['https://www.googleapis.com/auth/spreadsheets']
     });
 
-    sheetDoc = new GoogleSpreadsheet(SHEET_ID, serviceAuth);
-    await sheetDoc.loadInfo();
-    sheet = sheetDoc.sheetsByIndex[0];
-    console.log("📄 Connected to Sheet:", sheet.title);
-
-    await sheet.loadHeaderRow();
-    if (!sheet.headerValues.includes("Username")) {
-      await sheet.setHeaderRow(['Username', 'DiscordID', 'Points', 'LastUpdated']);
-    }
-
+    const doc = new GoogleSpreadsheet(SHEET_ID, serviceAuth);
+    await doc.loadInfo();
+    sheet = doc.sheetsByIndex[0];
+    console.log(`📄 Connected to Sheet: ${sheet.title}`);
   } catch (err) {
-    console.error("❌ Sheets init failed:", err);
+    console.log("❌ Sheets setup failed:", err);
   }
 }
 
-// ----- DB Init -----
-(async () => {
-  try {
-    await db.init();
-    console.log("✅ Database OK");
-  } catch (err) {
-    console.error("❌ DB init failed:", err);
-  }
-})();
-
-// ----- Point logic -----
-function getRarityPoints(pokemon) {
-  const key = Object.keys(rarityGroups).find(k =>
-    rarityGroups[k].some(p => p.toLowerCase() === pokemon.toLowerCase())
-  );
-  return key ? (rarityPoints[key] || 10) : 10;
+// ==========================
+//  Award Points
+// ==========================
+async function awardPoints(id, username, pts, reason = "") {
+  return await db.addPoints(id, username, pts, reason);
 }
 
-async function awardPoints(discordId, username, points, reason = "") {
-  return await db.addPoints(discordId, username, points, reason);
+function getRarity(pokemon) {
+  return Object.keys(rarityGroups).find(r =>
+    rarityGroups[r].some(p => p.toLowerCase() === pokemon.toLowerCase())
+  ) || 'common';
 }
 
-// ----- Vortex Detection -----
-const VORTEX_ID = process.env.VORTEX_ID || "858945228655951882";
+// ==========================
+//  Interaction Handling
+// ==========================
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isCommand() && !interaction.isAutocomplete()) return;
 
-client.on("messageCreate", async message => {
-  try {
-    if (message.author.id !== VORTEX_ID) return;
+  // Autocomplete
+  if (interaction.isAutocomplete()) {
+    const focused = interaction.options.getFocused();
+    let choices = [];
 
-    const text =
-      message.content ||
-      message.embeds?.[0]?.description ||
-      message.embeds?.[0]?.title ||
-      "";
-
-    const match = text.match(/report for (.+?) in (.+?), it will expire/i);
-    if (!match) return;
-
-    const pokemon = match[1];
-    const location = match[2];
-    const reporter = message.mentions.users.first();
-    const pts = getRarityPoints(pokemon);
-
-    if (reporter) {
-      await awardPoints(reporter.id, reporter.username, pts, `Vortex: ${pokemon} @ ${location}`);
-      message.channel.send(`🧭 **${pokemon}** at **${location}** — +${pts} pts to **${reporter.username}**`);
-    } else {
-      message.channel.send(`🧭 **${pokemon}** at **${location}** (Reporter unknown)`);
+    if (interaction.commandName === "report") {
+      const option = interaction.options.getFocused(true).name;
+      choices = option === "pokemon"
+        ? Object.values(rarityGroups).flat()
+        : availableLocations;
     }
 
-  } catch (err) {
-    console.error("❌ Vortex error:", err);
+    const filtered = choices
+      .filter(c => c.toLowerCase().includes(focused.toLowerCase()))
+      .slice(0, 25);
+
+    return interaction.respond(filtered.map(c => ({ name: c, value: c })));
   }
-});
 
-// ----- Interaction Handling -----
-client.on("interactionCreate", async interaction => {
-  try {
-    // 🔹 Handle Autocomplete
-    if (interaction.isAutocomplete()) {
-      const focused = interaction.options.getFocused();
-      const filtered = availableLocations
-        .filter(loc => loc.toLowerCase().includes(focused.toLowerCase()))
-        .slice(0, 25);
-
-      await interaction.respond(filtered.map(loc => ({ name: loc, value: loc })));
-      return;
-    }
-
-    if (!interaction.isCommand()) return;
+  // Slash Commands
+  if (interaction.isCommand()) {
     const { commandName } = interaction;
 
-    if (commandName === "setlocation") {
-      const loc = interaction.options.getString("location");
-      playerLocations.set(interaction.user.id, {
-        location: loc,
-        username: interaction.user.username,
-        timestamp: new Date()
+    if (commandName === "report") {
+      const pokemon = interaction.options.getString("pokemon");
+      const route = interaction.options.getString("route");
+      const user = interaction.user;
+      const rarity = getRarity(pokemon);
+      const roleId = process.env[`ROLE_${rarity.toUpperCase()}`];
+      const channelId = process.env[`CHANNEL_${rarity.toUpperCase()}`];
+
+      // Save for potential cancellation
+      pendingReports.set(user.id, { pokemon, route });
+
+      // Wrong channel handling
+      if (interaction.channel.id !== channelId) {
+        await interaction.reply({ content: `⚠ Wrong channel! This report will be moved to <#${channelId}>.`, ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 10000);
+      }
+
+      // Expiry time = 1h later
+      const expiry = new Date();
+      expiry.setHours(expiry.getHours() + 1);
+      const expiryTime = expiry.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      const points = rarityPoints[rarity] || 10;
+      await awardPoints(user.id, user.username, points, `Report: ${pokemon}`);
+
+      // Build embed
+      const embed = new EmbedBuilder()
+        .setColor('Random')
+        .setTitle(`🐾 Wild ${pokemon} spotted!`)
+        .setDescription(
+          `**${user.username}** has found a wild **${pokemon}**!\n` +
+          `📍 Location: **${route}**\n` +
+          `⏳ Available until **${expiryTime}**\n`
+        )
+        .addFields(
+          { name: '📊 Rarity', value: rarity, inline: true },
+          { name: '🏆 Points Awarded', value: String(points), inline: true }
+        )
+        .setThumbnail(`https://img.pokemondb.net/artwork/${pokemon.toLowerCase().replace(/\s/g, '-')}.jpg`)
+        .setTimestamp();
+
+      const targetChannel = await interaction.guild.channels.fetch(channelId);
+      await targetChannel.send({
+        content: `<@${user.id}> <@&${roleId}>`,
+        embeds: [embed]
       });
 
-      return interaction.reply({
-        embeds: [new MessageEmbed()
-          .setColor("GREEN")
-          .setTitle("📍 Location Updated")
-          .setDescription(`Your location is now **${loc}**`)
-        ]
-      });
+      return interaction.reply({ content: `✔ Report submitted successfully in <#${channelId}>.`, ephemeral: true });
     }
 
-    if (commandName === "whereami") {
-      const data = playerLocations.get(interaction.user.id);
-      if (!data)
-        return interaction.reply({ content: "❌ You haven't set a location!", ephemeral: true });
+    if (commandName === "cancelreport") {
+      if (!pendingReports.has(interaction.user.id))
+        return interaction.reply({ content: "❌ No report to cancel.", ephemeral: true });
 
-      return interaction.reply({
-        embeds: [new MessageEmbed()
-          .setColor("BLUE")
-          .setTitle("📍 Your Location")
-          .addField("Location", data.location)
-          .addField("Updated", data.timestamp.toLocaleString())
-        ]
-      });
+      pendingReports.delete(interaction.user.id);
+      return interaction.reply({ content: "🛑 Your report has been cancelled.", ephemeral: true });
     }
-
-    if (commandName === "whereis") {
-      const user = interaction.options.getUser("user");
-      const data = playerLocations.get(user.id);
-      if (!data)
-        return interaction.reply({ content: "❌ They haven't set a location!", ephemeral: true });
-
-      return interaction.reply({
-        embeds: [new MessageEmbed()
-          .setColor("ORANGE")
-          .setTitle(`📍 ${user.username}'s Location`)
-          .addField("Location", data.location)
-          .addField("Updated", data.timestamp.toLocaleString())
-        ]
-      });
-    }
-
-    if (commandName === "locations") {
-      if (playerLocations.size === 0)
-        return interaction.reply({ content: "❌ No active locations.", ephemeral: true });
-
-      let text = "";
-      playerLocations.forEach(v => (text += `**${v.username}** — ${v.location}\n`));
-
-      return interaction.reply({
-        embeds: [new MessageEmbed()
-          .setColor("CYAN")
-          .setTitle("🌍 Active Player Locations")
-          .setDescription(text)
-        ]
-      });
-    }
-
-    if (commandName === "clearme") {
-      playerLocations.delete(interaction.user.id);
-      return interaction.reply({ content: "✅ You were marked inactive.", ephemeral: true });
-    }
-
-    if (commandName === "clearall") {
-      if (!interaction.member.permissions.has(Permissions.FLAGS.ADMINISTRATOR))
-        return interaction.reply({ content: "❌ Admins only.", ephemeral: true });
-
-      playerLocations.clear();
-      return interaction.reply("🧹 All locations cleared.");
-    }
-
-    if (commandName === "mypoints") {
-      const row = await db.getUserById(interaction.user.id);
-      const pts = row ? row.points : 0;
-      const value = pts * 200000;
-
-      return interaction.reply({
-        embeds: [new MessageEmbed()
-          .setColor("GOLD")
-          .setTitle("💰 Your Points")
-          .addField("Total Points", String(pts))
-          .addField("PKD Value", value.toLocaleString() + " pkd")
-        ],
-        ephemeral: true
-      });
-    }
-
-    if (commandName === "leaderboard") {
-      const rows = await db.getLeaderboard(10);
-      if (rows.length === 0)
-        return interaction.reply({ content: "No data yet.", ephemeral: true });
-
-      let desc = "";
-      rows.forEach((u, i) => (desc += `**#${i + 1}** — ${u.username} — ${u.points} pts\n`));
-
-      return interaction.reply({
-        embeds: [new MessageEmbed()
-          .setColor("GOLD")
-          .setTitle("🏆 Top Hunters")
-          .setDescription(desc)
-        ]
-      });
-    }
-
-  } catch (err) {
-    console.error("❌ Interaction error:", err);
   }
 });
 
-// ----- Ready -----
-client.once("ready", async () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
+// ==========================
+//  Ready
+// ==========================
+client.once('ready', async () => {
+  console.log(`🤖 Logged in as ${client.user.tag}`);
+  await db.init();
   await initGoogleSheet();
 });
 
-// ----- Login -----
+// ==========================
+//  Login & Web Server
+// ==========================
 client.login(process.env.DISCORD_TOKEN);
-
-// ----- Web Server -----
-app.get("/", (req, res) => res.send("Bot running (v13)"));
+app.get("/", (req, res) => res.send("Bot running (v14)"));
 app.listen(3000, () => console.log("🌐 Web server running on port 3000"));
