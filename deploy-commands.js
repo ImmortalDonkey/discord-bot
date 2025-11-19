@@ -1,91 +1,83 @@
 require('dotenv').config();
-const { REST } = require('@discordjs/rest');
-const { Routes } = require('discord-api-types/v10');
+const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 
 const commands = [
-  {
-    name: 'report',
-    description: 'Report a roaming Pokémon',
-    options: [
-      {
-        name: 'pokemon',
-        description: 'Select the Pokémon',
-        type: 3, // STRING
-        required: true,
-        autocomplete: true
-      },
-      {
-        name: 'route',
-        description: 'Choose the location or route',
-        type: 3, // STRING
-        required: true,
-        autocomplete: true
-      },
-      {
-        name: 'cancel',
-        description: 'Cancel this report instead',
-        type: 5, // BOOLEAN
-        required: false
-      }
-    ]
-  },
-  {
-    name: 'mypoints',
-    description: 'Check your roaming points'
-  },
-  {
-    name: 'leaderboard',
-    description: 'View the top hunters'
-  },
-  {
-    name: 'setlocation',
-    description: 'Set your current location',
-    options: [
-      {
-        name: 'location',
-        description: 'Choose your current location',
-        type: 3, // STRING
-        required: true,
-        autocomplete: true
-      }
-    ]
-  },
-  {
-    name: 'whereami',
-    description: 'Check your current location'
-  },
-  {
-    name: 'whereis',
-    description: 'Check another player’s location',
-    options: [
-      {
-        name: 'user',
-        description: 'Select a user',
-        type: 6, // USER
-        required: true
-      }
-    ]
-  },
-  {
-    name: 'locations',
-    description: 'View all currently active player locations'
-  },
-  {
-    name: 'clearme',
-    description: 'Mark yourself as inactive'
-  },
-  {
-    name: 'clearall',
-    description: 'Admin only: Clear all player location data',
-    default_member_permissions: '0', // no permissions by default, restricted in code
-  }
-];
+  // /setlocation
+  new SlashCommandBuilder()
+    .setName('setlocation')
+    .setDescription('Set your current location')
+    .addStringOption(option =>
+      option.setName('location')
+        .setDescription('Choose your location')
+        .setAutocomplete(true)
+        .setRequired(true)
+    ),
+
+  // /whereami
+  new SlashCommandBuilder()
+    .setName('whereami')
+    .setDescription('Check your current location'),
+
+  // /whereis
+  new SlashCommandBuilder()
+    .setName('whereis')
+    .setDescription('Check another player\'s location')
+    .addUserOption(option =>
+      option.setName('user')
+        .setDescription('Select a user')
+        .setRequired(true)
+    ),
+
+  // /clearme
+  new SlashCommandBuilder()
+    .setName('clearme')
+    .setDescription('Mark yourself as inactive'),
+
+  // /clearall
+  new SlashCommandBuilder()
+    .setName('clearall')
+    .setDescription('[ADMIN] Clears all player locations')
+    .setDefaultMemberPermissions(8), // Administrator permission
+
+  // /mypoints
+  new SlashCommandBuilder()
+    .setName('mypoints')
+    .setDescription('Check your total points'),
+
+  // /leaderboard
+  new SlashCommandBuilder()
+    .setName('leaderboard')
+    .setDescription('View top players leaderboard'),
+
+  // /report
+  new SlashCommandBuilder()
+    .setName('report')
+    .setDescription('Report a roaming Pokémon')
+    .addStringOption(option =>
+      option.setName('pokemon')
+        .setDescription('Name of the Pokémon')
+        .setAutocomplete(true)
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName('route')
+        .setDescription('Route / location where it was found')
+        .setAutocomplete(true)
+        .setRequired(true)
+    ),
+
+  // /cancelreport
+  new SlashCommandBuilder()
+    .setName('cancelreport')
+    .setDescription('Cancel your pending report')
+]
+.map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log(`🔄 Deploying ${commands.length} slash commands...`);
+    console.log('🚀 Deploying slash commands...');
 
     await rest.put(
       Routes.applicationGuildCommands(
@@ -95,8 +87,8 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
       { body: commands }
     );
 
-    console.log('✅ Commands deployed successfully!');
+    console.log('✔ Successfully registered all commands.');
   } catch (error) {
-    console.error('❌ Deployment failed:', error);
+    console.error('❌ Failed to deploy commands:', error);
   }
 })();
