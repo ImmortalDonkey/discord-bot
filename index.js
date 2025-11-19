@@ -13,7 +13,7 @@ const app = express();
 // ----- Discord Client (v13 syntax) -----
 const client = new Client({
   intents: [
-    Intents.FLAGS.GUILDS, 
+    Intents.FLAGS.GUILDS,
     Intents.FLAGS.GUILD_MESSAGES
   ]
 });
@@ -65,16 +65,19 @@ let sheetDoc = null;
 let sheet = null;
 
 async function initGoogleSheet() {
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-    console.log("⚠ Sheets disabled.");
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) {
+    console.log("⚠ Sheets disabled. Missing Google credentials.");
     return;
   }
 
   try {
-    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+    console.log("🔎 Using Google Sheets credentials...");
+    console.log("🔎 Email:", process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL);
+    console.log("🔎 Sheet ID:", SHEET_ID);
+
     const serviceAuth = new JWT({
-      email: creds.client_email,
-      key: creds.private_key.replace(/\\n/g, "\n"),
+      email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, "\n"),
       scopes: ['https://www.googleapis.com/auth/spreadsheets']
     });
 
@@ -158,14 +161,10 @@ client.on("interactionCreate", async interaction => {
         .filter(loc => loc.toLowerCase().includes(focused.toLowerCase()))
         .slice(0, 25);
 
-      await interaction.respond(filtered.map(loc => ({
-        name: loc,
-        value: loc
-      })));
+      await interaction.respond(filtered.map(loc => ({ name: loc, value: loc })));
       return;
     }
 
-    // 🔻 Slash Commands
     if (!interaction.isCommand()) return;
     const { commandName } = interaction;
 
@@ -222,9 +221,7 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ content: "❌ No active locations.", ephemeral: true });
 
       let text = "";
-      playerLocations.forEach(v => {
-        text += `**${v.username}** — ${v.location}\n`;
-      });
+      playerLocations.forEach(v => (text += `**${v.username}** — ${v.location}\n`));
 
       return interaction.reply({
         embeds: [new MessageEmbed()
@@ -270,9 +267,7 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ content: "No data yet.", ephemeral: true });
 
       let desc = "";
-      rows.forEach((u, i) => {
-        desc += `**#${i + 1}** — ${u.username} — ${u.points} pts\n`;
-      });
+      rows.forEach((u, i) => (desc += `**#${i + 1}** — ${u.username} — ${u.points} pts\n`));
 
       return interaction.reply({
         embeds: [new MessageEmbed()
