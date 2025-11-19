@@ -61,7 +61,6 @@ const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 let sheet = null;
 
 async function initGoogleSheet() {
-  // Only enable sheets if BOTH values exist
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || !process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) {
     console.log("⚠ Sheets disabled (missing private key or email).");
     return;
@@ -102,7 +101,7 @@ async function awardPoints(id, username, pts, reason = "") {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand() && !interaction.isAutocomplete()) return;
 
-  // ----- Autocomplete -----
+  // Autocomplete
   if (interaction.isAutocomplete()) {
     const focused = interaction.options.getFocused();
     let choices = [];
@@ -124,64 +123,47 @@ client.on('interactionCreate', async interaction => {
     return interaction.respond(filtered.map(c => ({ name: c, value: c })));
   }
 
-  // ----- Slash Commands -----
+  // Slash Commands
   if (interaction.isCommand()) {
     const { commandName } = interaction;
     const user = interaction.user;
 
-    // === /setlocation ===
     if (commandName === "setlocation") {
       const loc = interaction.options.getString("location");
       playerLocations.set(user.id, { location: loc, timestamp: new Date(), username: user.username });
       return interaction.reply({
-        embeds: [new EmbedBuilder()
-          .setColor("Green")
-          .setTitle("📍 Location Updated")
-          .setDescription(`Your location is now **${loc}**`)
-        ]
+        embeds: [new EmbedBuilder().setColor("Green").setTitle("📍 Location Updated").setDescription(`Your location is now **${loc}**`)]
       });
     }
 
-    // === /whereami ===
     if (commandName === "whereami") {
       const data = playerLocations.get(user.id);
       if (!data) return interaction.reply({ content: "❌ You haven't set a location!", ephemeral: true });
       return interaction.reply({
-        embeds: [new EmbedBuilder()
-          .setColor("Blue")
-          .setTitle("📍 Your Location")
-          .addFields(
-            { name: "Location", value: data.location },
-            { name: "Updated", value: data.timestamp.toLocaleString() }
-          )
-        ]
+        embeds: [new EmbedBuilder().setColor("Blue").setTitle("📍 Your Location").addFields(
+          { name: "Location", value: data.location },
+          { name: "Updated", value: data.timestamp.toLocaleString() }
+        )]
       });
     }
 
-    // === /whereis ===
     if (commandName === "whereis") {
       const targetUser = interaction.options.getUser("user");
       const data = playerLocations.get(targetUser.id);
       if (!data) return interaction.reply({ content: "❌ They haven't set a location.", ephemeral: true });
       return interaction.reply({
-        embeds: [new EmbedBuilder()
-          .setColor("Orange")
-          .setTitle(`📍 ${targetUser.username}’s Location`)
-          .addFields(
-            { name: "Location", value: data.location },
-            { name: "Updated", value: data.timestamp.toLocaleString() }
-          )
-        ]
+        embeds: [new EmbedBuilder().setColor("Orange").setTitle(`📍 ${targetUser.username}’s Location`).addFields(
+          { name: "Location", value: data.location },
+          { name: "Updated", value: data.timestamp.toLocaleString() }
+        )]
       });
     }
 
-    // === /clearme ===
     if (commandName === "clearme") {
       playerLocations.delete(user.id);
       return interaction.reply({ content: "🧹 You were marked inactive.", ephemeral: true });
     }
 
-    // === /clearall ===
     if (commandName === "clearall") {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return interaction.reply({ content: "❌ Admins only.", ephemeral: true });
@@ -190,40 +172,29 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply("🧹 All locations cleared.");
     }
 
-    // === /mypoints ===
     if (commandName === "mypoints") {
       const row = await db.getUserById(user.id);
       const pts = row?.points || 0;
       const value = pts * 200000;
       return interaction.reply({
-        embeds: [new EmbedBuilder()
-          .setColor("Gold")
-          .setTitle("💰 Your Points")
-          .addFields(
-            { name: "Total Points", value: String(pts) },
-            { name: "PKD Value", value: value.toLocaleString() + " pkd" }
-          )
-        ],
+        embeds: [new EmbedBuilder().setColor("Gold").setTitle("💰 Your Points").addFields(
+          { name: "Total Points", value: String(pts) },
+          { name: "PKD Value", value: value.toLocaleString() + " pkd" }
+        )],
         ephemeral: true
       });
     }
 
-    // === /leaderboard ===
     if (commandName === "leaderboard") {
       const rows = await db.getLeaderboard(10);
       if (rows.length === 0) return interaction.reply({ content: "No data yet.", ephemeral: true });
 
       let desc = rows.map((u, i) => `**#${i + 1}** — ${u.username} — ${u.points} pts`).join("\n");
       return interaction.reply({
-        embeds: [new EmbedBuilder()
-          .setColor("Gold")
-          .setTitle("🏆 Top Hunters")
-          .setDescription(desc)
-        ]
+        embeds: [new EmbedBuilder().setColor("Gold").setTitle("🏆 Top Hunters").setDescription(desc)]
       });
     }
 
-    // === /report ===
     if (commandName === "report") {
       const pokemon = interaction.options.getString("pokemon");
       const route = interaction.options.getString("route");
@@ -238,20 +209,32 @@ client.on('interactionCreate', async interaction => {
         setTimeout(() => interaction.deleteReply().catch(() => {}), 10000);
       }
 
-      // Expiry time = 1h later
-      const expiry = new Date();
-      expiry.setHours(expiry.getHours() + 1);
+      // UPDATED EXPIRY LOGIC — Available until end of hour
+      const now = new Date();
+      const expiry = new Date(now);
+      expiry.setMinutes(59, 59, 999);
       const expiryTime = expiry.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      // UPDATED RARITY LABELS
+      const rarityLabels = {
+        roamerMonth: "Roamer of the Month",
+        paradox: "Paradox",
+        legendary: "Legendary",
+        rare: "Rare",
+        common: "Common"
+      };
+      const rarityLabel = rarityLabels[rarity] || rarity;
 
       const points = rarityPoints[rarity] || 10;
       await awardPoints(user.id, user.username, points, `Report: ${pokemon}`);
 
+      // UPDATED EMBED ONLY
       const embed = new EmbedBuilder()
         .setColor('Random')
         .setTitle(`🐾 Wild ${pokemon} spotted!`)
         .setDescription(`**${user.username}** has found a wild **${pokemon}**!\n📍 Location: **${route}**\n⏳ Available until **${expiryTime}**`)
         .addFields(
-          { name: '📊 Rarity', value: rarity, inline: true },
+          { name: '📊 Rarity', value: rarityLabel, inline: true },
           { name: '🏆 Points Awarded', value: String(points), inline: true }
         )
         .setThumbnail(`https://img.pokemondb.net/artwork/${pokemon.toLowerCase().replace(/\s/g, '-')}.jpg`)
@@ -266,7 +249,6 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ content: `✔ Report submitted in <#${channelId}>.`, ephemeral: true });
     }
 
-    // === /cancelreport ===
     if (commandName === "cancelreport") {
       if (!pendingReports.has(user.id)) {
         return interaction.reply({ content: "❌ No report to cancel.", ephemeral: true });
