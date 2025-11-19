@@ -12,7 +12,7 @@ const {
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
 
-const db = require('./database');
+const db = require('./database.cjs');
 const app = express();
 
 // ==========================
