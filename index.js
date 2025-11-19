@@ -209,13 +209,11 @@ client.on('interactionCreate', async interaction => {
         setTimeout(() => interaction.deleteReply().catch(() => {}), 10000);
       }
 
-      // UPDATED EXPIRY LOGIC — Available until end of hour
       const now = new Date();
       const expiry = new Date(now);
       expiry.setMinutes(59, 59, 999);
       const expiryTime = expiry.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-      // UPDATED RARITY LABELS
       const rarityLabels = {
         roamerMonth: "Roamer of the Month",
         paradox: "Paradox",
@@ -228,7 +226,6 @@ client.on('interactionCreate', async interaction => {
       const points = rarityPoints[rarity] || 10;
       await awardPoints(user.id, user.username, points, `Report: ${pokemon}`);
 
-      // UPDATED EMBED ONLY
       const embed = new EmbedBuilder()
         .setColor('Random')
         .setTitle(`🐾 Wild ${pokemon} spotted!`)
@@ -255,6 +252,76 @@ client.on('interactionCreate', async interaction => {
       }
       pendingReports.delete(user.id);
       return interaction.reply({ content: "🛑 Report cancelled.", ephemeral: true });
+    }
+
+    // ===========================
+    // NEW CLAIM COMMANDS
+    // ===========================
+    if (commandName === 'claim') {
+      const pointsRequested = interaction.options.getInteger('points');
+      const userRow = await db.getUserById(user.id);
+      const currentPoints = userRow?.points || 0;
+
+      if (pointsRequested <= 0)
+        return interaction.reply({ content: '❌ Invalid points.', ephemeral: true });
+
+      if (currentPoints < pointsRequested)
+        return interaction.reply({ content: `❌ You only have **${currentPoints}** points.`, ephemeral: true });
+
+      const staffRoles = process.env.STAFF_ROLES.split(',');
+
+      const ticketChannel = await interaction.guild.channels.create({
+        name: `claim-${user.username}-${Date.now().toString().slice(-3)}`,
+        permissionOverwrites: [
+          { id: interaction.guild.id, deny: ['ViewChannel'] },
+          { id: user.id, allow: ['ViewChannel', 'SendMessages'] },
+          ...staffRoles.map(r => ({ id: r, allow: ['ViewChannel', 'SendMessages'] }))
+        ],
+        reason: `Point claim by ${user.username}`
+      });
+
+      await interaction.reply({
+        content: `🎫 Claim created: <#${ticketChannel.id}>`,
+        ephemeral: true
+      });
+
+      ticketChannel.topic = JSON.stringify({ userId: user.id, points: pointsRequested });
+
+      await ticketChannel.send({
+        content: `<@${user.id}> ${staffRoles.map(r => `<@&${r}>`).join(' ')}`,
+        embeds: [
+          new EmbedBuilder()
+            .setColor('Gold')
+            .setTitle('💱 Point Conversion Request')
+            .setDescription(`${user.username} wants to convert **${pointsRequested}** points into PKD.`)
+            .addFields(
+              { name: 'User', value: `<@${user.id}>`, inline: true },
+              { name: 'Points Requested', value: `${pointsRequested}`, inline: true },
+              { name: 'Current Points', value: `${currentPoints}`, inline: true }
+            )
+            .setFooter({ text: 'Use /approveclaim or /denyclaim' })
+            .setTimestamp()
+        ]
+      });
+      return;
+    }
+
+    if (commandName === 'approveclaim') {
+      const data = JSON.parse(interaction.channel.topic || '{}');
+      if (!data.userId) return interaction.reply({ content: '❌ Invalid ticket.', ephemeral: true });
+
+      const row = await db.getUserById(data.userId);
+      await db.addPoints(data.userId, row.username, -data.points, 'PKD Claim');
+
+      await interaction.reply(`✔ Claim approved. Deducted **${data.points}** points.`);
+      setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+      return;
+    }
+
+    if (commandName === 'denyclaim') {
+      await interaction.reply('❌ Claim denied.');
+      setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+      return;
     }
   }
 });
