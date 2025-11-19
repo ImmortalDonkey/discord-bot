@@ -175,7 +175,6 @@ client.on('interactionCreate', async interaction => {
     const { commandName } = interaction;
     const user = interaction.user;
 
-    // --- Location commands ---
     if (commandName === "setlocation") {
       const loc = interaction.options.getString("location");
       playerLocations.set(user.id, { location: loc, timestamp: new Date(), username: user.username });
@@ -220,7 +219,6 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply("🧹 All locations cleared.");
     }
 
-    // --- Points / Leaderboard ---
     if (commandName === "mypoints") {
       const row = await db.getUserById(user.id);
       const pts = row?.points || 0;
@@ -244,7 +242,6 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // --- Report ---
     if (commandName === "report") {
       const pokemon = interaction.options.getString("pokemon");
       const route = interaction.options.getString("route");
@@ -264,15 +261,6 @@ client.on('interactionCreate', async interaction => {
       expiry.setMinutes(59, 59, 999);
       const expiryTime = expiry.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-      const rarityLabels = {
-        roamerMonth: "Roamer of the Month",
-        paradox: "Paradox",
-        legendary: "Legendary",
-        rare: "Rare",
-        common: "Common"
-      };
-      const rarityLabel = rarityLabels[rarity] || rarity;
-
       const points = rarityPoints[rarity] || 10;
       await awardPoints(user.id, user.username, points, `Report: ${pokemon}`);
 
@@ -281,27 +269,16 @@ client.on('interactionCreate', async interaction => {
         .setTitle(`🐾 Wild ${pokemon} spotted!`)
         .setDescription(`**${user.username}** has found a wild **${pokemon}**!\n📍 Location: **${route}**\n⏳ Available until **${expiryTime}**`)
         .addFields(
-          { name: '📊 Rarity', value: rarityLabel, inline: true },
+          { name: '📊 Rarity', value: rarity, inline: true },
           { name: '🏆 Points Awarded', value: String(points), inline: true }
         )
         .setThumbnail(`https://img.pokemondb.net/artwork/${pokemon.toLowerCase().replace(/\s/g, '-')}.jpg`)
         .setTimestamp();
 
       const targetChannel = await interaction.guild.channels.fetch(channelId);
-      await targetChannel.send({
-        content: `<@${user.id}> <@&${roleId}>`,
-        embeds: [embed]
-      });
+      await targetChannel.send({ content: `<@${user.id}> <@&${roleId}>`, embeds: [embed] });
 
       return interaction.reply({ content: `✔ Report submitted in <#${channelId}>.`, ephemeral: true });
-    }
-
-    if (commandName === "cancelreport") {
-      if (!pendingReports.has(user.id)) {
-        return interaction.reply({ content: "❌ No report to cancel.", ephemeral: true });
-      }
-      pendingReports.delete(user.id);
-      return interaction.reply({ content: "🛑 Report cancelled.", ephemeral: true });
     }
 
     // ===========================
@@ -318,7 +295,7 @@ client.on('interactionCreate', async interaction => {
       if (currentPoints < pointsRequested)
         return interaction.reply({ content: `❌ You only have **${currentPoints}** points.`, ephemeral: true });
 
-      const staffRoles = process.env.STAFF_ROLES.split(',');
+      const staffRoles = process.env.STAFF_ROLES.split(',').filter(Boolean);
 
       const ticketChannel = await interaction.guild.channels.create({
         name: `claim-${user.username}-${Date.now().toString().slice(-3)}`,
@@ -329,6 +306,9 @@ client.on('interactionCreate', async interaction => {
         ],
         reason: `Point claim by ${user.username}`
       });
+
+      // 🔥 Correct fix (do not remove)
+      await ticketChannel.edit({ topic: JSON.stringify({ userId: user.id, points: pointsRequested }) });
 
       await interaction.reply({ content: `🎫 Claim created: <#${ticketChannel.id}>`, ephemeral: true });
 
@@ -358,7 +338,6 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Override /approveclaim to force button usage
     if (commandName === 'approveclaim') {
       return interaction.reply({ content: '⚠ Use the approval button instead.', ephemeral: true });
     }
