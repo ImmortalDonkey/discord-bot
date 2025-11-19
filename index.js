@@ -4,27 +4,29 @@ const {
   Client,
   GatewayIntentBits,
   EmbedBuilder,
+  PermissionFlagsBits
 } = require('discord.js');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
-const db = require('./database');
 
+const db = require('./database');
 const app = express();
 
 // ==========================
-//  Discord Client (v14)
+// Discord Client (v14)
 // ==========================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
+    GatewayIntentBits.MessageContent
+  ]
 });
 
 // ==========================
-//  In-memory Data
+// In-Memory Storage
 // ==========================
+const playerLocations = new Map();
 const pendingReports = new Map();
 
 const availableLocations = [
@@ -33,197 +35,251 @@ const availableLocations = [
   "Route 14", "Route 15", "Route 16", "Route 17", "Route 18", "Route 19",
   "Route 20", "Route 21", "Route 22", "Route 23", "Route 24", "Route 25",
   "Mudbray Ranch", "New Haven", "Nightshade", "Shore's End",
-  "Stillwater Quarry", "Wild Overgrowth",
+  "Stillwater Quarry", "Wild Overgrowth"
 ];
 
 const rarityGroups = {
-  ROAMERMONTH: ["Clone Venusaur", "Clone Charizard", "Clone Blastoise", "Ancient Jigglypuff", "Ancient Alakazam", "Ancient Gengar", "Crystal Onix", "Pink Rhyhorn", "Snorlax (Snowman)", "Mewtwo (Shadow)", "Golden Sudowoodo", "XD001", "Reddy", "Meta Groudon", "Rayquaza (Illusion)", "Dialga (Primal)", "Z2"],
-  PARADOX: ["Walking Wake", "Gouging Fire", "Raging Bolt", "Iron Leaves", "Iron Boulder", "Iron Crown"],
-  LEGENDARY: ["Raikou", "Entei", "Suicune", "Latias", "Latios", "Glastrier", "Spectrier", "Koraidon", "Miraidon"],
-  RARE: ["Cyclizar", "Gimmighoul (Roaming)"],
-  COMMON: ["Zygarde (Cell)", "Bramblin", "Bombirdier", "Varoom"],
+  roamerMonth: [ "Clone Venusaur", "Clone Charizard", "Clone Blastoise", "Ancient Jigglypuff", "Ancient Alakazam", "Ancient Gengar", "Crystal Onix", "Pink Rhyhorn", "Snorlax (Snowman)", "Mewtwo (Shadow)", "Golden Sudowoodo", "XD001", "Reddy", "Meta Groudon", "Rayquaza (Illusion)", "Dialga (Primal)", "Z2" ],
+  paradox: [ "Walking Wake", "Gouging Fire", "Raging Bolt", "Iron Leaves", "Iron Boulder", "Iron Crown" ],
+  legendary: [ "Raikou", "Entei", "Suicune", "Latias", "Latios", "Glastrier", "Spectrier", "Koraidon", "Miraidon" ],
+  rare: [ "Cyclizar", "Gimmighoul (Roaming)" ],
+  common: [ "Zygarde (Cell)", "Bramblin", "Bombirdier", "Varoom" ]
 };
 
 const rarityPoints = {
-  ROAMERMONTH: 30,
-  PARADOX: 200,
-  LEGENDARY: 20,
-  RARE: 20,
-  COMMON: 1,
+  roamerMonth: 30,
+  paradox: 200,
+  legendary: 20,
+  rare: 20,
+  common: 1
 };
 
 // ==========================
-//  Google Sheets Setup
+// Google Sheets Setup
 // ==========================
+const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 let sheet = null;
+
 async function initGoogleSheet() {
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-    console.log("⚠ Sheets disabled.");
-    return;
-  }
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT) return console.log("⚠ Sheets disabled.");
+
   try {
     const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
     const serviceAuth = new JWT({
       email: creds.client_email,
-      key: creds.private_key.replace(/\\n/g, '\n'),
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+      key: creds.private_key.replace(/\\n/g, "\n"),
+      scopes: ['https://www.googleapis.com/auth/spreadsheets']
     });
 
-    const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, serviceAuth);
+    const doc = new GoogleSpreadsheet(SHEET_ID, serviceAuth);
     await doc.loadInfo();
     sheet = doc.sheetsByIndex[0];
     console.log(`📄 Connected to Sheet: ${sheet.title}`);
   } catch (err) {
-    console.error("❌ Sheets setup failed:", err);
+    console.log("❌ Sheets setup failed:", err);
   }
 }
 
 // ==========================
-//  Helper Functions
+// Points Logic
 // ==========================
+function getRarity(pokemon) {
+  return Object.keys(rarityGroups).find(r =>
+    rarityGroups[r].some(p => p.toLowerCase() === pokemon.toLowerCase())
+  ) || 'common';
+}
+
 async function awardPoints(id, username, pts, reason = "") {
   return await db.addPoints(id, username, pts, reason);
 }
 
-function getRarity(pokemon) {
-  return (
-    Object.keys(rarityGroups).find((r) =>
-      rarityGroups[r].some(
-        (p) => p.toLowerCase() === pokemon.toLowerCase()
-      )
-    ) || "COMMON"
-  );
-}
+// ==========================
+// Interaction Handling
+// ==========================
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isCommand() && !interaction.isAutocomplete()) return;
 
-// ==========================
-//  Interaction Handling
-// ==========================
-client.on('interactionCreate', async (interaction) => {
-  try {
-    if (interaction.isAutocomplete()) {
-      const focused = interaction.options.getFocused();
+  // ----- Autocomplete -----
+  if (interaction.isAutocomplete()) {
+    const focused = interaction.options.getFocused();
+    let choices = [];
+
+    if (interaction.commandName === "report") {
       const option = interaction.options.getFocused(true).name;
-      let choices =
-        option === "pokemon"
-          ? Object.values(rarityGroups).flat()
-          : availableLocations;
-
-      const filtered = choices
-        .filter((c) => c.toLowerCase().includes(focused.toLowerCase()))
-        .slice(0, 25);
-
-      return interaction.respond(
-        filtered.map((c) => ({ name: c, value: c }))
-      );
+      choices = option === "pokemon"
+        ? Object.values(rarityGroups).flat()
+        : availableLocations;
+    }
+    if (["setlocation"].includes(interaction.commandName)) {
+      choices = availableLocations;
     }
 
-    if (!interaction.isCommand()) return;
-    const { commandName } = interaction;
+    const filtered = choices
+      .filter(c => c.toLowerCase().includes(focused.toLowerCase()))
+      .slice(0, 25);
 
-    // ==========================
-    //  /report Command
-    // ==========================
+    return interaction.respond(filtered.map(c => ({ name: c, value: c })));
+  }
+
+  // ----- Slash Commands -----
+  if (interaction.isCommand()) {
+    const { commandName } = interaction;
+    const user = interaction.user;
+
+    // === /setlocation ===
+    if (commandName === "setlocation") {
+      const loc = interaction.options.getString("location");
+      playerLocations.set(user.id, { location: loc, timestamp: new Date(), username: user.username });
+
+      return interaction.reply({
+        embeds: [new EmbedBuilder()
+          .setColor("Green")
+          .setTitle("📍 Location Updated")
+          .setDescription(`Your location is now **${loc}**`)
+        ]
+      });
+    }
+
+    // === /whereami ===
+    if (commandName === "whereami") {
+      const data = playerLocations.get(user.id);
+      if (!data) return interaction.reply({ content: "❌ You haven't set a location!", ephemeral: true });
+
+      return interaction.reply({
+        embeds: [new EmbedBuilder()
+          .setColor("Blue")
+          .setTitle("📍 Your Location")
+          .addFields(
+            { name: "Location", value: data.location },
+            { name: "Updated", value: data.timestamp.toLocaleString() }
+          )
+        ]
+      });
+    }
+
+    // === /whereis ===
+    if (commandName === "whereis") {
+      const targetUser = interaction.options.getUser("user");
+      const data = playerLocations.get(targetUser.id);
+      if (!data) return interaction.reply({ content: "❌ They haven't set a location.", ephemeral: true });
+
+      return interaction.reply({
+        embeds: [new EmbedBuilder()
+          .setColor("Orange")
+          .setTitle(`📍 ${targetUser.username}’s Location`)
+          .addFields(
+            { name: "Location", value: data.location },
+            { name: "Updated", value: data.timestamp.toLocaleString() }
+          )
+        ]
+      });
+    }
+
+    // === /clearme ===
+    if (commandName === "clearme") {
+      playerLocations.delete(user.id);
+      return interaction.reply({ content: "🧹 You were marked inactive.", ephemeral: true });
+    }
+
+    // === /clearall (admin only) ===
+    if (commandName === "clearall") {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ content: "❌ Admins only.", ephemeral: true });
+      }
+      playerLocations.clear();
+      return interaction.reply("🧹 All locations cleared.");
+    }
+
+    // === /mypoints ===
+    if (commandName === "mypoints") {
+      const row = await db.getUserById(user.id);
+      const pts = row?.points || 0;
+      const value = pts * 200000;
+
+      return interaction.reply({
+        embeds: [new EmbedBuilder()
+          .setColor("Gold")
+          .setTitle("💰 Your Points")
+          .addFields(
+            { name: "Total Points", value: String(pts) },
+            { name: "PKD Value", value: value.toLocaleString() + " pkd" }
+          )
+        ],
+        ephemeral: true
+      });
+    }
+
+    // === /leaderboard ===
+    if (commandName === "leaderboard") {
+      const rows = await db.getLeaderboard(10);
+      if (rows.length === 0) return interaction.reply({ content: "No data yet.", ephemeral: true });
+
+      let desc = rows.map((u, i) => `**#${i + 1}** — ${u.username} — ${u.points} pts`).join("\n");
+
+      return interaction.reply({
+        embeds: [new EmbedBuilder()
+          .setColor("Gold")
+          .setTitle("🏆 Top Hunters")
+          .setDescription(desc)
+        ]
+      });
+    }
+
+    // === /report ===
     if (commandName === "report") {
       const pokemon = interaction.options.getString("pokemon");
       const route = interaction.options.getString("route");
-      const cancel = interaction.options.getBoolean("cancel") || false;
+      const rarity = getRarity(pokemon);
+      const roleId = process.env[`ROLE_${rarity.toUpperCase()}`];
+      const channelId = process.env[`CHANNEL_${rarity.toUpperCase()}`];
 
-      if (cancel) {
-        pendingReports.delete(interaction.user.id);
-        return interaction.reply({
-          content: "🛑 Report cancelled.",
-          ephemeral: true,
-        });
-      }
+      pendingReports.set(user.id, { pokemon, route });
 
-      const rarity = getRarity(pokemon).toUpperCase();
-      const roleId = process.env[`ROLE_${rarity}`];
-      const channelId = process.env[`CHANNEL_${rarity}`];
-
-      if (!roleId || !channelId) {
-        return interaction.reply({
-          content: "⚠ Server configuration is missing for this rarity group.",
-          ephemeral: true,
-        });
-      }
-
-      pendingReports.set(interaction.user.id, { pokemon, route });
-
-      // If submitted in wrong channel
       if (interaction.channel.id !== channelId) {
-        await interaction.reply({
-          content: `⚠ Wrong channel! This will be posted in <#${channelId}>.`,
-          ephemeral: true,
-        });
-        setTimeout(() => {
-          interaction.deleteReply().catch(() => {});
-        }, 10000);
+        await interaction.reply({ content: `⚠ Wrong channel! Report will be moved to <#${channelId}>.`, ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 10000);
       }
 
-      // Generate expiry time (1 hour from now)
-      const expiry = new Date(Date.now() + 60 * 60000);
-      const expiryTime = expiry.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      const expiry = new Date();
+      expiry.setHours(expiry.getHours() + 1);
+      const expiryTime = expiry.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
       const points = rarityPoints[rarity] || 10;
-      await awardPoints(interaction.user.id, interaction.user.username, points, `Report: ${pokemon}`);
+      await awardPoints(user.id, user.username, points, `Report: ${pokemon}`);
 
       const embed = new EmbedBuilder()
         .setColor('Random')
         .setTitle(`🐾 Wild ${pokemon} spotted!`)
-        .setDescription(
-          `**${interaction.user.username}** has found a wild **${pokemon}**!\n` +
-          `📍 Location: **${route}**\n` +
-          `⏳ Available until **${expiryTime}**`
+        .setDescription(`**${user.username}** has found a wild **${pokemon}**!\n📍 Location: **${route}**\n⏳ Available until **${expiryTime}**`)
+        .addFields(
+          { name: '📊 Rarity', value: rarity, inline: true },
+          { name: '🏆 Points Awarded', value: String(points), inline: true }
         )
-        .addFields([
-          { name: "📊 Rarity", value: rarity, inline: true },
-          { name: "🏆 Points Awarded", value: `${points}`, inline: true },
-        ])
-        .setThumbnail(`https://img.pokemondb.net/artwork/${pokemon.toLowerCase().replace(/\s+/g, "-")}.jpg`)
+        .setThumbnail(`https://img.pokemondb.net/artwork/${pokemon.toLowerCase().replace(/\s/g, '-')}.jpg`)
         .setTimestamp();
 
       const targetChannel = await interaction.guild.channels.fetch(channelId);
       await targetChannel.send({
-        content: `<@${interaction.user.id}> <@&${roleId}>`,
-        embeds: [embed],
+        content: `<@${user.id}> <@&${roleId}>`,
+        embeds: [embed]
       });
 
-      return interaction.reply({
-        content: `✔ Report successfully sent to <#${channelId}>.`,
-        ephemeral: true,
-      });
+      return interaction.reply({ content: `✔ Report submitted in <#${channelId}>.`, ephemeral: true });
     }
 
-    // ==========================
-    //  /cancelreport
-    // ==========================
+    // === /cancelreport ===
     if (commandName === "cancelreport") {
-      if (!pendingReports.has(interaction.user.id)) {
-        return interaction.reply({
-          content: "❌ No active report to cancel.",
-          ephemeral: true,
-        });
+      if (!pendingReports.has(user.id)) {
+        return interaction.reply({ content: "❌ No report to cancel.", ephemeral: true });
       }
-      pendingReports.delete(interaction.user.id);
-      return interaction.reply({
-        content: "🛑 Your report has been cancelled.",
-        ephemeral: true,
-      });
+      pendingReports.delete(user.id);
+      return interaction.reply({ content: "🛑 Report cancelled.", ephemeral: true });
     }
-  } catch (err) {
-    console.error("❌ Interaction error:", err);
-    return interaction.reply({
-      content: "⚠ An error occurred while processing your request.",
-      ephemeral: true,
-    });
   }
 });
 
 // ==========================
-//  Ready
+// Ready Event
 // ==========================
 client.once('ready', async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
@@ -232,8 +288,8 @@ client.once('ready', async () => {
 });
 
 // ==========================
-//  Login & Web Server
+// Login + Web Server
 // ==========================
 client.login(process.env.DISCORD_TOKEN);
-app.get('/', (req, res) => res.send("Bot running (v14)"));
+app.get("/", (_, res) => res.send("Bot running (v14)"));
 app.listen(3000, () => console.log("🌐 Web server running on port 3000"));
