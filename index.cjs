@@ -183,9 +183,12 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // 🔥 Bounty buttons
-    if (interaction.customId.startsWith('approvebounty_')) {
-      const [, bountyId] = interaction.customId.split('_');
+    // 🔥 Bounty buttons (approve / deny)
+    if (interaction.customId.startsWith('approvebounty_') || interaction.customId.startsWith('denybounty_')) {
+      const isApprove = interaction.customId.startsWith('approvebounty_');
+      const prefix = isApprove ? 'approvebounty_' : 'denybounty_';
+      const bountyId = interaction.customId.substring(prefix.length);
+
       const bounty = pendingBounties.get(bountyId);
       if (!bounty) {
         await interaction.reply({ content: '❌ Bounty not found or already processed.', ephemeral: true });
@@ -198,22 +201,36 @@ client.on('interactionCreate', async interaction => {
       const memberRoleIds = interaction.member.roles.cache.map(r => r.id);
       const isStaff = staffRoles.some(r => memberRoleIds.includes(r));
       if (!isStaff && !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        await interaction.reply({ content: '❌ You do not have permission to approve bounties.', ephemeral: true });
+        await interaction.reply({ content: '❌ You do not have permission to process bounties.', ephemeral: true });
         return;
       }
 
+      if (!isApprove) {
+        // Deny
+        pendingBounties.delete(bountyId);
+
+        const deniedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
+          .setColor('Red')
+          .setTitle('📝 Bounty Request (Denied)');
+
+        await interaction.message.edit({ embeds: [deniedEmbed], components: [] });
+        await interaction.reply({ content: '❌ Bounty request denied.', ephemeral: true });
+        return;
+      }
+
+      // Approve
       pendingBounties.delete(bountyId);
-
-      const startTime = bounty.startTime;
-      const now = new Date();
-      const delayToStart = Math.max(startTime.getTime() - now.getTime(), 0);
-
-      const active = {
+      activeBounties.set(bountyId, {
         ...bounty,
         approved: true,
         approvedBy: interaction.user.id
-      };
-      activeBounties.set(bountyId, active);
+      });
+
+      const approvedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
+        .setColor('Green')
+        .setTitle('📝 Bounty Request (Approved)');
+
+      await interaction.message.edit({ embeds: [approvedEmbed], components: [] });
 
       const bountyChannelId = process.env.BOUNTY_CHANNEL_ID;
       const bountyChannel = bountyChannelId
@@ -222,7 +239,7 @@ client.on('interactionCreate', async interaction => {
 
       if (!bountyChannel) {
         await interaction.reply({
-          content: '❌ Bounty channel not found. Check BOUNTY_CHANNEL_ID in .env.',
+          content: '❌ Bounty announcement channel not found. Check BOUNTY_CHANNEL_ID in .env.',
           ephemeral: true
         });
         return;
@@ -231,25 +248,33 @@ client.on('interactionCreate', async interaction => {
       const rolePingId = process.env.ROLE_BOUNTY_HUNTER;
       const rolePing = rolePingId ? `<@&${rolePingId}>` : '';
 
-      const pokemonList = active.pokemons.join(', ');
+      const pokemonList = bounty.pokemons.join(', ');
+      const startUnix = Math.floor(bounty.startTime.getTime() / 1000);
+      const endUnix = Math.floor(bounty.endTime.getTime() / 1000);
 
       // Immediate announcement on approval
       const immediateEmbed = new EmbedBuilder()
         .setTitle('✅ Bounty Approved')
-        .setDescription(`A bounty has been approved.`)
+        .setDescription('A new bounty has been approved.')
         .addFields(
           { name: 'Pokémon', value: pokemonList, inline: false },
-          { name: 'Starts', value: `<t:${Math.floor(active.startTime.getTime() / 1000)}:F> (<t:${Math.floor(active.startTime.getTime() / 1000)}:R>)`, inline: false },
-          { name: 'Requested by', value: `<@${active.requesterId}>`, inline: true }
+          { name: 'Starts', value: `<t:${startUnix}:F> (<t:${startUnix}:R>)`, inline: false },
+          { name: 'Ends', value: `<t:${endUnix}:F> (<t:${endUnix}:R>)`, inline: false },
+          { name: 'Duration', value: `${bounty.durationHours} hour(s)`, inline: true },
+          { name: 'Requested by', value: `<@${bounty.requesterId}>`, inline: true }
         )
         .setTimestamp();
 
       await bountyChannel.send({
-        content: rolePing ? `${rolePing}` : '',
+        content: rolePing || '',
         embeds: [immediateEmbed]
       }).catch(() => {});
 
-      await interaction.reply({ content: '✔ Bounty approved. Immediate announcement sent.', ephemeral: true });
+      await interaction.reply({ content: '✔ Bounty approved. Announcements scheduled.', ephemeral: true });
+
+      const now = Date.now();
+      const delayToStart = Math.max(bounty.startTime.getTime() - now, 0);
+      const delayToEnd = Math.max(bounty.endTime.getTime() - now, 0);
 
       // Scheduled announcement at start time
       setTimeout(async () => {
@@ -258,39 +283,43 @@ client.on('interactionCreate', async interaction => {
 
         const startEmbed = new EmbedBuilder()
           .setTitle('🔥 Bounty Started!')
-          .setDescription(`The bounty is now active.`)
+          .setDescription('The bounty is now active.')
           .addFields(
             { name: 'Pokémon', value: pokemonList, inline: false },
-            { name: 'Started', value: `<t:${Math.floor(stillActive.startTime.getTime() / 1000)}:F>`, inline: false },
+            { name: 'Started', value: `<t:${startUnix}:F>`, inline: false },
+            { name: 'Ends', value: `<t:${endUnix}:F> (<t:${endUnix}:R>)`, inline: false },
             { name: 'Requested by', value: `<@${stillActive.requesterId}>`, inline: true }
           )
           .setTimestamp();
 
         await bountyChannel.send({
-          content: rolePing ? `${rolePing}` : '',
+          content: rolePing || '',
           embeds: [startEmbed]
         }).catch(() => {});
       }, delayToStart);
 
-      return;
-    }
+      // Scheduled announcement at end time
+      setTimeout(async () => {
+        const stillActive = activeBounties.get(bountyId);
+        if (!stillActive) return;
+        activeBounties.delete(bountyId);
 
-    if (interaction.customId.startsWith('denybounty_')) {
-      const [, bountyId] = interaction.customId.split('_');
-      const bounty = pendingBounties.get(bountyId);
+        const endEmbed = new EmbedBuilder()
+          .setTitle('🏁 Bounty Finished')
+          .setDescription('The bounty has ended. Submissions are now closed.')
+          .addFields(
+            { name: 'Pokémon', value: pokemonList, inline: false },
+            { name: 'Ended', value: `<t:${endUnix}:F>`, inline: false },
+            { name: 'Requested by', value: `<@${stillActive.requesterId}>`, inline: true }
+          )
+          .setTimestamp();
 
-      const staffRolesEnv = process.env.STAFF_ROLES || '';
-      const staffRoles = staffRolesEnv.split(',').map(s => s.trim()).filter(Boolean);
-      const memberRoleIds = interaction.member.roles.cache.map(r => r.id);
-      const isStaff = staffRoles.some(r => memberRoleIds.includes(r));
-      if (!isStaff && !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        await interaction.reply({ content: '❌ You do not have permission to deny bounties.', ephemeral: true });
-        return;
-      }
+        await bountyChannel.send({
+          content: rolePing || '',
+          embeds: [endEmbed]
+        }).catch(() => {});
+      }, delayToEnd);
 
-      if (bounty) pendingBounties.delete(bountyId);
-
-      await interaction.reply({ content: '❌ Bounty request denied.', ephemeral: true });
       return;
     }
   }
@@ -564,10 +593,13 @@ client.on('interactionCreate', async interaction => {
       const pokemon3 = interaction.options.getString('pokemon3');
       const notes = interaction.options.getString('notes') || '';
       const startTimeStr = interaction.options.getString('starttime');
+      const durationHours = interaction.options.getInteger('duration');
 
       const pokemons = [pokemon1, pokemon2, pokemon3].filter(Boolean);
       const hour = parseHourFromStartTimeString(startTimeStr);
       const startTime = getNextOccurrenceOfHour(hour);
+      const durationMs = durationHours * 60 * 60 * 1000;
+      const endTime = new Date(startTime.getTime() + durationMs);
 
       const bountyId = `${Date.now()}_${interaction.user.id}`;
       const bounty = {
@@ -577,19 +609,21 @@ client.on('interactionCreate', async interaction => {
         pokemons,
         notes,
         startTime,
+        endTime,
+        durationHours,
         createdAt: new Date()
       };
 
       pendingBounties.set(bountyId, bounty);
 
-      const bountyChannelId = process.env.BOUNTY_CHANNEL_ID;
-      const bountyChannel = bountyChannelId
-        ? await interaction.guild.channels.fetch(bountyChannelId).catch(() => null)
+      const requestChannelId = process.env.BOUNTY_REQUEST_CHANNEL_ID;
+      const requestChannel = requestChannelId
+        ? await interaction.guild.channels.fetch(requestChannelId).catch(() => null)
         : null;
 
-      if (!bountyChannel) {
+      if (!requestChannel) {
         return interaction.reply({
-          content: '❌ Bounty channel not configured. Ask an admin to set BOUNTY_CHANNEL_ID in .env.',
+          content: '❌ Bounty request channel not configured. Ask an admin to set BOUNTY_REQUEST_CHANNEL_ID in .env.',
           ephemeral: true
         });
       }
@@ -603,13 +637,17 @@ client.on('interactionCreate', async interaction => {
         .join(' ');
 
       const pokemonList = pokemons.join(', ');
+      const startUnix = Math.floor(startTime.getTime() / 1000);
+      const endUnix = Math.floor(endTime.getTime() / 1000);
 
       const embed = new EmbedBuilder()
         .setTitle('📝 New Bounty Request')
         .setDescription('A new bounty has been requested and is awaiting staff approval.')
         .addFields(
           { name: 'Pokémon', value: pokemonList, inline: false },
-          { name: 'Requested Start', value: `<t:${Math.floor(startTime.getTime() / 1000)}:F>`, inline: false },
+          { name: 'Requested Start', value: `<t:${startUnix}:F>`, inline: false },
+          { name: 'Requested End', value: `<t:${endUnix}:F>`, inline: false },
+          { name: 'Duration', value: `${durationHours} hour(s)`, inline: true },
           { name: 'Requested by', value: `<@${interaction.user.id}>`, inline: true },
           { name: 'Notes', value: notes || 'None', inline: false }
         )
@@ -626,7 +664,7 @@ client.on('interactionCreate', async interaction => {
           .setStyle(ButtonStyle.Danger)
       );
 
-      await bountyChannel.send({
+      await requestChannel.send({
         content: staffMention || '',
         embeds: [embed],
         components: [row]
