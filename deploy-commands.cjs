@@ -1,6 +1,11 @@
 require('dotenv').config();
 const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 
+// Predefined bounty start times (00:00 - 23:00)
+const hourChoices = Array.from({ length: 24 }, (_, i) =>
+  i.toString().padStart(2, '0') + ":00"
+);
+
 const commands = [
   // /setlocation
   new SlashCommandBuilder()
@@ -37,7 +42,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('clearall')
     .setDescription('[ADMIN] Clears all player locations')
-    .setDefaultMemberPermissions(8), // Administrator permission
+    .setDefaultMemberPermissions(8),
 
   // /mypoints
   new SlashCommandBuilder()
@@ -85,24 +90,34 @@ const commands = [
   new SlashCommandBuilder()
     .setName('approveclaim')
     .setDescription('[STAFF] Approve a point claim ticket')
-    .setDefaultMemberPermissions(8), // Admin/mod only
+    .setDefaultMemberPermissions(8),
 
   // /denyclaim
   new SlashCommandBuilder()
     .setName('denyclaim')
     .setDescription('[STAFF] Deny a point claim ticket')
-    .setDefaultMemberPermissions(8), // Admin/mod only
+    .setDefaultMemberPermissions(8),
 
-  // /bountyrequest (NEW)
+  // 🆕 /bountyrequest (FULL + FIXED REQUIRED ORDER)
   new SlashCommandBuilder()
     .setName('bountyrequest')
     .setDescription('Submit a new bounty request')
+
+    // REQUIRED FIRST
     .addStringOption(o =>
       o.setName('pokemon1')
         .setDescription('Main Pokémon')
         .setAutocomplete(true)
         .setRequired(true)
     )
+    .addStringOption(o =>
+      o.setName('starttime')
+        .setDescription('Start time (00:00 - 23:00)')
+        .setAutocomplete(true)
+        .setRequired(true)
+    )
+
+    // OPTIONAL AFTER
     .addStringOption(o =>
       o.setName('pokemon2')
         .setDescription('Optional second Pokémon')
@@ -119,12 +134,6 @@ const commands = [
       o.setName('notes')
         .setDescription('Optional notes')
         .setRequired(false)
-    )
-    .addStringOption(o =>
-      o.setName('starttime')
-        .setDescription('Start time (00:00 - 23:00)')
-        .setAutocomplete(true)
-        .setRequired(true)
     )
 ]
 .map(command => command.toJSON());
