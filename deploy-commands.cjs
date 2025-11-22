@@ -93,35 +93,38 @@ const commands = [
     .setDescription('[STAFF] Deny a point claim ticket')
     .setDefaultMemberPermissions(8), // Admin/mod only
 
-  // /bountyrequest (new)
+  // /bountyrequest (NEW)
   new SlashCommandBuilder()
     .setName('bountyrequest')
-    .setDescription('Submit a bounty request (Requires Roaming Bounty Hunter role)')
-    .addStringOption(option =>
-      option.setName('pokemon')
-        .setDescription('Name of the Pokémon')
+    .setDescription('Submit a new bounty request')
+    .addStringOption(o =>
+      o.setName('pokemon1')
+        .setDescription('Main Pokémon')
         .setAutocomplete(true)
         .setRequired(true)
     )
-    .addStringOption(option =>
-      option.setName('route')
-        .setDescription('Where was it found?')
+    .addStringOption(o =>
+      o.setName('pokemon2')
+        .setDescription('Optional second Pokémon')
+        .setAutocomplete(true)
+        .setRequired(false)
+    )
+    .addStringOption(o =>
+      o.setName('pokemon3')
+        .setDescription('Optional third Pokémon')
+        .setAutocomplete(true)
+        .setRequired(false)
+    )
+    .addStringOption(o =>
+      o.setName('notes')
+        .setDescription('Optional notes')
+        .setRequired(false)
+    )
+    .addStringOption(o =>
+      o.setName('starttime')
+        .setDescription('Start time (00:00 - 23:00)')
+        .setAutocomplete(true)
         .setRequired(true)
-    )
-    .addIntegerOption(option =>
-      option.setName('reward')
-        .setDescription('Reward amount (optional)')
-        .setRequired(false)
-    )
-    .addIntegerOption(option =>
-      option.setName('duration')
-        .setDescription('Duration in hours (1-24, optional)')
-        .setRequired(false)
-    )
-    .addStringOption(option =>
-      option.setName('notes')
-        .setDescription('Optional extra information')
-        .setRequired(false)
     )
 ]
 .map(command => command.toJSON());
