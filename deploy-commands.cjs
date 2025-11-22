@@ -1,11 +1,6 @@
 require('dotenv').config();
 const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 
-// Predefined bounty start times (00:00 - 23:00)
-const hourChoices = Array.from({ length: 24 }, (_, i) =>
-  i.toString().padStart(2, '0') + ":00"
-);
-
 const commands = [
   // /setlocation
   new SlashCommandBuilder()
@@ -73,87 +68,4 @@ const commands = [
 
   // /cancelreport
   new SlashCommandBuilder()
-    .setName('cancelreport')
-    .setDescription('Cancel your pending report'),
-
-  // /claim
-  new SlashCommandBuilder()
-    .setName('claim')
-    .setDescription('Convert your points into PKD (opens a staff ticket)')
-    .addIntegerOption(option =>
-      option.setName('points')
-        .setDescription('How many points you want to claim')
-        .setRequired(true)
-    ),
-
-  // /approveclaim
-  new SlashCommandBuilder()
-    .setName('approveclaim')
-    .setDescription('[STAFF] Approve a point claim ticket')
-    .setDefaultMemberPermissions(8),
-
-  // /denyclaim
-  new SlashCommandBuilder()
-    .setName('denyclaim')
-    .setDescription('[STAFF] Deny a point claim ticket')
-    .setDefaultMemberPermissions(8),
-
-  // 🆕 /bountyrequest (FULL + FIXED REQUIRED ORDER)
-  new SlashCommandBuilder()
-    .setName('bountyrequest')
-    .setDescription('Submit a new bounty request')
-
-    // REQUIRED FIRST
-    .addStringOption(o =>
-      o.setName('pokemon1')
-        .setDescription('Main Pokémon')
-        .setAutocomplete(true)
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('starttime')
-        .setDescription('Start time (00:00 - 23:00)')
-        .setAutocomplete(true)
-        .setRequired(true)
-    )
-
-    // OPTIONAL AFTER
-    .addStringOption(o =>
-      o.setName('pokemon2')
-        .setDescription('Optional second Pokémon')
-        .setAutocomplete(true)
-        .setRequired(false)
-    )
-    .addStringOption(o =>
-      o.setName('pokemon3')
-        .setDescription('Optional third Pokémon')
-        .setAutocomplete(true)
-        .setRequired(false)
-    )
-    .addStringOption(o =>
-      o.setName('notes')
-        .setDescription('Optional notes')
-        .setRequired(false)
-    )
-]
-.map(command => command.toJSON());
-
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-
-(async () => {
-  try {
-    console.log('🚀 Deploying slash commands...');
-
-    await rest.put(
-      Routes.applicationGuildCommands(
-        process.env.CLIENT_ID,
-        process.env.GUILD_ID
-      ),
-      { body: commands }
-    );
-
-    console.log('✔ Successfully registered all commands.');
-  } catch (error) {
-    console.error('❌ Failed to deploy commands:', error);
-  }
-})();
+    .setName
