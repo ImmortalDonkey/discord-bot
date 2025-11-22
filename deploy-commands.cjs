@@ -91,7 +91,38 @@ const commands = [
   new SlashCommandBuilder()
     .setName('denyclaim')
     .setDescription('[STAFF] Deny a point claim ticket')
-    .setDefaultMemberPermissions(8) // Admin/mod only
+    .setDefaultMemberPermissions(8), // Admin/mod only
+
+  // /bountyrequest (new)
+  new SlashCommandBuilder()
+    .setName('bountyrequest')
+    .setDescription('Submit a bounty request (Requires Roaming Bounty Hunter role)')
+    .addStringOption(option =>
+      option.setName('pokemon')
+        .setDescription('Name of the Pokémon')
+        .setAutocomplete(true)
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName('route')
+        .setDescription('Where was it found?')
+        .setRequired(true)
+    )
+    .addIntegerOption(option =>
+      option.setName('reward')
+        .setDescription('Reward amount (optional)')
+        .setRequired(false)
+    )
+    .addIntegerOption(option =>
+      option.setName('duration')
+        .setDescription('Duration in hours (1-24, optional)')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option.setName('notes')
+        .setDescription('Optional extra information')
+        .setRequired(false)
+    )
 ]
 .map(command => command.toJSON());
 
