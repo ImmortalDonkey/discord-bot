@@ -33,6 +33,11 @@ const client = new Client({
 const playerLocations = new Map();
 const pendingReports = new Map();
 
+// 🔥 Bounty System - in-memory storage
+const pendingBounties = new Map(); // bountyId -> bountyObject
+const activeBounties = new Map();  // bountyId -> bountyObject
+// 🔥 End bounty storage
+
 const availableLocations = [
   "Route 1", "Route 2", "Route 3", "Route 4", "Route 6", "Route 7",
   "Route 8", "Route 9", "Route 10", "Route 11", "Route 12", "Route 13",
@@ -100,6 +105,17 @@ async function awardPoints(id, username, pts, reason = "") {
 }
 
 // ==========================
+// Helper: parse optional duration/reward from options
+// ==========================
+function clampHours(h) {
+  if (!h || isNaN(h)) return 6; // default 6 hours
+  let hh = parseInt(h);
+  if (hh < 1) hh = 1;
+  if (hh > 24) hh = 24;
+  return hh;
+}
+
+// ==========================
 // Interaction Handling
 // ==========================
 client.on('interactionCreate', async interaction => {
@@ -109,6 +125,7 @@ client.on('interactionCreate', async interaction => {
   // BUTTON HANDLERS
   // ======================
   if (interaction.isButton()) {
+    // existing claim approve
     if (interaction.customId.startsWith("approveclaim_")) {
       const [_, userId, pointsRequested] = interaction.customId.split("_");
 
@@ -145,6 +162,101 @@ client.on('interactionCreate', async interaction => {
       setTimeout(() => interaction.channel.delete().catch(() => {}), 4000);
       return;
     }
+
+    // 🔥 Bounty approval buttons
+    if (interaction.customId.startsWith('approvebounty_')) {
+      // approvebounty_<bountyId>
+      const [, bountyId] = interaction.customId.split('_');
+      const bounty = pendingBounties.get(bountyId);
+      if (!bounty) {
+        await interaction.reply({ content: '❌ Bounty not found or already processed.', ephemeral: true });
+        return;
+      }
+
+      // Only allow staff roles to approve
+      const staffRolesEnv = process.env.STAFF_ROLES || '';
+      const staffRoles = staffRolesEnv.split(',').map(s => s.trim()).filter(Boolean);
+      const memberRoleIds = interaction.member.roles.cache.map(r => r.id);
+      const isStaff = staffRoles.some(r => memberRoleIds.includes(r));
+      if (!isStaff && !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        await interaction.reply({ content: '❌ You do not have permission to approve bounties.', ephemeral: true });
+        return;
+      }
+
+      // Move to active
+      const now = Date.now();
+      const durationMs = bounty.durationHours * 60 * 60 * 1000;
+      const endTime = new Date(now + durationMs);
+
+      const active = {
+        ...bounty,
+        approved: true,
+        approvedBy: interaction.user.id,
+        startTime: new Date(now),
+        endTime
+      };
+
+      activeBounties.set(bountyId, active);
+      pendingBounties.delete(bountyId);
+
+      // Announcement embed
+      const announceEmbed = new EmbedBuilder()
+        .setTitle(`🎯 Bounty Active — ${active.pokemon}`)
+        .setDescription(`A bounty has been placed on **${active.pokemon}**!`)
+        .addFields(
+          { name: '💰 Reward', value: `${active.reward || 0} ${active.currency || 'points'}`, inline: true },
+          { name: '🕒 Expires', value: `<t:${Math.floor(active.endTime.getTime() / 1000)}:R>`, inline: true },
+          { name: '📍 Location', value: active.route || 'Unknown', inline: true },
+          { name: '🏷 Issued by', value: `<@${active.requesterId}>`, inline: true }
+        )
+        .setThumbnail(active.imageUrl || `https://img.pokemondb.net/artwork/${active.pokemon.toLowerCase().replace(/\s+/g, '-')}.jpg`)
+        .setTimestamp();
+
+      const targetChannelId = process.env.BOUNTY_CHANNEL_ID;
+      const targetChannel = targetChannelId ? await interaction.guild.channels.fetch(targetChannelId).catch(() => null) : null;
+      if (!targetChannel) {
+        await interaction.reply({ content: '❌ Bounty announcement channel not found. Check BOUNTY_CHANNEL_ID in .env.', ephemeral: true });
+        return;
+      }
+
+      const mention = process.env.ROLE_BOUNTY_HUNTER ? `<@&${process.env.ROLE_BOUNTY_HUNTER}>` : '';
+
+      await targetChannel.send({ content: mention, embeds: [announceEmbed] }).catch(() => {});
+
+      // ack staff
+      await interaction.reply({ content: '✔ Bounty approved and announced!', ephemeral: true });
+
+      // schedule expiry
+      setTimeout(async () => {
+        if (!activeBounties.has(bountyId)) return;
+        activeBounties.delete(bountyId);
+        try {
+          await targetChannel.send(`⏳ Bounty on **${active.pokemon}** has expired.`);
+        } catch (e) { /* ignore */ }
+      }, durationMs);
+
+      return;
+    }
+
+    if (interaction.customId.startsWith('denybounty_')) {
+      const [, bountyId] = interaction.customId.split('_');
+      const bounty = pendingBounties.get(bountyId);
+      // permission check
+      const staffRolesEnv = process.env.STAFF_ROLES || '';
+      const staffRoles = staffRolesEnv.split(',').map(s => s.trim()).filter(Boolean);
+      const memberRoleIds = interaction.member.roles.cache.map(r => r.id);
+      const isStaff = staffRoles.some(r => memberRoleIds.includes(r));
+      if (!isStaff && !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        await interaction.reply({ content: '❌ You do not have permission to deny bounties.', ephemeral: true });
+        return;
+      }
+
+      if (bounty) pendingBounties.delete(bountyId);
+
+      await interaction.reply({ content: '❌ Bounty request denied.', ephemeral: true });
+      return;
+    }
+    // end button handlers
   }
 
   // ======================
@@ -160,6 +272,12 @@ client.on('interactionCreate', async interaction => {
     }
     if (interaction.commandName === "setlocation") {
       choices = availableLocations;
+    }
+
+    // bountyrequest pokemon autocomplete
+    if (interaction.commandName === "bountyrequest") {
+      const option = interaction.options.getFocused(true).name;
+      if (option === "pokemon") choices = Object.values(rarityGroups).flat();
     }
 
     const filtered = choices
@@ -373,6 +491,97 @@ client.on('interactionCreate', async interaction => {
       setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
       return;
     }
+
+    // ===========================
+    // 🔥 Bountyrequest command (Role restricted)
+    // ===========================
+    if (commandName === 'bountyrequest') {
+      // Required role name
+      const REQUIRED_ROLE_NAME = 'Roaming Bounty Hunter';
+
+      // Check role presence
+      const hasRole = interaction.member.roles.cache.some(r => r.name === REQUIRED_ROLE_NAME);
+      if (!hasRole) {
+        return interaction.reply({
+          content: `🚫 You must have the **${REQUIRED_ROLE_NAME}** role to use this command.`,
+          ephemeral: true
+        });
+      }
+
+      // Read options
+      const pokemon = interaction.options.getString('pokemon');
+      const route = interaction.options.getString('route');
+      const reward = interaction.options.getInteger('reward') || 0;
+      const duration = interaction.options.getInteger('duration') || 6; // default 6 hours
+      const notes = interaction.options.getString('notes') || '';
+
+      const durationHours = clampHours(duration);
+
+      // Build bounty object
+      const bountyId = `${Date.now()}_${interaction.user.id}`;
+      const bounty = {
+        id: bountyId,
+        requesterId: interaction.user.id,
+        requesterName: interaction.user.username,
+        pokemon,
+        route,
+        reward,
+        currency: 'points',
+        durationHours,
+        createdAt: new Date(),
+        notes
+      };
+
+      // Store pending bounty
+      pendingBounties.set(bountyId, bounty);
+
+      // Build embed for staff approval
+      const embed = new EmbedBuilder()
+        .setTitle('📝 New Bounty Request')
+        .setDescription(`A bounty has been requested — awaiting staff approval.`)
+        .addFields(
+          { name: 'Pokémon', value: pokemon, inline: true },
+          { name: 'Route', value: route, inline: true },
+          { name: 'Reward', value: `${reward} points`, inline: true },
+          { name: 'Duration', value: `${durationHours} hour(s)`, inline: true },
+          { name: 'Requester', value: `<@${interaction.user.id}>`, inline: true },
+          { name: 'Notes', value: notes || 'None', inline: false }
+        )
+        .setTimestamp();
+
+      // Buttons for staff to approve/deny
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`approvebounty_${bountyId}`)
+          .setLabel('Approve')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`denybounty_${bountyId}`)
+          .setLabel('Deny')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      // Send into bounty/staff channel
+      const targetChannelId = process.env.BOUNTY_CHANNEL_ID;
+      const targetChannel = targetChannelId ? await interaction.guild.channels.fetch(targetChannelId).catch(() => null) : null;
+      if (!targetChannel) {
+        return interaction.reply({ content: '❌ Bounty channel not configured. Ask an admin to set BOUNTY_CHANNEL_ID in .env.', ephemeral: true });
+      }
+
+      // mention staff roles so they can see it quickly
+      const staffRolesEnv = process.env.STAFF_ROLES || '';
+      const staffMention = staffRolesEnv.split(',').map(s => s.trim()).filter(Boolean).map(id => `<@&${id}>`).join(' ');
+
+      await targetChannel.send({ content: staffMention || '', embeds: [embed], components: [row] }).catch(err => {
+        console.error('❌ Failed to send bounty request to channel:', err);
+      });
+
+      await interaction.reply({ content: '✅ Bounty submitted — staff have been notified for approval.', ephemeral: true });
+      return;
+    }
+    // ===========================
+    // End bountyrequest
+    // ===========================
   }
 });
 
