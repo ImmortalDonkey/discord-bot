@@ -93,12 +93,12 @@ const commands = [
     .setDescription('[STAFF] Deny a point claim ticket')
     .setDefaultMemberPermissions(8),
 
-  // /bountyrequest (NEW)
+  // 🆕 /bountyrequest (with duration)
   new SlashCommandBuilder()
     .setName('bountyrequest')
     .setDescription('Submit a new bounty request')
 
-    // REQUIRED OPTIONS FIRST
+    // REQUIRED FIRST
     .addStringOption(o =>
       o.setName('pokemon1')
         .setDescription('Main Pokémon')
@@ -116,7 +116,7 @@ const commands = [
         .setDescription('How long the bounty runs for')
         .setRequired(true)
         .addChoices(
-          { name: '1 hour',  value: 1 },
+          { name: '1 hour', value: 1 },
           { name: '2 hours', value: 2 },
           { name: '3 hours', value: 3 },
           { name: '4 hours', value: 4 },
@@ -129,7 +129,7 @@ const commands = [
         )
     )
 
-    // OPTIONAL OPTIONS AFTER
+    // OPTIONAL AFTER
     .addStringOption(o =>
       o.setName('pokemon2')
         .setDescription('Optional second Pokémon')
