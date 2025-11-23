@@ -47,13 +47,31 @@ const availableLocations = [
   "Stillwater Quarry", "Wild Overgrowth"
 ];
 
+// Rarity groups (names unchanged, but priority handled separately)
 const rarityGroups = {
-  roamerMonth: ["Clone Venusaur", "Clone Charizard", "Clone Blastoise", "Ancient Jigglypuff", "Ancient Alakazam", "Ancient Gengar", "Crystal Onix", "Pink Rhyhorn", "Snorlax (Snowman)", "Mewtwo (Shadow)", "Golden Sudowoodo", "XD001", "Reddy", "Meta Groudon", "Rayquaza (Illusion)", "Dialga (Primal)", "Z2"],
-  paradox: ["Walking Wake", "Gouging Fire", "Raging Bolt", "Iron Leaves", "Iron Boulder", "Iron Crown"],
-  legendary: ["Raikou", "Entei", "Suicune", "Latias", "Latios", "Glastrier", "Spectrier", "Koraidon", "Miraidon"],
+  roamerMonth: [
+    "Clone Venusaur", "Clone Charizard", "Clone Blastoise",
+    "Ancient Jigglypuff", "Ancient Alakazam", "Ancient Gengar",
+    "Crystal Onix", "Pink Rhyhorn", "Snorlax (Snowman)",
+    "Mewtwo (Shadow)", "Golden Sudowoodo", "XD001", "Reddy",
+    "Meta Groudon", "Rayquaza (Illusion)", "Dialga (Primal)", "Z2"
+  ],
+  paradox: [
+    "Walking Wake", "Gouging Fire", "Raging Bolt",
+    "Iron Leaves", "Iron Boulder", "Iron Crown"
+  ],
+  legendary: [
+    "Raikou", "Entei", "Suicune",
+    "Latias", "Latios",
+    "Glastrier", "Spectrier",
+    "Koraidon", "Miraidon"
+  ],
   rare: ["Cyclizar", "Gimmighoul (Roaming)"],
   common: ["Zygarde (Cell)", "Bramblin", "Bombirdier", "Varoom"]
 };
+
+// Rarity priority (highest -> lowest)
+const rarityPriority = ['paradox', 'roamerMonth', 'legendary', 'rare', 'common'];
 
 const rarityPoints = {
   roamerMonth: 30,
@@ -62,6 +80,31 @@ const rarityPoints = {
   rare: 20,
   common: 1
 };
+
+// ==========================
+// Rank System (lifetime-based)
+// ==========================
+const RANKS = [
+  { name: 'Rookie Trainer', min: 0 },
+  { name: 'Trainer', min: 50 },
+  { name: 'Ace Trainer', min: 250 },
+  { name: 'Gym Challenger', min: 600 },
+  { name: 'Gym Leader', min: 2000 },
+  { name: 'Elite Four', min: 3000 },
+  { name: 'Champion', min: 5000 },
+  { name: 'Master', min: 10000 }
+];
+
+/**
+ * Get rank name from lifetime points.
+ */
+function getRankName(lifetime) {
+  let rank = RANKS[0].name;
+  for (const r of RANKS) {
+    if (lifetime >= r.min) rank = r.name;
+  }
+  return rank;
+}
 
 // ==========================
 // Google Sheets Setup
@@ -92,15 +135,35 @@ async function initGoogleSheet() {
 }
 
 // ==========================
-// Points Logic
+// Points + Rarity Logic
 // ==========================
 function getRarity(pokemon) {
-  return Object.keys(rarityGroups).find(r =>
-    rarityGroups[r].some(p => p.toLowerCase() === pokemon.toLowerCase())
-  ) || 'common';
+  const name = (pokemon || '').toLowerCase();
+  for (const key of rarityPriority) {
+    const list = rarityGroups[key] || [];
+    if (list.some(p => p.toLowerCase() === name)) return key;
+  }
+  return 'common';
+}
+
+/**
+ * Given a list of Pokémon names, return the *highest* rarity according
+ * to the configured priority.
+ */
+function getHighestRarityForList(pokemonNames = []) {
+  if (!pokemonNames.length) return 'common';
+  let best = 'common';
+  for (const name of pokemonNames) {
+    const r = getRarity(name);
+    if (rarityPriority.indexOf(r) < rarityPriority.indexOf(best)) {
+      best = r;
+    }
+  }
+  return best;
 }
 
 async function awardPoints(id, username, pts, reason = "") {
+  // db.addPoints already handles lifetime_points vs points (PKD)
   return await db.addPoints(id, username, pts, reason);
 }
 
@@ -111,7 +174,7 @@ function clampHours(h) {
   if (!h || isNaN(h)) return 6;
   let hh = parseInt(h);
   if (hh < 1) hh = 1;
-  if (hh > 24) hh = 24;
+  if (hh > 72) hh = 72;
   return hh;
 }
 
@@ -146,6 +209,7 @@ client.on('interactionCreate', async interaction => {
   // BUTTON HANDLERS
   // ======================
   if (interaction.isButton()) {
+    // Points claim approve button
     if (interaction.customId.startsWith("approveclaim_")) {
       const [_, userId, pointsRequested] = interaction.customId.split("_");
 
@@ -177,6 +241,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
+    // Ticket close button
     if (interaction.customId === "close_ticket") {
       await interaction.reply({ content: "🔒 Ticket will close shortly...", ephemeral: true });
       setTimeout(() => interaction.channel.delete().catch(() => {}), 4000);
@@ -245,10 +310,16 @@ client.on('interactionCreate', async interaction => {
         return;
       }
 
-      const rolePingId = process.env.ROLE_BOUNTY_HUNTER;
-      const rolePing = rolePingId ? `<@&${rolePingId}>` : '';
+      // Determine rarity of bounty (highest rarity among targets)
+      const bountyRarity = getHighestRarityForList(bounty.pokemons);
+      const rarityRoleId = process.env[`ROLE_${bountyRarity.toUpperCase()}`];
+      const allBountyRoleId = process.env.ROLE_BOUNTY_ALL;
+      const pingParts = [];
+      if (rarityRoleId) pingParts.push(`<@&${rarityRoleId}>`);
+      if (allBountyRoleId) pingParts.push(`<@&${allBountyRoleId}>`);
+      const pingText = pingParts.join(' ');
 
-      const pokemonList = bounty.pokemons.join(', ');
+      const pokemonListLines = bounty.pokemons.map(p => `• ${p}`).join('\n');
       const startUnix = Math.floor(bounty.startTime.getTime() / 1000);
       const endUnix = Math.floor(bounty.endTime.getTime() / 1000);
 
@@ -257,16 +328,19 @@ client.on('interactionCreate', async interaction => {
         .setTitle('✅ Bounty Approved')
         .setDescription('A new bounty has been approved.')
         .addFields(
-          { name: 'Pokémon', value: pokemonList, inline: false },
+          { name: 'Trainer', value: `<@${bounty.requesterId}>`, inline: true },
+          { name: 'Rarity', value: bountyRarity, inline: true },
+          { name: 'Reward', value: `${bounty.reward.toLocaleString()} PKD`, inline: false },
+          { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
           { name: 'Starts', value: `<t:${startUnix}:F> (<t:${startUnix}:R>)`, inline: false },
           { name: 'Ends', value: `<t:${endUnix}:F> (<t:${endUnix}:R>)`, inline: false },
           { name: 'Duration', value: `${bounty.durationHours} hour(s)`, inline: true },
-          { name: 'Requested by', value: `<@${bounty.requesterId}>`, inline: true }
+          { name: 'Note', value: bounty.notes || 'None', inline: false }
         )
         .setTimestamp();
 
       await bountyChannel.send({
-        content: rolePing || '',
+        content: pingText || '',
         embeds: [immediateEmbed]
       }).catch(() => {});
 
@@ -285,15 +359,19 @@ client.on('interactionCreate', async interaction => {
           .setTitle('🔥 Bounty Started!')
           .setDescription('The bounty is now active.')
           .addFields(
-            { name: 'Pokémon', value: pokemonList, inline: false },
+            { name: 'Trainer', value: `<@${stillActive.requesterId}>`, inline: true },
+            { name: 'Rarity', value: bountyRarity, inline: true },
+            { name: 'Reward', value: `${stillActive.reward.toLocaleString()} PKD`, inline: false },
+            { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
             { name: 'Started', value: `<t:${startUnix}:F>`, inline: false },
             { name: 'Ends', value: `<t:${endUnix}:F> (<t:${endUnix}:R>)`, inline: false },
-            { name: 'Requested by', value: `<@${stillActive.requesterId}>`, inline: true }
+            { name: 'Duration', value: `${stillActive.durationHours} hour(s)`, inline: true },
+            { name: 'Note', value: stillActive.notes || 'None', inline: false }
           )
           .setTimestamp();
 
         await bountyChannel.send({
-          content: rolePing || '',
+          content: pingText || '',
           embeds: [startEmbed]
         }).catch(() => {});
       }, delayToStart);
@@ -308,14 +386,18 @@ client.on('interactionCreate', async interaction => {
           .setTitle('🏁 Bounty Finished')
           .setDescription('The bounty has ended. Submissions are now closed.')
           .addFields(
-            { name: 'Pokémon', value: pokemonList, inline: false },
+            { name: 'Trainer', value: `<@${stillActive.requesterId}>`, inline: true },
+            { name: 'Rarity', value: bountyRarity, inline: true },
+            { name: 'Reward', value: `${stillActive.reward.toLocaleString()} PKD`, inline: false },
+            { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
             { name: 'Ended', value: `<t:${endUnix}:F>`, inline: false },
-            { name: 'Requested by', value: `<@${stillActive.requesterId}>`, inline: true }
+            { name: 'Duration', value: `${stillActive.durationHours} hour(s)`, inline: true },
+            { name: 'Note', value: stillActive.notes || 'None', inline: false }
           )
           .setTimestamp();
 
         await bountyChannel.send({
-          content: rolePing || '',
+          content: pingText || '',
           embeds: [endEmbed]
         }).catch(() => {});
       }, delayToEnd);
@@ -416,13 +498,23 @@ client.on('interactionCreate', async interaction => {
     // Points and Leaderboard
     if (commandName === "mypoints") {
       const row = await db.getUserById(user.id);
-      const pts = row?.points || 0;
+      const pts = row?.points || 0;               // current spendable points
+      const lifetime = row?.lifetime_points || 0; // historic
+      const rankName = getRankName(lifetime);
       const value = pts * 200000;
+
       return interaction.reply({
-        embeds: [new EmbedBuilder().setColor("Gold").setTitle("💰 Your Points").addFields(
-          { name: "Total Points", value: String(pts) },
-          { name: "PKD Value", value: value.toLocaleString() + " pkd" }
-        )],
+        embeds: [
+          new EmbedBuilder()
+            .setColor("Gold")
+            .setTitle("💰 Your Points & Rank")
+            .addFields(
+              { name: "Rank", value: rankName, inline: true },
+              { name: "Lifetime Points", value: String(lifetime), inline: true },
+              { name: "Current Points", value: String(pts), inline: true },
+              { name: "PKD Value (Current)", value: value.toLocaleString() + " pkd", inline: false }
+            )
+        ],
         ephemeral: true
       });
     }
@@ -431,9 +523,20 @@ client.on('interactionCreate', async interaction => {
       const rows = await db.getLeaderboard(10);
       if (rows.length === 0) return interaction.reply({ content: "No data yet.", ephemeral: true });
 
-      let desc = rows.map((u, i) => `**#${i + 1}** — ${u.username} — ${u.points} pts`).join("\n");
+      let desc = rows.map((u, i) => {
+        const lifetime = u.lifetime_points || 0;
+        const current = u.points || 0;
+        const rankName = getRankName(lifetime);
+        return `**#${i + 1}** — ${u.username} — *${rankName}* — ${lifetime} lifetime pts (Current: ${current})`;
+      }).join("\n");
+
       return interaction.reply({
-        embeds: [new EmbedBuilder().setColor("Gold").setTitle("🏆 Top Hunters").setDescription(desc)]
+        embeds: [
+          new EmbedBuilder()
+            .setColor("Gold")
+            .setTitle("🏆 Top Hunters (Lifetime)")
+            .setDescription(desc)
+        ]
       });
     }
 
@@ -442,6 +545,7 @@ client.on('interactionCreate', async interaction => {
       const pokemon = interaction.options.getString("pokemon");
       const route = interaction.options.getString("route");
       const rarity = getRarity(pokemon);
+
       const roleId = process.env[`ROLE_${rarity.toUpperCase()}`];
       const channelId = process.env[`CHANNEL_${rarity.toUpperCase()}`];
 
@@ -466,15 +570,22 @@ client.on('interactionCreate', async interaction => {
       }[rarity] || rarity;
 
       const points = rarityPoints[rarity] || 10;
-      await awardPoints(user.id, user.username, points, `Report: ${pokemon}`);
+      const updatedRow = await awardPoints(user.id, user.username, points, `Report: ${pokemon}`);
+      const lifetime = updatedRow?.lifetime_points || 0;
+      const rankName = getRankName(lifetime);
 
       const embed = new EmbedBuilder()
         .setColor('Random')
         .setTitle(`🐾 Wild ${pokemon} spotted!`)
-        .setDescription(`**${user.username}** has found a wild **${pokemon}**!\n📍 Location: **${route}**\n⏳ Available until **${expiryTime}**`)
+        .setDescription(
+          `**${user.username}** has found a wild **${pokemon}**!\n` +
+          `📍 Location: **${route}**\n` +
+          `⏳ Available until **${expiryTime}**`
+        )
         .addFields(
           { name: '📊 Rarity', value: rarityLabel, inline: true },
-          { name: '🏆 Points Awarded', value: String(points), inline: true }
+          { name: '🏆 Points Awarded', value: String(points), inline: true },
+          { name: 'Trainer Rank', value: rankName, inline: true }
         )
         .setThumbnail(`https://img.pokemondb.net/artwork/${pokemon.toLowerCase().replace(/\s/g, '-')}.jpg`)
         .setTimestamp();
@@ -591,12 +702,14 @@ client.on('interactionCreate', async interaction => {
       const pokemon1 = interaction.options.getString('pokemon1');
       const pokemon2 = interaction.options.getString('pokemon2');
       const pokemon3 = interaction.options.getString('pokemon3');
-      const notes = interaction.options.getString('notes') || '';
+      const notes = interaction.options.getString('notes'); // required now
       const startTimeStr = interaction.options.getString('starttime');
-      const durationHours = interaction.options.getInteger('duration');
+      const durationHoursRaw = interaction.options.getInteger('duration');
+      const reward = interaction.options.getInteger('reward');
 
       const pokemons = [pokemon1, pokemon2, pokemon3].filter(Boolean);
       const hour = parseHourFromStartTimeString(startTimeStr);
+      const durationHours = clampHours(durationHoursRaw);
       const startTime = getNextOccurrenceOfHour(hour);
       const durationMs = durationHours * 60 * 60 * 1000;
       const endTime = new Date(startTime.getTime() + durationMs);
@@ -611,6 +724,7 @@ client.on('interactionCreate', async interaction => {
         startTime,
         endTime,
         durationHours,
+        reward,
         createdAt: new Date()
       };
 
@@ -636,20 +750,23 @@ client.on('interactionCreate', async interaction => {
         .map(id => `<@&${id}>`)
         .join(' ');
 
-      const pokemonList = pokemons.join(', ');
+      const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n');
       const startUnix = Math.floor(startTime.getTime() / 1000);
       const endUnix = Math.floor(endTime.getTime() / 1000);
+      const bountyRarity = getHighestRarityForList(pokemons);
 
       const embed = new EmbedBuilder()
         .setTitle('📝 New Bounty Request')
         .setDescription('A new bounty has been requested and is awaiting staff approval.')
         .addFields(
-          { name: 'Pokémon', value: pokemonList, inline: false },
+          { name: 'Trainer', value: `<@${interaction.user.id}>`, inline: true },
+          { name: 'Rarity', value: bountyRarity, inline: true },
+          { name: 'Reward', value: `${reward.toLocaleString()} PKD`, inline: false },
+          { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
           { name: 'Requested Start', value: `<t:${startUnix}:F>`, inline: false },
           { name: 'Requested End', value: `<t:${endUnix}:F>`, inline: false },
           { name: 'Duration', value: `${durationHours} hour(s)`, inline: true },
-          { name: 'Requested by', value: `<@${interaction.user.id}>`, inline: true },
-          { name: 'Notes', value: notes || 'None', inline: false }
+          { name: 'Note', value: notes, inline: false }
         )
         .setTimestamp();
 
