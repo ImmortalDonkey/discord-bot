@@ -93,12 +93,17 @@ const commands = [
     .setDescription('[STAFF] Deny a point claim ticket')
     .setDefaultMemberPermissions(8),
 
-  // 🆕 /bountyrequest (with duration)
+  // 🆕 /bountyrequest WITH:
+  // - Required reward
+  // - Required notes
+  // - Duration choices
+  // - Pokémon1–3
+  // - Start time autocomplete
   new SlashCommandBuilder()
     .setName('bountyrequest')
     .setDescription('Submit a new bounty request')
 
-    // REQUIRED FIRST
+    // REQUIRED FIRST (Discord enforces required-first order)
     .addStringOption(o =>
       o.setName('pokemon1')
         .setDescription('Main Pokémon')
@@ -128,8 +133,18 @@ const commands = [
           { name: '72 hours', value: 72 }
         )
     )
+    .addIntegerOption(o =>
+      o.setName('reward')
+        .setDescription('Reward amount (pkd)')
+        .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName('notes')
+        .setDescription('Required note/message')
+        .setRequired(true)
+    )
 
-    // OPTIONAL AFTER
+    // OPTIONAL POKÉMON
     .addStringOption(o =>
       o.setName('pokemon2')
         .setDescription('Optional second Pokémon')
@@ -140,11 +155,6 @@ const commands = [
       o.setName('pokemon3')
         .setDescription('Optional third Pokémon')
         .setAutocomplete(true)
-        .setRequired(false)
-    )
-    .addStringOption(o =>
-      o.setName('notes')
-        .setDescription('Optional notes')
         .setRequired(false)
     )
 ]
