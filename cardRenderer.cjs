@@ -3,49 +3,46 @@ const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage } = require('canvas');
 
-// -------------------------------------------------
-// FINAL DIMENSIONS (B-style layout)
-// -------------------------------------------------
-const CARD_WIDTH = 1800;     // wider
-const CARD_HEIGHT = 1000;    // taller
-const MARGIN = 60;
+// MUCH larger card resolution to stop clipping
+const CARD_WIDTH = 2200;
+const CARD_HEIGHT = 1300;
 
-// Bigger left area, narrower right area:
-const RIGHT_WIDTH = 480;     // image column
+const MARGIN = 60;
+const RIGHT_WIDTH = 700; // wider so the image isn't cut
+
 const CARDS_DIR = path.join(__dirname, 'card-images');
 
+// Ensure output folder exists
 if (!fs.existsSync(CARDS_DIR)) {
   fs.mkdirSync(CARDS_DIR, { recursive: true });
 }
 
-// -------------------------------------------------
-// RARITY STYLES
-// -------------------------------------------------
+// Rarity styles
 const rarityStyles = {
   paradox: {
     gradientFrom: '#3b82f6',
     gradientTo: '#a855f7',
-    boxColor: 'rgba(15,23,42,0.92)'
+    boxColor: 'rgba(15, 23, 42, 0.92)'
   },
   roamerMonth: {
     gradientFrom: '#f59e0b',
     gradientTo: '#ea580c',
-    boxColor: 'rgba(17,24,39,0.92)'
+    boxColor: 'rgba(17, 24, 39, 0.92)'
   },
   legendary: {
     gradientFrom: '#1d4ed8',
     gradientTo: '#22d3ee',
-    boxColor: 'rgba(15,23,42,0.92)'
+    boxColor: 'rgba(15, 23, 42, 0.92)'
   },
   rare: {
     gradientFrom: '#1d4ed8',
     gradientTo: '#22d3ee',
-    boxColor: 'rgba(15,23,42,0.92)'
+    boxColor: 'rgba(15, 23, 42, 0.92)'
   },
   common: {
     gradientFrom: '#16a34a',
     gradientTo: '#0f766e',
-    boxColor: 'rgba(5,46,22,0.92)'
+    boxColor: 'rgba(5, 46, 22, 0.92)'
   }
 };
 
@@ -53,9 +50,7 @@ function getStyleForRarity(key) {
   return rarityStyles[key] || rarityStyles.common;
 }
 
-// -------------------------------------------------
-// UTIL — Rounded Rectangle
-// -------------------------------------------------
+// Rounded rectangle helper
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -71,31 +66,28 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// -------------------------------------------------
-// BOX DRAWER (50px title, 40px bold text)
-// -------------------------------------------------
 function drawBox(ctx, x, y, w, h, bgColor, title, lines) {
-  const paddingX = 32;
-  const paddingY = 32;
-  const lineSpacing = 56;
+  const paddingX = 40;
+  const paddingY = 40;
+  const lineSpacing = 58;
 
   ctx.save();
-  roundedRectPath(ctx, x, y, w, h, 30);
+  roundedRectPath(ctx, x, y, w, h, 40);
   ctx.fillStyle = bgColor;
   ctx.fill();
   ctx.clip();
 
-  // Title
+  // Title (50px bold)
   ctx.fillStyle = '#e5e7eb';
   ctx.font = 'bold 50px sans-serif';
   ctx.textBaseline = 'top';
   ctx.fillText(title, x + paddingX, y + paddingY);
 
-  // Body
+  // Content (40px bold)
   ctx.font = 'bold 40px sans-serif';
   ctx.fillStyle = '#f9fafb';
 
-  let currentY = y + paddingY + 80;
+  let currentY = y + paddingY + 70;
   const maxWidth = w - paddingX * 2;
 
   for (const raw of lines) {
@@ -105,20 +97,19 @@ function drawBox(ctx, x, y, w, h, bgColor, title, lines) {
       ctx.fillText(text, x + paddingX, currentY);
       currentY += lineSpacing;
     } else {
+      // Manual word-wrap
       let words = text.split(' ');
-      let current = '';
+      let line = '';
       for (const word of words) {
-        const test = current ? current + ' ' + word : word;
+        const test = (line ? line + ' ' : '') + word;
         if (ctx.measureText(test).width > maxWidth) {
-          ctx.fillText(current, x + paddingX, currentY);
-          current = word;
+          ctx.fillText(line, x + paddingX, currentY);
           currentY += lineSpacing;
-        } else {
-          current = test;
-        }
+          line = word;
+        } else line = test;
       }
-      if (current) {
-        ctx.fillText(current, x + paddingX, currentY);
+      if (line) {
+        ctx.fillText(line, x + paddingX, currentY);
         currentY += lineSpacing;
       }
     }
@@ -127,9 +118,6 @@ function drawBox(ctx, x, y, w, h, bgColor, title, lines) {
   ctx.restore();
 }
 
-// -------------------------------------------------
-// MAIN RENDER FUNCTION
-// -------------------------------------------------
 async function createBountyCard(options) {
   const {
     bountyId,
@@ -151,43 +139,37 @@ async function createBountyCard(options) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext('2d');
 
-  // Background
+  // Gradient background
   const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, 0);
   gradient.addColorStop(0, style.gradientFrom);
   gradient.addColorStop(1, style.gradientTo);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // Overlay
-  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
   // Layout
-  const leftX = MARGIN;
-  const leftY = MARGIN;
   const leftWidth = CARD_WIDTH - RIGHT_WIDTH - MARGIN * 3;
   const leftHeight = CARD_HEIGHT - MARGIN * 2;
+  const leftX = MARGIN;
+  const leftY = MARGIN;
 
   const rightX = leftX + leftWidth + MARGIN;
   const rightY = MARGIN;
   const rightSize = CARD_HEIGHT - MARGIN * 2;
 
-  // -------------------------------------------------
-  // RIGHT IMAGE (fully centered, no cutoff)
-  // -------------------------------------------------
+  // RIGHT IMAGE (no cropping)
   ctx.save();
   try {
     const img = await loadImage(avatarUrl);
-
     const aspect = img.width / img.height;
+
     let drawW = rightSize;
     let drawH = rightSize;
 
-    if (aspect > 1) {
-      drawH = rightSize / aspect;
-    } else {
-      drawW = rightSize * aspect;
-    }
+    if (aspect > 1) drawH = rightSize / aspect;
+    else drawW = rightSize * aspect;
 
     const cx = rightX + (rightSize - drawW) / 2;
     const cy = rightY + (rightSize - drawH) / 2;
@@ -197,65 +179,58 @@ async function createBountyCard(options) {
     ctx.drawImage(img, cx, cy, drawW, drawH);
 
     ctx.lineWidth = 12;
-    ctx.strokeStyle = 'rgba(248,250,252,0.9)';
+    ctx.strokeStyle = 'rgba(248,250,252,0.92)';
     ctx.stroke();
   } catch (err) {
-    roundedRectPath(ctx, rightX, rightY, rightSize, rightSize, 50);
-    ctx.clip();
-    ctx.fillStyle = 'rgba(15,23,42,0.9)';
-    ctx.fillRect(rightX, rightY, rightSize, rightSize);
-
-    ctx.font = 'bold 50px sans-serif';
-    ctx.fillStyle = '#fff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('No Image', rightX + rightSize / 2, rightY + rightSize / 2);
+    // fallback
   }
   ctx.restore();
-  ctx.textAlign = 'left';
 
-  // -------------------------------------------------
-  // LEFT-SIDE BOXES (5 rows)
-  // -------------------------------------------------
+  // Spacing for 5 bigger boxes
   const boxCount = 5;
-  const gap = 22;
+  const gap = 28;
   const totalGap = gap * (boxCount - 1);
   const boxHeight = (leftHeight - totalGap) / boxCount;
 
-  const boxColor = style.boxColor;
   let y = leftY;
+  const bgBoxColor = style.boxColor;
 
-  drawBox(ctx, leftX, y, leftWidth, boxHeight, boxColor, "Trainer Info", [
-    `Trainer: ${username}`,
-    `Rank: ${rankName}`,
-    `Rarity: ${rarityLabel}`
-  ]);
+  drawBox(ctx, leftX, y, leftWidth, boxHeight, bgBoxColor,
+    "Trainer Info", [
+      `Trainer: ${username}`,
+      `Rank: ${rankName}`,
+      `Rarity: ${rarityLabel}`
+    ]
+  );
   y += boxHeight + gap;
 
-  drawBox(ctx, leftX, y, leftWidth, boxHeight, boxColor, "Reward", [
-    rewardLabel
-  ]);
+  drawBox(ctx, leftX, y, leftWidth, boxHeight, bgBoxColor,
+    "Reward", [rewardLabel]
+  );
   y += boxHeight + gap;
 
-  drawBox(ctx, leftX, y, leftWidth, boxHeight, boxColor, "Pokémon Targets",
-    pokemons.length ? pokemons.map(p => `• ${p}`) : ["None"]);
+  drawBox(ctx, leftX, y, leftWidth, boxHeight, bgBoxColor,
+    "Pokémon Targets",
+    pokemons.length ? pokemons.map(p => `• ${p}`) : ["None"]
+  );
   y += boxHeight + gap;
 
-  drawBox(ctx, leftX, y, leftWidth, boxHeight, boxColor, "Timing", [
-    `Start: ${startLabel}`,
-    `End: ${endLabel}`,
-    `Duration: ${durationLabel}`
-  ]);
+  drawBox(ctx, leftX, y, leftWidth, boxHeight, bgBoxColor,
+    "Timing", [
+      `Start: ${startLabel}`,
+      `End: ${endLabel}`,
+      `Duration: ${durationLabel}`
+    ]
+  );
   y += boxHeight + gap;
 
-  drawBox(ctx, leftX, y, leftWidth, boxHeight, boxColor, "Note", [
-    note || "None"
-  ]);
+  drawBox(ctx, leftX, y, leftWidth, boxHeight, bgBoxColor,
+    "Note", [note || "None"]
+  );
 
-  // Save
-  const dest = path.join(CARDS_DIR, `bounty_${bountyId}.png`);
-  fs.writeFileSync(dest, canvas.toBuffer('image/png'));
-  return dest;
+  const filePath = path.join(CARDS_DIR, `bounty_${bountyId}.png`);
+  fs.writeFileSync(filePath, canvas.toBuffer('image/png'));
+  return filePath;
 }
 
 module.exports = { createBountyCard };
