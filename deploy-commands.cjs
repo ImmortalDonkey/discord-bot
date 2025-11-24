@@ -94,28 +94,33 @@ const commands = [
     .setDefaultMemberPermissions(8),
 
   // 🆕 /bountyrequest WITH:
-  // - Required reward
-  // - Required notes
-  // - Duration choices
+  // - Start Now OR HH:00
+  // - Reward
+  // - Notes
+  // - Duration
   // - Pokémon1–3
-  // - Start time autocomplete
   new SlashCommandBuilder()
     .setName('bountyrequest')
     .setDescription('Submit a new bounty request')
 
-    // REQUIRED FIRST (Discord enforces required-first order)
+    // REQUIRED
     .addStringOption(o =>
       o.setName('pokemon1')
         .setDescription('Main Pokémon')
         .setAutocomplete(true)
         .setRequired(true)
     )
+
     .addStringOption(o =>
       o.setName('starttime')
-        .setDescription('Start time (00:00 - 23:00)')
-        .setAutocomplete(true)
+        .setDescription('Start time (or Start Now)')
         .setRequired(true)
+        .addChoices(
+          { name: 'Start Now', value: 'now' }
+        )
+        .setAutocomplete(true)
     )
+
     .addIntegerOption(o =>
       o.setName('duration')
         .setDescription('How long the bounty runs for')
@@ -133,18 +138,20 @@ const commands = [
           { name: '72 hours', value: 72 }
         )
     )
+
     .addIntegerOption(o =>
       o.setName('reward')
         .setDescription('Reward amount (pkd)')
         .setRequired(true)
     )
+
     .addStringOption(o =>
       o.setName('notes')
         .setDescription('Required note/message')
         .setRequired(true)
     )
 
-    // OPTIONAL POKÉMON
+    // OPTIONAL
     .addStringOption(o =>
       o.setName('pokemon2')
         .setDescription('Optional second Pokémon')
