@@ -3,29 +3,48 @@ const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage } = require('canvas');
 
-const CARD_WIDTH = 1700;
-const CARD_HEIGHT = 900;
-const MARGIN = 50;
-const RIGHT_WIDTH = 600;
+// Final canvas size (Discord target)
+const CARD_WIDTH = 2200;
+const CARD_HEIGHT = 1300;
 
+// Layout
+const MARGIN = 50;
 const CARDS_DIR = path.join(__dirname, 'card-images');
+
+// Ensure output folder exists
 if (!fs.existsSync(CARDS_DIR)) {
   fs.mkdirSync(CARDS_DIR, { recursive: true });
 }
 
-// background colours by rarity
+// Rarity styles: background gradient only, boxes are dark
 const rarityStyles = {
-  paradox: { gradientFrom: '#3b82f6', gradientTo: '#a855f7' },
-  roamerMonth: { gradientFrom: '#f59e0b', gradientTo: '#ea580c' },
-  legendary: { gradientFrom: '#1d4ed8', gradientTo: '#22d3ee' },
-  rare: { gradientFrom: '#1d4ed8', gradientTo: '#22d3ee' },
-  common: { gradientFrom: '#16a34a', gradientTo: '#0f766e' }
+  paradox: {
+    gradientFrom: '#3b82f6',
+    gradientTo: '#a855f7'
+  },
+  roamerMonth: {
+    gradientFrom: '#f59e0b',
+    gradientTo: '#ea580c'
+  },
+  legendary: {
+    gradientFrom: '#1d4ed8',
+    gradientTo: '#22d3ee'
+  },
+  rare: {
+    gradientFrom: '#1d4ed8',
+    gradientTo: '#22d3ee'
+  },
+  common: {
+    gradientFrom: '#16a34a',
+    gradientTo: '#0f766e'
+  }
 };
 
 function getStyleForRarity(key) {
   return rarityStyles[key] || rarityStyles.common;
 }
 
+// Rounded rect helper
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -41,56 +60,136 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// simple wrapper for value text
-function wrapText(ctx, text, maxWidth) {
-  const words = (text || '').split(' ');
-  const lines = [];
-  let line = '';
-
-  for (const word of words) {
-    const test = line ? line + ' ' + word : word;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = test;
-    }
-  }
-  if (line) lines.push(line);
-  return lines;
+// Draw a dark box with white border
+function drawBoxBackground(ctx, x, y, w, h) {
+  const radius = 32;
+  ctx.save();
+  roundedRectPath(ctx, x, y, w, h, radius);
+  ctx.fillStyle = 'rgba(3, 7, 18, 0.96)'; // very dark
+  ctx.fill();
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  ctx.clip();
+  ctx.restore();
 }
 
-// draw "Label: Value" with label in gold and value in white
-function drawLabelValue(ctx, label, value, x, y, maxWidth, lineHeight) {
-  const LABEL_COLOR = '#facc15'; // gold
-  const VALUE_COLOR = '#f9fafb';
+/**
+ * Draw the top info box rows with aligned columns.
+ * rows: array of { header, value, groupAfter?: boolean }
+ */
+function drawInfoRows(ctx, x, y, w, h, rows) {
+  const paddingX = 36;
+  const paddingTop = 32;
+  const lineSpacing = 60;
+  const groupExtraSpacing = 40;
 
-  const labelText = `${label}: `;
-  ctx.font = 'bold 44px sans-serif';
+  ctx.save();
+  roundedRectPath(ctx, x, y, w, h, 32);
+  ctx.clip();
 
-  // width taken by the label
-  const labelWidth = ctx.measureText(labelText).width;
-  const valueMaxWidth = Math.max(10, maxWidth - labelWidth);
+  // Set font *before* measuring
+  ctx.font = 'bold 40px sans-serif';
 
-  // split value into wrapped lines
-  const valueLines = wrapText(ctx, value || '', valueMaxWidth);
-  const totalLines = Math.max(1, valueLines.length);
+  // Determine fixed header width using the longest header
+  const longestHeader = 'Start time:'; // known longest header
+  const headerWidth = ctx.measureText(longestHeader).width;
+  const gap = 50;
 
-  // first line: label + first part of value
-  ctx.fillStyle = LABEL_COLOR;
-  ctx.fillText(labelText, x, y);
+  const headerX = x + paddingX;
+  const valueX = headerX + headerWidth + gap;
+  const maxValueWidth = x + w - paddingX - valueX;
 
-  ctx.fillStyle = VALUE_COLOR;
-  const firstValue = valueLines[0] || '';
-  ctx.fillText(firstValue, x + labelWidth, y);
+  let currentY = y + paddingTop;
 
-  // remaining lines: value only, aligned under value column
-  for (let i = 1; i < totalLines; i++) {
-    const lineY = y + lineHeight * i;
-    ctx.fillText(valueLines[i], x + labelWidth, lineY);
+  for (const row of rows) {
+    const header = row.header || '';
+    const value = row.value || '';
+
+    // Draw header (gold)
+    ctx.fillStyle = '#facc15'; // bright gold
+    ctx.textBaseline = 'top';
+    ctx.font = 'bold 40px sans-serif';
+    ctx.fillText(header, headerX, currentY);
+
+    // Draw value (wrapped if needed)
+    ctx.fillStyle = '#ffffff';
+    const words = value.split(' ');
+    let line = '';
+    let firstLine = true;
+
+    for (const word of words) {
+      const testLine = line ? line + ' ' + word : word;
+      const testWidth = ctx.measureText(testLine).width;
+
+      if (testWidth > maxValueWidth && line !== '') {
+        // Draw current line
+        ctx.fillText(line, valueX, currentY);
+        currentY += lineSpacing;
+        line = word;
+        firstLine = false;
+      } else {
+        line = testLine;
+      }
+    }
+
+    if (line) {
+      ctx.fillText(line, valueX, currentY);
+      currentY += lineSpacing;
+    } else if (firstLine) {
+      // No words but still advance line-height
+      currentY += lineSpacing;
+    }
+
+    if (row.groupAfter) {
+      currentY += groupExtraSpacing;
+    }
   }
 
-  return y + lineHeight * totalLines;
+  ctx.restore();
+}
+
+/**
+ * Draw note text in the bottom box (no header, full width wrap)
+ */
+function drawNoteBox(ctx, x, y, w, h, note) {
+  const paddingX = 36;
+  const paddingTop = 32;
+  const lineSpacing = 56;
+
+  const text = note && note.trim().length ? note : 'None';
+
+  ctx.save();
+  roundedRectPath(ctx, x, y, w, h, 32);
+  ctx.clip();
+
+  ctx.font = 'bold 40px sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'top';
+
+  const maxWidth = w - paddingX * 2;
+  const words = text.split(' ');
+  let line = '';
+  let currentY = y + paddingTop;
+
+  for (const word of words) {
+    const testLine = line ? line + ' ' + word : word;
+    const testWidth = ctx.measureText(testLine).width;
+
+    if (testWidth > maxWidth && line !== '') {
+      ctx.fillText(line, x + paddingX, currentY);
+      currentY += lineSpacing;
+      line = word;
+    } else {
+      line = testLine;
+    }
+  }
+
+  if (line) {
+    ctx.fillText(line, x + paddingX, currentY);
+  }
+
+  ctx.restore();
 }
 
 /**
@@ -98,17 +197,17 @@ function drawLabelValue(ctx, label, value, x, y, maxWidth, lineHeight) {
  *  - bountyId
  *  - username
  *  - rankName
- *  - rarityKey
+ *  - rarityKey ('paradox','roamerMonth','legendary','rare','common')
  *  - rarityLabel
- *  - pokemons[] (array of strings)
+ *  - pokemons: array of strings
  *  - startLabel
  *  - endLabel
- *  - durationLabel
+ *  - durationLabel  (e.g. "3 hours (Ends in 2h 23m)")
  *  - note
- *  - rewardLabel
+ *  - rewardLabel    (e.g. "10,000,000 PKD")
  *  - avatarUrl
  *
- * Returns: full file path
+ * Returns: full file path to generated PNG
  */
 async function createBountyCard(options) {
   const {
@@ -128,6 +227,7 @@ async function createBountyCard(options) {
 
   const style = getStyleForRarity(rarityKey);
 
+  // Create canvas
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext('2d');
 
@@ -138,91 +238,133 @@ async function createBountyCard(options) {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // dark overlay for contrast
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+  // Slight dark overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.30)';
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // layout
-  const leftX = MARGIN;
-  const topY = MARGIN;
-  const leftWidth = CARD_WIDTH - RIGHT_WIDTH - MARGIN * 3;
+  // Inner layout (55% text / 45% image)
+  const innerWidth = CARD_WIDTH - MARGIN * 3;
+  const innerHeight = CARD_HEIGHT - MARGIN * 2;
 
-  const rightX = leftX + leftWidth + MARGIN;
-  const rightY = MARGIN;
-  const rightSize = CARD_HEIGHT - MARGIN * 2;
+  const textPanelWidth = Math.round(innerWidth * 0.55);
+  const imagePanelWidth = innerWidth - textPanelWidth;
 
-  // RIGHT IMAGE
+  const textX = MARGIN;
+  const textY = MARGIN;
+  const textW = textPanelWidth;
+  const textH = innerHeight;
+
+  const imageX = textX + textW + MARGIN;
+  const imageY = MARGIN;
+  const imageW = imagePanelWidth;
+  const imageH = innerHeight;
+
+  // ===== RIGHT IMAGE PANEL (45%) — no cropping, full height =====
   ctx.save();
   try {
     const img = await loadImage(avatarUrl);
 
-    let drawW = rightSize;
-    let drawH = rightSize;
+    // Fit inside imageW × imageH, preserve aspect ratio, no cropping
     const aspect = img.width / img.height;
+    let drawW = imageW;
+    let drawH = imageH;
 
-    if (aspect > 1) {
-      drawH = rightSize / aspect;
+    if (aspect > imageW / imageH) {
+      // too wide, limit width
+      drawW = imageW;
+      drawH = imageW / aspect;
     } else {
-      drawW = rightSize * aspect;
+      // too tall, limit height
+      drawH = imageH;
+      drawW = imageH * aspect;
     }
 
-    const cx = rightX + (rightSize - drawW) / 2;
-    const cy = rightY + (rightSize - drawH) / 2;
+    const dx = imageX + (imageW - drawW) / 2;
+    const dy = imageY + (imageH - drawH) / 2;
 
-    roundedRectPath(ctx, rightX, rightY, rightSize, rightSize, 40);
+    // Rounded panel + border
+    const radius = 40;
+    roundedRectPath(ctx, imageX, imageY, imageW, imageH, radius);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fill();
     ctx.clip();
-    ctx.drawImage(img, cx, cy, drawW, drawH);
 
-    ctx.lineWidth = 10;
-    ctx.strokeStyle = 'rgba(248, 250, 252, 0.9)';
+    ctx.drawImage(img, dx, dy, drawW, drawH);
+
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = '#ffffff';
     ctx.stroke();
   } catch (err) {
-    roundedRectPath(ctx, rightX, rightY, rightSize, rightSize, 40);
-    ctx.clip();
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-    ctx.fillRect(rightX, rightY, rightSize, rightSize);
-    ctx.font = 'bold 42px sans-serif';
+    // Fallback placeholder
+    const radius = 40;
+    roundedRectPath(ctx, imageX, imageY, imageW, imageH, radius);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+
+    ctx.font = 'bold 40px sans-serif';
     ctx.fillStyle = '#e5e7eb';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('No Image', rightX + rightSize / 2, rightY + rightSize / 2);
+    ctx.fillText('No Image', imageX + imageW / 2, imageY + imageH / 2);
   }
   ctx.restore();
+
   ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.font = 'bold 44px sans-serif';
 
-  const lineHeight = 56;
-  let y = topY;
+  // ===== LEFT TEXT PANEL (55%) =====
+  // Two stacked boxes: top info, bottom note
+  const boxGap = 26;
+  const topBoxHeight = Math.round(textH * 0.6);
+  const bottomBoxHeight = textH - topBoxHeight - boxGap;
 
-  // SECTION 1: Trainer
-  y = drawLabelValue(ctx, 'Trainer', username, leftX, y, leftWidth, lineHeight);
-  y = drawLabelValue(ctx, 'Rank', rankName, leftX, y, leftWidth, lineHeight);
+  const topBoxX = textX;
+  const topBoxY = textY;
+  const topBoxW = textW;
+  const topBoxH = topBoxHeight;
 
-  y += 30;
+  const bottomBoxX = textX;
+  const bottomBoxY = textY + topBoxHeight + boxGap;
+  const bottomBoxW = textW;
+  const bottomBoxH = bottomBoxHeight;
 
-  // SECTION 2: Target / rarity / reward
-  const targets = (pokemons && pokemons.length) ? pokemons.join(', ') : 'None';
-  y = drawLabelValue(ctx, 'Target', targets, leftX, y, leftWidth, lineHeight);
-  y = drawLabelValue(ctx, 'Rarity', rarityLabel, leftX, y, leftWidth, lineHeight);
-  y = drawLabelValue(ctx, 'Reward', rewardLabel, leftX, y, leftWidth, lineHeight);
+  // Draw box backgrounds with border
+  drawBoxBackground(ctx, topBoxX, topBoxY, topBoxW, topBoxH);
+  drawBoxBackground(ctx, bottomBoxX, bottomBoxY, bottomBoxW, bottomBoxH);
 
-  y += 30;
+  // Build rows for the top info box
+  const pokemonDisplay = (pokemons && pokemons.length) ? pokemons[0] : 'None';
 
-  // SECTION 3: Timing
-  y = drawLabelValue(ctx, 'Start time', startLabel, leftX, y, leftWidth, lineHeight);
-  y = drawLabelValue(ctx, 'Ends', endLabel, leftX, y, leftWidth, lineHeight);
-  y = drawLabelValue(ctx, 'Duration', durationLabel, leftX, y, leftWidth, lineHeight);
+  const rows = [
+    { header: 'Trainer:',   value: username },
+    { header: 'Rank:',      value: rankName, groupAfter: true },
 
-  y += 30;
+    { header: 'Target:',    value: pokemonDisplay },
+    { header: 'Rarity:',    value: rarityLabel },
+    { header: 'Reward:',    value: rewardLabel, groupAfter: true },
 
-  // SECTION 4: Note
-  y = drawLabelValue(ctx, 'Note', note || 'None', leftX, y, leftWidth, lineHeight);
+    { header: 'Start time:', value: startLabel },
+    { header: 'Ends:',       value: endLabel },
+    { header: 'Duration:',   value: durationLabel }
+  ];
 
-  // Save image
-  const filePath = path.join(CARDS_DIR, `bounty_${bountyId}.png`);
-  fs.writeFileSync(filePath, canvas.toBuffer('image/png'));
-  return filePath;
+  // Draw info rows (headers gold, values white, aligned column)
+  drawInfoRows(ctx, topBoxX, topBoxY, topBoxW, topBoxH, rows);
+
+  // Draw note box (no header)
+  drawNoteBox(ctx, bottomBoxX, bottomBoxY, bottomBoxW, bottomBoxH, note);
+
+  // Save PNG
+  const fileName = `bounty_${bountyId}.png`;
+  const outPath = path.join(CARDS_DIR, fileName);
+  const buffer = canvas.toBuffer('image/png');
+  fs.writeFileSync(outPath, buffer);
+
+  return outPath;
 }
 
-module.exports = { createBountyCard };
+module.exports = {
+  createBountyCard
+};
