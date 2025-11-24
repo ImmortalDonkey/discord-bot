@@ -192,6 +192,7 @@ function clampHours(h) {
 function parseHourFromStartTimeString(str) {
   // expects "HH:MM"
   if (!str || typeof str !== 'string') return 0;
+  if (str === 'now') return 0; // not used for now-case, but safe
   const parts = str.split(':');
   const hour = parseInt(parts[0], 10);
   if (isNaN(hour) || hour < 0 || hour > 23) return 0;
@@ -482,7 +483,8 @@ client.on('interactionCreate', async interaction => {
       if (option === 'pokemon1' || option === 'pokemon2' || option === 'pokemon3') {
         choices = Object.values(rarityGroups).flat();
       } else if (option === 'starttime') {
-        // 00:00 .. 23:00
+        // (No longer used because starttime now has fixed choices,
+        // but this block is harmless to leave.)
         const allTimes = [];
         for (let h = 0; h < 24; h++) {
           const hh = h.toString().padStart(2, '0');
@@ -764,10 +766,17 @@ client.on('interactionCreate', async interaction => {
       const reward = interaction.options.getInteger('reward');
 
       const pokemons = [pokemon1, pokemon2, pokemon3].filter(Boolean);
-      const hour = parseHourFromStartTimeString(startTimeStr);
+
       const durationHours = clampHours(durationHoursRaw);
-      const startTime = getNextOccurrenceOfHour(hour);
       const durationMs = durationHours * 60 * 60 * 1000;
+
+      let startTime;
+      if (startTimeStr === 'now') {
+        startTime = new Date();
+      } else {
+        const hour = parseHourFromStartTimeString(startTimeStr);
+        startTime = getNextOccurrenceOfHour(hour);
+      }
       const endTime = new Date(startTime.getTime() + durationMs);
 
       const bountyId = `${Date.now()}_${interaction.user.id}`;
@@ -812,6 +821,11 @@ client.on('interactionCreate', async interaction => {
       const bountyRarity = getHighestRarityForList(pokemons);
       const rarityLabel = getRarityDisplayLabel(bountyRarity);
 
+      const startFieldValue =
+        startTimeStr === 'now'
+          ? `<t:${startUnix}:F> (Starts on approval)`
+          : `<t:${startUnix}:F>`;
+
       const embed = new EmbedBuilder()
         .setTitle('📝 New Bounty Request')
         .setDescription('A new bounty has been requested and is awaiting staff approval.')
@@ -820,7 +834,7 @@ client.on('interactionCreate', async interaction => {
           { name: 'Rarity', value: rarityLabel, inline: true },
           { name: 'Reward', value: `${reward.toLocaleString()} PKD`, inline: false },
           { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
-          { name: 'Requested Start', value: `<t:${startUnix}:F>`, inline: false },
+          { name: 'Requested Start', value: startFieldValue, inline: false },
           { name: 'Requested End', value: `<t:${endUnix}:F>`, inline: false },
           { name: 'Duration', value: `${durationHours} hour(s)`, inline: true },
           { name: 'Note', value: notes, inline: false }
