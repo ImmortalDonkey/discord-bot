@@ -3,122 +3,141 @@ const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage } = require('canvas');
 
-// MUCH larger card resolution to stop clipping
-const CARD_WIDTH = 2200;
-const CARD_HEIGHT = 1300;
+const CARD_WIDTH = 1600;
+const CARD_HEIGHT = 900;
 
-const MARGIN = 60;
-const RIGHT_WIDTH = 700; // wider so the image isn't cut
+const TEXT_WIDTH = 900;        // 60% of card
+const IMAGE_WIDTH = 550;       // 40% of card
+const MARGIN = 40;
 
 const CARDS_DIR = path.join(__dirname, 'card-images');
+if (!fs.existsSync(CARDS_DIR)) fs.mkdirSync(CARDS_DIR, { recursive: true });
 
-// Ensure output folder exists
-if (!fs.existsSync(CARDS_DIR)) {
-  fs.mkdirSync(CARDS_DIR, { recursive: true });
-}
-
-// Rarity styles
+/* ===============================
+   RARITY GRADIENTS + BOX STYLE
+================================= */
 const rarityStyles = {
   paradox: {
     gradientFrom: '#3b82f6',
     gradientTo: '#a855f7',
-    boxColor: 'rgba(15, 23, 42, 0.92)'
+    boxColor: 'rgba(10, 16, 28, 0.9)'
   },
   roamerMonth: {
     gradientFrom: '#f59e0b',
     gradientTo: '#ea580c',
-    boxColor: 'rgba(17, 24, 39, 0.92)'
+    boxColor: 'rgba(15, 23, 42, 0.9)'
   },
   legendary: {
     gradientFrom: '#1d4ed8',
     gradientTo: '#22d3ee',
-    boxColor: 'rgba(15, 23, 42, 0.92)'
+    boxColor: 'rgba(15, 23, 42, 0.9)'
   },
   rare: {
     gradientFrom: '#1d4ed8',
     gradientTo: '#22d3ee',
-    boxColor: 'rgba(15, 23, 42, 0.92)'
+    boxColor: 'rgba(15, 23, 42, 0.9)'
   },
   common: {
     gradientFrom: '#16a34a',
     gradientTo: '#0f766e',
-    boxColor: 'rgba(5, 46, 22, 0.92)'
+    boxColor: 'rgba(5, 46, 22, 0.9)'
   }
 };
 
-function getStyleForRarity(key) {
+function getStyle(key) {
   return rarityStyles[key] || rarityStyles.common;
 }
 
-// Rounded rectangle helper
-function roundedRectPath(ctx, x, y, w, h, r) {
-  const radius = Math.min(r, w / 2, h / 2);
+/* ===============================
+   DRAW GOLD HEADER BAR SECTION
+================================= */
+function drawSection(ctx, x, y, w, header, lines, bgColor) {
+  const headerBarHeight = 70;
+  const padding = 28;
+  const lineSpacing = 52;
+
+  // --- Box background ---
+  ctx.fillStyle = bgColor;
   ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + w - radius, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-  ctx.lineTo(x + w, y + h - radius);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-  ctx.lineTo(x + radius, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
-  ctx.closePath();
-}
+  ctx.roundRect(x, y, w, 0, 0);
+  ctx.fill();
 
-function drawBox(ctx, x, y, w, h, bgColor, title, lines) {
-  const paddingX = 40;
-  const paddingY = 40;
-  const lineSpacing = 58;
+  // Estimate content height
+  let estHeight = headerBarHeight + padding;
+  ctx.font = 'bold 40px sans-serif';
+  const maxWidth = w - padding * 2;
 
-  ctx.save();
-  roundedRectPath(ctx, x, y, w, h, 40);
+  lines.forEach(text => {
+    if (ctx.measureText(text).width <= maxWidth) {
+      estHeight += lineSpacing;
+    } else {
+      const words = text.split(' ');
+      let current = '';
+      words.forEach(word => {
+        const test = current ? current + ' ' + word : word;
+        if (ctx.measureText(test).width > maxWidth) {
+          estHeight += lineSpacing;
+          current = word;
+        } else current = test;
+      });
+      estHeight += lineSpacing;
+    }
+  });
+
+  // Actual box
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, estHeight + padding, 24);
   ctx.fillStyle = bgColor;
   ctx.fill();
-  ctx.clip();
 
-  // Title (50px bold)
-  ctx.fillStyle = '#e5e7eb';
+  // --- HEADER BAR ---
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, headerBarHeight, 24);
+  ctx.fillStyle = '#facc15'; // GOLD bar
+  ctx.fill();
+
+  // Header text
+  ctx.fillStyle = '#1e1e1e';
   ctx.font = 'bold 50px sans-serif';
-  ctx.textBaseline = 'top';
-  ctx.fillText(title, x + paddingX, y + paddingY);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.fillText(header, x + w / 2, y + headerBarHeight / 2);
 
-  // Content (40px bold)
+  // --- Body text ---
+  ctx.textAlign = 'left';
   ctx.font = 'bold 40px sans-serif';
   ctx.fillStyle = '#f9fafb';
 
-  let currentY = y + paddingY + 70;
-  const maxWidth = w - paddingX * 2;
+  let cursorY = y + headerBarHeight + padding;
 
-  for (const raw of lines) {
-    const text = raw || '';
+  lines.forEach(text => {
+    const words = text.split(' ');
+    let current = '';
 
-    if (ctx.measureText(text).width <= maxWidth) {
-      ctx.fillText(text, x + paddingX, currentY);
-      currentY += lineSpacing;
-    } else {
-      // Manual word-wrap
-      let words = text.split(' ');
-      let line = '';
-      for (const word of words) {
-        const test = (line ? line + ' ' : '') + word;
-        if (ctx.measureText(test).width > maxWidth) {
-          ctx.fillText(line, x + paddingX, currentY);
-          currentY += lineSpacing;
-          line = word;
-        } else line = test;
+    words.forEach(word => {
+      const test = current ? current + ' ' + word : word;
+      if (ctx.measureText(test).width > maxWidth) {
+        ctx.fillText(current, x + padding, cursorY);
+        cursorY += lineSpacing;
+        current = word;
+      } else {
+        current = test;
       }
-      if (line) {
-        ctx.fillText(line, x + paddingX, currentY);
-        currentY += lineSpacing;
-      }
+    });
+
+    if (current) {
+      ctx.fillText(current, x + padding, cursorY);
+      cursorY += lineSpacing;
     }
-  }
+  });
 
-  ctx.restore();
+  return estHeight + padding + 20;
 }
 
-async function createBountyCard(options) {
+/* ===============================
+   MAIN CARD GENERATOR
+================================= */
+async function createBountyCard(opts) {
   const {
     bountyId,
     username,
@@ -132,105 +151,152 @@ async function createBountyCard(options) {
     note,
     rewardLabel,
     avatarUrl
-  } = options;
+  } = opts;
 
-  const style = getStyleForRarity(rarityKey);
+  const style = getStyle(rarityKey);
 
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext('2d');
 
-  // Gradient background
-  const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, 0);
-  gradient.addColorStop(0, style.gradientFrom);
-  gradient.addColorStop(1, style.gradientTo);
-  ctx.fillStyle = gradient;
+  /* Background gradient */
+  const g = ctx.createLinearGradient(0, 0, CARD_WIDTH, 0);
+  g.addColorStop(0, style.gradientFrom);
+  g.addColorStop(1, style.gradientTo);
+  ctx.fillStyle = g;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // Layout
-  const leftWidth = CARD_WIDTH - RIGHT_WIDTH - MARGIN * 3;
-  const leftHeight = CARD_HEIGHT - MARGIN * 2;
+  /* ======================
+       LEFT TEXT PANEL
+  ======================== */
   const leftX = MARGIN;
   const leftY = MARGIN;
+  const leftW = TEXT_WIDTH;
+  const leftH = CARD_HEIGHT - MARGIN * 2;
 
-  const rightX = leftX + leftWidth + MARGIN;
-  const rightY = MARGIN;
-  const rightSize = CARD_HEIGHT - MARGIN * 2;
+  ctx.beginPath();
+  ctx.roundRect(leftX, leftY, leftW, leftH, 30);
+  ctx.fillStyle = style.boxColor;
+  ctx.fill();
 
-  // RIGHT IMAGE (no cropping)
-  ctx.save();
-  try {
-    const img = await loadImage(avatarUrl);
-    const aspect = img.width / img.height;
 
-    let drawW = rightSize;
-    let drawH = rightSize;
+  /* Insert sections */
+  let cursorY = leftY + 30;
 
-    if (aspect > 1) drawH = rightSize / aspect;
-    else drawW = rightSize * aspect;
-
-    const cx = rightX + (rightSize - drawW) / 2;
-    const cy = rightY + (rightSize - drawH) / 2;
-
-    roundedRectPath(ctx, rightX, rightY, rightSize, rightSize, 50);
-    ctx.clip();
-    ctx.drawImage(img, cx, cy, drawW, drawH);
-
-    ctx.lineWidth = 12;
-    ctx.strokeStyle = 'rgba(248,250,252,0.92)';
-    ctx.stroke();
-  } catch (err) {
-    // fallback
-  }
-  ctx.restore();
-
-  // Spacing for 5 bigger boxes
-  const boxCount = 5;
-  const gap = 28;
-  const totalGap = gap * (boxCount - 1);
-  const boxHeight = (leftHeight - totalGap) / boxCount;
-
-  let y = leftY;
-  const bgBoxColor = style.boxColor;
-
-  drawBox(ctx, leftX, y, leftWidth, boxHeight, bgBoxColor,
-    "Trainer Info", [
+  cursorY += drawSection(
+    ctx,
+    leftX + 20,
+    cursorY,
+    leftW - 40,
+    "Trainer Info",
+    [
       `Trainer: ${username}`,
       `Rank: ${rankName}`,
       `Rarity: ${rarityLabel}`
-    ]
+    ],
+    style.boxColor
   );
-  y += boxHeight + gap;
 
-  drawBox(ctx, leftX, y, leftWidth, boxHeight, bgBoxColor,
-    "Reward", [rewardLabel]
+  cursorY += 30;
+
+  cursorY += drawSection(
+    ctx,
+    leftX + 20,
+    cursorY,
+    leftW - 40,
+    "Reward",
+    [rewardLabel],
+    style.boxColor
   );
-  y += boxHeight + gap;
 
-  drawBox(ctx, leftX, y, leftWidth, boxHeight, bgBoxColor,
+  cursorY += 30;
+
+  cursorY += drawSection(
+    ctx,
+    leftX + 20,
+    cursorY,
+    leftW - 40,
     "Pokémon Targets",
-    pokemons.length ? pokemons.map(p => `• ${p}`) : ["None"]
+    pokemons.map(p => `• ${p}`),
+    style.boxColor
   );
-  y += boxHeight + gap;
 
-  drawBox(ctx, leftX, y, leftWidth, boxHeight, bgBoxColor,
-    "Timing", [
+  cursorY += 30;
+
+  cursorY += drawSection(
+    ctx,
+    leftX + 20,
+    cursorY,
+    leftW - 40,
+    "Timing",
+    [
       `Start: ${startLabel}`,
       `End: ${endLabel}`,
       `Duration: ${durationLabel}`
-    ]
-  );
-  y += boxHeight + gap;
-
-  drawBox(ctx, leftX, y, leftWidth, boxHeight, bgBoxColor,
-    "Note", [note || "None"]
+    ],
+    style.boxColor
   );
 
-  const filePath = path.join(CARDS_DIR, `bounty_${bountyId}.png`);
-  fs.writeFileSync(filePath, canvas.toBuffer('image/png'));
-  return filePath;
+  cursorY += 30;
+
+  cursorY += drawSection(
+    ctx,
+    leftX + 20,
+    cursorY,
+    leftW - 40,
+    "Note",
+    [note || "None"],
+    style.boxColor
+  );
+
+  /* ======================
+       RIGHT IMAGE PANEL
+  ======================== */
+  const imgX = leftX + leftW + MARGIN;
+  const imgY = MARGIN;
+  const imgSize = CARD_HEIGHT - MARGIN * 2;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(imgX, imgY, IMAGE_WIDTH, imgSize, 40);
+  ctx.clip();
+
+  try {
+    const img = await loadImage(avatarUrl);
+
+    const ratio = img.width / img.height;
+    let w = IMAGE_WIDTH;
+    let h = IMAGE_WIDTH / ratio;
+
+    if (h > imgSize) {
+      h = imgSize;
+      w = imgSize * ratio;
+    }
+
+    const dx = imgX + (IMAGE_WIDTH - w) / 2;
+    const dy = imgY + (imgSize - h) / 2;
+
+    ctx.drawImage(img, dx, dy, w, h);
+
+  } catch (e) {
+    ctx.fillStyle = '#111827';
+    ctx.fillRect(imgX, imgY, IMAGE_WIDTH, imgSize);
+
+    ctx.fillStyle = '#e5e7eb';
+    ctx.font = 'bold 42px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText("No Image", imgX + IMAGE_WIDTH / 2, imgY + imgSize / 2);
+  }
+
+  ctx.restore();
+
+  /* Save */
+  const file = path.join(CARDS_DIR, `bounty_${bountyId}.png`);
+  fs.writeFileSync(file, canvas.toBuffer('image/png'));
+  return file;
 }
 
 module.exports = { createBountyCard };
