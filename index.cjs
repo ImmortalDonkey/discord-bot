@@ -1,5 +1,7 @@
 require('dotenv').config();
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const {
   Client,
   GatewayIntentBits,
@@ -12,9 +14,18 @@ const {
 } = require('discord.js');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
+const { createCanvas, loadImage } = require('canvas');
 
 const db = require('./database.cjs');
 const app = express();
+
+// ==========================
+// Basic paths for images
+// ==========================
+const CARD_IMAGES_DIR = path.join(__dirname, 'card-images');
+if (!fs.existsSync(CARD_IMAGES_DIR)) {
+  fs.mkdirSync(CARD_IMAGES_DIR, { recursive: true });
+}
 
 // ==========================
 // Discord Client (v14)
@@ -95,15 +106,28 @@ const RANKS = [
   { name: 'Master', min: 10000 }
 ];
 
-/**
- * Get rank name from lifetime points.
- */
 function getRankName(lifetime) {
   let rank = RANKS[0].name;
   for (const r of RANKS) {
     if (lifetime >= r.min) rank = r.name;
   }
   return rank;
+}
+
+// Display label for rarity (your preferred wording)
+function getRarityDisplayName(key) {
+  switch (key) {
+    case 'paradox':
+      return 'Paradox';
+    case 'roamerMonth':
+      return 'Roamer of the Month';
+    case 'legendary':
+    case 'rare':
+      return 'Legendary / Rare';
+    case 'common':
+    default:
+      return 'Common';
+  }
 }
 
 // ==========================
@@ -197,6 +221,163 @@ function getNextOccurrenceOfHour(hour) {
     start.setDate(start.getDate() + 1);
   }
   return start;
+}
+
+// ==========================
+// Canvas helpers – bounty cards
+// ==========================
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  if (!text) return y;
+  const words = text.split(' ');
+  let line = '';
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + ' ';
+    const metrics = ctx.measureText(testLine);
+    const testWidth = metrics.width;
+    if (testWidth > maxWidth && n > 0) {
+      ctx.fillText(line, x, y);
+      line = words[n] + ' ';
+      y += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  if (line) ctx.fillText(line, x, y);
+  return y;
+}
+
+async function fetchAvatarImage(member) {
+  try {
+    if (!member) return null;
+    const url = member.displayAvatarURL({ extension: 'png', size: 256 });
+    const res = await fetch(url);
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const img = await loadImage(buffer);
+    return img;
+  } catch (err) {
+    console.error('Failed to load avatar for card:', err);
+    return null;
+  }
+}
+
+/**
+ * Generate a bounty card PNG and save to /card-images.
+ * Returns { filePath, fileName } or null on failure.
+ */
+async function generateBountyCardImage(bounty, member) {
+  try {
+    const width = 1024;
+    const height = 512;
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+
+    // Background
+    ctx.fillStyle = '#101116';
+    ctx.fillRect(0, 0, width, height);
+
+    // Outer rounded-ish border
+    ctx.strokeStyle = '#3fd0ff';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(20, 20, width - 40, height - 40);
+
+    // Left panel
+    const leftX = 40;
+    const leftY = 60;
+    const leftWidth = width * 0.6 - 60;
+
+    // Right art box
+    const artX = width * 0.6 + 20;
+    const artY = 60;
+    const artW = width * 0.35;
+    const artH = height - 120;
+
+    ctx.strokeStyle = '#7afc7a';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(artX, artY, artW, artH);
+
+    // Text styling
+    ctx.font = '22px Sans-Serif';
+    ctx.fillStyle = '#9bd5ff';
+    ctx.textAlign = 'left';
+
+    // Get user info for rank
+    const userRow = await db.getUserById(bounty.requesterId);
+    const lifetime = userRow?.lifetime_points || 0;
+    const rankName = getRankName(lifetime);
+
+    const displayRarity = getRarityDisplayName(getHighestRarityForList(bounty.pokemons));
+    const displayName = member ? (member.nickname || member.displayName || member.user.username) : (bounty.requesterName || 'Unknown');
+
+    const labelColor = '#6fe1ff';
+    const valueColor = '#e5ffe5';
+
+    let y = leftY;
+
+    function drawField(label, value) {
+      ctx.fillStyle = labelColor;
+      ctx.fillText(label.toUpperCase() + ':', leftX, y);
+      ctx.fillStyle = valueColor;
+      y = wrapText(ctx, value, leftX + 180, y, leftWidth - 190, 24);
+      y += 16;
+    }
+
+    const pokemonLines = bounty.pokemons.map(p => `• ${p}`).join('  ');
+    const startStr = bounty.startTime.toLocaleString('en-GB', { dateStyle: 'full', timeStyle: 'short' });
+    const durationStr = `${bounty.durationHours} hour(s)`;
+    const rewardStr = `${(bounty.reward || 0).toLocaleString()} PKD`;
+    const noteStr = bounty.notes || 'None';
+
+    drawField('Username', displayName);
+    drawField('Rank', rankName);
+    drawField('Pokémon Targets', pokemonLines);
+    drawField('Rarity', displayRarity);
+    drawField('Start Time', startStr);
+    drawField('Duration', durationStr);
+    drawField('Reward', rewardStr);
+    drawField('Note', noteStr);
+
+    // Avatar in art box
+    const avatarImage = await fetchAvatarImage(member);
+    if (avatarImage) {
+      // center avatar inside art box
+      const scale = Math.min(artW / avatarImage.width, artH / avatarImage.height) * 0.9;
+      const drawW = avatarImage.width * scale;
+      const drawH = avatarImage.height * scale;
+      const dx = artX + (artW - drawW) / 2;
+      const dy = artY + (artH - drawH) / 2;
+
+      ctx.save();
+      // slightly rounded clip
+      const radius = 24;
+      ctx.beginPath();
+      ctx.moveTo(dx + radius, dy);
+      ctx.lineTo(dx + drawW - radius, dy);
+      ctx.quadraticCurveTo(dx + drawW, dy, dx + drawW, dy + radius);
+      ctx.lineTo(dx + drawW, dy + drawH - radius);
+      ctx.quadraticCurveTo(dx + drawW, dy + drawH, dx + drawW - radius, dy + drawH);
+      ctx.lineTo(dx + radius, dy + drawH);
+      ctx.quadraticCurveTo(dx, dy + drawH, dx, dy + drawH - radius);
+      ctx.lineTo(dx, dy + radius);
+      ctx.quadraticCurveTo(dx, dy, dx + radius, dy);
+      ctx.closePath();
+      ctx.clip();
+
+      ctx.drawImage(avatarImage, dx, dy, drawW, drawH);
+      ctx.restore();
+    }
+
+    const buffer = canvas.toBuffer('image/png');
+    const fileName = `bounty-${bounty.id}.png`;
+    const filePath = path.join(CARD_IMAGES_DIR, fileName);
+    fs.writeFileSync(filePath, buffer);
+
+    return { filePath, fileName };
+  } catch (err) {
+    console.error('❌ Failed to generate bounty card image:', err);
+    return null;
+  }
 }
 
 // ==========================
@@ -312,6 +493,7 @@ client.on('interactionCreate', async interaction => {
 
       // Determine rarity of bounty (highest rarity among targets)
       const bountyRarity = getHighestRarityForList(bounty.pokemons);
+      const rarityDisplay = getRarityDisplayName(bountyRarity);
       const rarityRoleId = process.env[`ROLE_${bountyRarity.toUpperCase()}`];
       const allBountyRoleId = process.env.ROLE_BOUNTY_ALL;
       const pingParts = [];
@@ -329,7 +511,7 @@ client.on('interactionCreate', async interaction => {
         .setDescription('A new bounty has been approved.')
         .addFields(
           { name: 'Trainer', value: `<@${bounty.requesterId}>`, inline: true },
-          { name: 'Rarity', value: bountyRarity, inline: true },
+          { name: 'Rarity', value: rarityDisplay, inline: true },
           { name: 'Reward', value: `${bounty.reward.toLocaleString()} PKD`, inline: false },
           { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
           { name: 'Starts', value: `<t:${startUnix}:F> (<t:${startUnix}:R>)`, inline: false },
@@ -350,7 +532,7 @@ client.on('interactionCreate', async interaction => {
       const delayToStart = Math.max(bounty.startTime.getTime() - now, 0);
       const delayToEnd = Math.max(bounty.endTime.getTime() - now, 0);
 
-      // Scheduled announcement at start time
+      // Scheduled announcement at start time (with card image)
       setTimeout(async () => {
         const stillActive = activeBounties.get(bountyId);
         if (!stillActive) return;
@@ -360,7 +542,7 @@ client.on('interactionCreate', async interaction => {
           .setDescription('The bounty is now active.')
           .addFields(
             { name: 'Trainer', value: `<@${stillActive.requesterId}>`, inline: true },
-            { name: 'Rarity', value: bountyRarity, inline: true },
+            { name: 'Rarity', value: rarityDisplay, inline: true },
             { name: 'Reward', value: `${stillActive.reward.toLocaleString()} PKD`, inline: false },
             { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
             { name: 'Started', value: `<t:${startUnix}:F>`, inline: false },
@@ -370,9 +552,23 @@ client.on('interactionCreate', async interaction => {
           )
           .setTimestamp();
 
+        let files = [];
+        try {
+          const guild = await client.guilds.fetch(stillActive.guildId);
+          const member = await guild.members.fetch(stillActive.requesterId).catch(() => null);
+          const card = await generateBountyCardImage(stillActive, member);
+          if (card) {
+            startEmbed.setImage(`attachment://${card.fileName}`);
+            files.push({ attachment: card.filePath, name: card.fileName });
+          }
+        } catch (err) {
+          console.error('❌ Failed to attach bounty card image:', err);
+        }
+
         await bountyChannel.send({
           content: pingText || '',
-          embeds: [startEmbed]
+          embeds: [startEmbed],
+          files
         }).catch(() => {});
       }, delayToStart);
 
@@ -387,7 +583,7 @@ client.on('interactionCreate', async interaction => {
           .setDescription('The bounty has ended. Submissions are now closed.')
           .addFields(
             { name: 'Trainer', value: `<@${stillActive.requesterId}>`, inline: true },
-            { name: 'Rarity', value: bountyRarity, inline: true },
+            { name: 'Rarity', value: rarityDisplay, inline: true },
             { name: 'Reward', value: `${stillActive.reward.toLocaleString()} PKD`, inline: false },
             { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
             { name: 'Ended', value: `<t:${endUnix}:F>`, inline: false },
@@ -510,7 +706,7 @@ client.on('interactionCreate', async interaction => {
             .setTitle("💰 Your Points & Rank")
             .addFields(
               { name: "Rank", value: rankName, inline: true },
-              { name: "Lifetime Points", value: String(lifetime), inline: true },
+              { name: "Lifetime Points", value: `${lifetime} points`, inline: true },
               { name: "Current Points", value: String(pts), inline: true },
               { name: "PKD Value (Current)", value: value.toLocaleString() + " pkd", inline: false }
             )
@@ -523,12 +719,24 @@ client.on('interactionCreate', async interaction => {
       const rows = await db.getLeaderboard(10);
       if (rows.length === 0) return interaction.reply({ content: "No data yet.", ephemeral: true });
 
-      let desc = rows.map((u, i) => {
+      const guild = interaction.guild;
+      const lines = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const u = rows[i];
         const lifetime = u.lifetime_points || 0;
-        const current = u.points || 0;
         const rankName = getRankName(lifetime);
-        return `**#${i + 1}** — ${u.username} — *${rankName}* — ${lifetime} lifetime pts (Current: ${current})`;
-      }).join("\n");
+
+        let displayName = u.username || 'Unknown';
+        if (u.discord_id) {
+          const member = await guild.members.fetch(u.discord_id).catch(() => null);
+          if (member) displayName = member.displayName;
+        }
+
+        lines.push(`**#${i + 1}** — ${displayName} — *${rankName}* — ${lifetime} points`);
+      }
+
+      const desc = lines.join('\n');
 
       return interaction.reply({
         embeds: [
@@ -564,15 +772,26 @@ client.on('interactionCreate', async interaction => {
       const rarityLabel = {
         roamerMonth: "Roamer of the Month",
         paradox: "Paradox",
-        legendary: "Legendary",
-        rare: "Rare",
+        legendary: "Legendary / Rare",
+        rare: "Legendary / Rare",
         common: "Common"
       }[rarity] || rarity;
 
-      const points = rarityPoints[rarity] || 10;
-      const updatedRow = await awardPoints(user.id, user.username, points, `Report: ${pokemon}`);
-      const lifetime = updatedRow?.lifetime_points || 0;
-      const rankName = getRankName(lifetime);
+      // Award points only if report is before :30
+      const minutes = now.getMinutes();
+      const basePoints = rarityPoints[rarity] || 10;
+      let pointsAwarded = 0;
+      let scoringNote = '';
+
+      if (minutes <= 29) {
+        const updatedRow = await awardPoints(user.id, user.username, basePoints, `Report: ${pokemon}`);
+        pointsAwarded = basePoints;
+        const lifetime = updatedRow?.lifetime_points || 0;
+        const rankName = getRankName(lifetime);
+        scoringNote = rankName;
+      } else {
+        scoringNote = 'Report after :30 — no points awarded.';
+      }
 
       const embed = new EmbedBuilder()
         .setColor('Random')
@@ -584,8 +803,8 @@ client.on('interactionCreate', async interaction => {
         )
         .addFields(
           { name: '📊 Rarity', value: rarityLabel, inline: true },
-          { name: '🏆 Points Awarded', value: String(points), inline: true },
-          { name: 'Trainer Rank', value: rankName, inline: true }
+          { name: '🏆 Points Awarded', value: String(pointsAwarded), inline: true },
+          { name: 'Scoring', value: scoringNote, inline: false }
         )
         .setThumbnail(`https://img.pokemondb.net/artwork/${pokemon.toLowerCase().replace(/\s/g, '-')}.jpg`)
         .setTimestamp();
@@ -702,7 +921,7 @@ client.on('interactionCreate', async interaction => {
       const pokemon1 = interaction.options.getString('pokemon1');
       const pokemon2 = interaction.options.getString('pokemon2');
       const pokemon3 = interaction.options.getString('pokemon3');
-      const notes = interaction.options.getString('notes'); // required now
+      const notes = interaction.options.getString('notes'); // required in command
       const startTimeStr = interaction.options.getString('starttime');
       const durationHoursRaw = interaction.options.getInteger('duration');
       const reward = interaction.options.getInteger('reward');
@@ -719,6 +938,7 @@ client.on('interactionCreate', async interaction => {
         id: bountyId,
         requesterId: interaction.user.id,
         requesterName: interaction.user.username,
+        guildId: interaction.guild.id,
         pokemons,
         notes,
         startTime,
@@ -754,13 +974,14 @@ client.on('interactionCreate', async interaction => {
       const startUnix = Math.floor(startTime.getTime() / 1000);
       const endUnix = Math.floor(endTime.getTime() / 1000);
       const bountyRarity = getHighestRarityForList(pokemons);
+      const rarityDisplay = getRarityDisplayName(bountyRarity);
 
       const embed = new EmbedBuilder()
         .setTitle('📝 New Bounty Request')
         .setDescription('A new bounty has been requested and is awaiting staff approval.')
         .addFields(
           { name: 'Trainer', value: `<@${interaction.user.id}>`, inline: true },
-          { name: 'Rarity', value: bountyRarity, inline: true },
+          { name: 'Rarity', value: rarityDisplay, inline: true },
           { name: 'Reward', value: `${reward.toLocaleString()} PKD`, inline: false },
           { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
           { name: 'Requested Start', value: `<t:${startUnix}:F>`, inline: false },
