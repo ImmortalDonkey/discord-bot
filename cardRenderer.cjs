@@ -3,10 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage } = require('canvas');
 
-const CARD_WIDTH = 1200;
-const CARD_HEIGHT = 600;
-const MARGIN = 40;
-const RIGHT_WIDTH = 360; // area for avatar/card image
+const CARD_WIDTH = 1600;
+const CARD_HEIGHT = 900;
+const MARGIN = 50;
+const RIGHT_WIDTH = 500; // increased to avoid cutting
 
 const CARDS_DIR = path.join(__dirname, 'card-images');
 
@@ -18,29 +18,29 @@ if (!fs.existsSync(CARDS_DIR)) {
 // Rarity styles: gradient + box colour
 const rarityStyles = {
   paradox: {
-    gradientFrom: '#3b82f6', // blue
-    gradientTo: '#a855f7',   // purple
-    boxColor: 'rgba(15, 23, 42, 0.95)' // slate-ish
+    gradientFrom: '#3b82f6',
+    gradientTo: '#a855f7',
+    boxColor: 'rgba(15, 23, 42, 0.92)'
   },
   roamerMonth: {
-    gradientFrom: '#f59e0b', // amber
-    gradientTo: '#ea580c',   // orange
-    boxColor: 'rgba(17, 24, 39, 0.95)'
+    gradientFrom: '#f59e0b',
+    gradientTo: '#ea580c',
+    boxColor: 'rgba(17, 24, 39, 0.92)'
   },
   legendary: {
-    gradientFrom: '#1d4ed8', // blue
-    gradientTo: '#22d3ee',   // cyan
-    boxColor: 'rgba(15, 23, 42, 0.95)'
+    gradientFrom: '#1d4ed8',
+    gradientTo: '#22d3ee',
+    boxColor: 'rgba(15, 23, 42, 0.92)'
   },
   rare: {
     gradientFrom: '#1d4ed8',
     gradientTo: '#22d3ee',
-    boxColor: 'rgba(15, 23, 42, 0.95)'
+    boxColor: 'rgba(15, 23, 42, 0.92)'
   },
   common: {
-    gradientFrom: '#16a34a', // green
-    gradientTo: '#0f766e',   // teal
-    boxColor: 'rgba(5, 46, 22, 0.95)'
+    gradientFrom: '#16a34a',
+    gradientTo: '#0f766e',
+    boxColor: 'rgba(5, 46, 22, 0.92)'
   }
 };
 
@@ -64,34 +64,33 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 }
 
 function drawBox(ctx, x, y, w, h, bgColor, title, lines) {
-  // Background box
+  const paddingX = 26;
+  const paddingY = 28;
+  const lineSpacing = 52;
+
   ctx.save();
-  roundedRectPath(ctx, x, y, w, h, 18);
+  roundedRectPath(ctx, x, y, w, h, 26);
   ctx.fillStyle = bgColor;
   ctx.fill();
-
   ctx.clip();
 
-  const paddingX = 18;
-  const paddingTop = 20;
-  const lineSpacing = 26;
-
-  // Title
+  // Title (50px)
   ctx.fillStyle = '#e5e7eb';
-  ctx.font = 'bold 26px sans-serif';
+  ctx.font = 'bold 50px sans-serif';
   ctx.textBaseline = 'top';
-  ctx.fillText(title, x + paddingX, y + paddingTop);
+  ctx.fillText(title, x + paddingX, y + paddingY);
 
-  // Content
-  ctx.font = '22px sans-serif';
+  // Content (40px bold)
+  ctx.font = 'bold 40px sans-serif';
   ctx.fillStyle = '#f9fafb';
 
-  let currentY = y + paddingTop + 32;
+  let currentY = y + paddingY + 68;
   const maxWidth = w - paddingX * 2;
 
-  for (const line of lines) {
-    const text = line || '';
-    // simple wrap if needed
+  for (const raw of lines) {
+    const text = raw || '';
+
+    // simple wrap
     if (ctx.measureText(text).width <= maxWidth) {
       ctx.fillText(text, x + paddingX, currentY);
       currentY += lineSpacing;
@@ -123,17 +122,17 @@ function drawBox(ctx, x, y, w, h, bgColor, title, lines) {
  *  - bountyId
  *  - username
  *  - rankName
- *  - rarityKey ('paradox','roamerMonth','legendary','rare','common')
- *  - rarityLabel (display text)
- *  - pokemons: array of strings
+ *  - rarityKey
+ *  - rarityLabel
+ *  - pokemons[]
  *  - startLabel
  *  - endLabel
  *  - durationLabel
  *  - note
  *  - rewardLabel
- *  - avatarUrl (string)
+ *  - avatarUrl
  *
- * Returns: full file path of generated PNG.
+ * Returns: full file path
  */
 async function createBountyCard(options) {
   const {
@@ -163,11 +162,11 @@ async function createBountyCard(options) {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // Slight dark overlay for contrast
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+  // slight overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // Layout
+  // LEFT SIDE LAYOUT
   const leftX = MARGIN;
   const leftY = MARGIN;
   const leftWidth = CARD_WIDTH - RIGHT_WIDTH - MARGIN * 3;
@@ -177,132 +176,134 @@ async function createBountyCard(options) {
   const rightY = MARGIN;
   const rightSize = CARD_HEIGHT - MARGIN * 2;
 
-  // Draw avatar/card image on the right
+  // RIGHT IMAGE (no cutoff)
   ctx.save();
   try {
     const img = await loadImage(avatarUrl);
+
+    // Fit & center inside rounded box
+    const aspect = img.width / img.height;
+    let drawW = rightSize;
+    let drawH = rightSize;
+
+    if (aspect > 1) {
+      drawH = rightSize / aspect;
+    } else {
+      drawW = rightSize * aspect;
+    }
+
+    const cx = rightX + (rightSize - drawW) / 2;
+    const cy = rightY + (rightSize - drawH) / 2;
+
     roundedRectPath(ctx, rightX, rightY, rightSize, rightSize, 40);
     ctx.clip();
-    ctx.drawImage(img, rightX, rightY, rightSize, rightSize);
 
-    // Border
-    ctx.lineWidth = 8;
+    ctx.drawImage(img, cx, cy, drawW, drawH);
+
+    ctx.lineWidth = 10;
     ctx.strokeStyle = 'rgba(248, 250, 252, 0.9)';
     ctx.stroke();
-  } catch (err) {
-    // Fallback: simple placeholder
+  } catch (e) {
+    // fallback
     roundedRectPath(ctx, rightX, rightY, rightSize, rightSize, 40);
     ctx.clip();
     ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
     ctx.fillRect(rightX, rightY, rightSize, rightSize);
-
-    ctx.font = 'bold 32px sans-serif';
+    ctx.font = 'bold 42px sans-serif';
     ctx.fillStyle = '#e5e7eb';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('No Card', rightX + rightSize / 2, rightY + rightSize / 2);
+    ctx.fillText('No Image', rightX + rightSize / 2, rightY + rightSize / 2);
   }
   ctx.restore();
   ctx.textAlign = 'left';
 
-  // Divide left side into 5 boxes, evenly
+  // 5 uniform boxes
   const boxCount = 5;
-  const gap = 12;
+  const gap = 18;
   const totalGap = gap * (boxCount - 1);
   const boxHeight = (leftHeight - totalGap) / boxCount;
 
   const bgBoxColor = style.boxColor;
 
-  let currentY = leftY;
+  let y = leftY;
 
-  // Box 1: Trainer / Rank / Rarity
-  const trainerLines = [
-    `Trainer: ${username}`,
-    `Rank: ${rankName}`,
-    `Rarity: ${rarityLabel}`
-  ];
+  // 1 — Trainer Info
   drawBox(
     ctx,
     leftX,
-    currentY,
+    y,
     leftWidth,
     boxHeight,
     bgBoxColor,
-    'Trainer Info',
-    trainerLines
+    "Trainer Info",
+    [
+      `Trainer: ${username}`,
+      `Rank: ${rankName}`,
+      `Rarity: ${rarityLabel}`
+    ]
   );
-  currentY += boxHeight + gap;
+  y += boxHeight + gap;
 
-  // Box 2: Reward
-  const rewardLines = [rewardLabel];
+  // 2 — Reward
   drawBox(
     ctx,
     leftX,
-    currentY,
+    y,
     leftWidth,
     boxHeight,
     bgBoxColor,
-    'Reward',
-    rewardLines
+    "Reward",
+    [rewardLabel]
   );
-  currentY += boxHeight + gap;
+  y += boxHeight + gap;
 
-  // Box 3: Pokémon Targets
-  const pokemonLines = pokemons.length
-    ? pokemons.map(p => `• ${p}`)
-    : ['None'];
+  // 3 — Pokémon Targets
   drawBox(
     ctx,
     leftX,
-    currentY,
+    y,
     leftWidth,
     boxHeight,
     bgBoxColor,
-    'Pokémon Targets',
-    pokemonLines
+    "Pokémon Targets",
+    pokemons.length ? pokemons.map(p => `• ${p}`) : ["None"]
   );
-  currentY += boxHeight + gap;
+  y += boxHeight + gap;
 
-  // Box 4: Time / Duration
-  const timeLines = [
-    `Start: ${startLabel}`,
-    `End: ${endLabel}`,
-    `Duration: ${durationLabel}`
-  ];
+  // 4 — Timing
   drawBox(
     ctx,
     leftX,
-    currentY,
+    y,
     leftWidth,
     boxHeight,
     bgBoxColor,
-    'Timing',
-    timeLines
+    "Timing",
+    [
+      `Start: ${startLabel}`,
+      `End: ${endLabel}`,
+      `Duration: ${durationLabel}`
+    ]
   );
-  currentY += boxHeight + gap;
+  y += boxHeight + gap;
 
-  // Box 5: Note
-  const noteLines = [note || 'None'];
+  // 5 — Note
   drawBox(
     ctx,
     leftX,
-    currentY,
+    y,
     leftWidth,
     boxHeight,
     bgBoxColor,
-    'Note',
-    noteLines
+    "Note",
+    [note || "None"]
   );
 
-  // Save PNG
-  const fileName = `bounty_${bountyId}.png`;
-  const outPath = path.join(CARDS_DIR, fileName);
-  const buffer = canvas.toBuffer('image/png');
-  fs.writeFileSync(outPath, buffer);
-
-  return outPath;
+  // Save image
+  const filePath = path.join(CARDS_DIR, `bounty_${bountyId}.png`);
+  fs.writeFileSync(filePath, canvas.toBuffer('image/png'));
+  return filePath;
 }
 
-module.exports = {
-  createBountyCard
-};
+module.exports = { createBountyCard };
