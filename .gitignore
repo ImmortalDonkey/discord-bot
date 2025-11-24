@@ -6,8 +6,13 @@
 node_modules/
 
 # Databases
+# If your DB is in ./data/bot.db then ignore the whole folder:
+data/
+bot.db
 botdata.db
 
 # Logs
 *.log
 
+# User-uploaded bounty card images
+card-images/
