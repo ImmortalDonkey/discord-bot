@@ -3,141 +3,114 @@ const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage } = require('canvas');
 
-const CARD_WIDTH = 1600;
+const CARD_WIDTH = 1700;
 const CARD_HEIGHT = 900;
-
-const TEXT_WIDTH = 900;        // 60% of card
-const IMAGE_WIDTH = 550;       // 40% of card
-const MARGIN = 40;
+const MARGIN = 50;
+const RIGHT_WIDTH = 600;
 
 const CARDS_DIR = path.join(__dirname, 'card-images');
-if (!fs.existsSync(CARDS_DIR)) fs.mkdirSync(CARDS_DIR, { recursive: true });
+if (!fs.existsSync(CARDS_DIR)) {
+  fs.mkdirSync(CARDS_DIR, { recursive: true });
+}
 
-/* ===============================
-   RARITY GRADIENTS + BOX STYLE
-================================= */
+// background colours by rarity
 const rarityStyles = {
-  paradox: {
-    gradientFrom: '#3b82f6',
-    gradientTo: '#a855f7',
-    boxColor: 'rgba(10, 16, 28, 0.9)'
-  },
-  roamerMonth: {
-    gradientFrom: '#f59e0b',
-    gradientTo: '#ea580c',
-    boxColor: 'rgba(15, 23, 42, 0.9)'
-  },
-  legendary: {
-    gradientFrom: '#1d4ed8',
-    gradientTo: '#22d3ee',
-    boxColor: 'rgba(15, 23, 42, 0.9)'
-  },
-  rare: {
-    gradientFrom: '#1d4ed8',
-    gradientTo: '#22d3ee',
-    boxColor: 'rgba(15, 23, 42, 0.9)'
-  },
-  common: {
-    gradientFrom: '#16a34a',
-    gradientTo: '#0f766e',
-    boxColor: 'rgba(5, 46, 22, 0.9)'
-  }
+  paradox: { gradientFrom: '#3b82f6', gradientTo: '#a855f7' },
+  roamerMonth: { gradientFrom: '#f59e0b', gradientTo: '#ea580c' },
+  legendary: { gradientFrom: '#1d4ed8', gradientTo: '#22d3ee' },
+  rare: { gradientFrom: '#1d4ed8', gradientTo: '#22d3ee' },
+  common: { gradientFrom: '#16a34a', gradientTo: '#0f766e' }
 };
 
-function getStyle(key) {
+function getStyleForRarity(key) {
   return rarityStyles[key] || rarityStyles.common;
 }
 
-/* ===============================
-   DRAW GOLD HEADER BAR SECTION
-================================= */
-function drawSection(ctx, x, y, w, header, lines, bgColor) {
-  const headerBarHeight = 70;
-  const padding = 28;
-  const lineSpacing = 52;
-
-  // --- Box background ---
-  ctx.fillStyle = bgColor;
+function roundedRectPath(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
-  ctx.roundRect(x, y, w, 0, 0);
-  ctx.fill();
-
-  // Estimate content height
-  let estHeight = headerBarHeight + padding;
-  ctx.font = 'bold 40px sans-serif';
-  const maxWidth = w - padding * 2;
-
-  lines.forEach(text => {
-    if (ctx.measureText(text).width <= maxWidth) {
-      estHeight += lineSpacing;
-    } else {
-      const words = text.split(' ');
-      let current = '';
-      words.forEach(word => {
-        const test = current ? current + ' ' + word : word;
-        if (ctx.measureText(test).width > maxWidth) {
-          estHeight += lineSpacing;
-          current = word;
-        } else current = test;
-      });
-      estHeight += lineSpacing;
-    }
-  });
-
-  // Actual box
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, estHeight + padding, 24);
-  ctx.fillStyle = bgColor;
-  ctx.fill();
-
-  // --- HEADER BAR ---
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, headerBarHeight, 24);
-  ctx.fillStyle = '#facc15'; // GOLD bar
-  ctx.fill();
-
-  // Header text
-  ctx.fillStyle = '#1e1e1e';
-  ctx.font = 'bold 50px sans-serif';
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'center';
-  ctx.fillText(header, x + w / 2, y + headerBarHeight / 2);
-
-  // --- Body text ---
-  ctx.textAlign = 'left';
-  ctx.font = 'bold 40px sans-serif';
-  ctx.fillStyle = '#f9fafb';
-
-  let cursorY = y + headerBarHeight + padding;
-
-  lines.forEach(text => {
-    const words = text.split(' ');
-    let current = '';
-
-    words.forEach(word => {
-      const test = current ? current + ' ' + word : word;
-      if (ctx.measureText(test).width > maxWidth) {
-        ctx.fillText(current, x + padding, cursorY);
-        cursorY += lineSpacing;
-        current = word;
-      } else {
-        current = test;
-      }
-    });
-
-    if (current) {
-      ctx.fillText(current, x + padding, cursorY);
-      cursorY += lineSpacing;
-    }
-  });
-
-  return estHeight + padding + 20;
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
 }
 
-/* ===============================
-   MAIN CARD GENERATOR
-================================= */
-async function createBountyCard(opts) {
+// simple wrapper for value text
+function wrapText(ctx, text, maxWidth) {
+  const words = (text || '').split(' ');
+  const lines = [];
+  let line = '';
+
+  for (const word of words) {
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// draw "Label: Value" with label in gold and value in white
+function drawLabelValue(ctx, label, value, x, y, maxWidth, lineHeight) {
+  const LABEL_COLOR = '#facc15'; // gold
+  const VALUE_COLOR = '#f9fafb';
+
+  const labelText = `${label}: `;
+  ctx.font = 'bold 44px sans-serif';
+
+  // width taken by the label
+  const labelWidth = ctx.measureText(labelText).width;
+  const valueMaxWidth = Math.max(10, maxWidth - labelWidth);
+
+  // split value into wrapped lines
+  const valueLines = wrapText(ctx, value || '', valueMaxWidth);
+  const totalLines = Math.max(1, valueLines.length);
+
+  // first line: label + first part of value
+  ctx.fillStyle = LABEL_COLOR;
+  ctx.fillText(labelText, x, y);
+
+  ctx.fillStyle = VALUE_COLOR;
+  const firstValue = valueLines[0] || '';
+  ctx.fillText(firstValue, x + labelWidth, y);
+
+  // remaining lines: value only, aligned under value column
+  for (let i = 1; i < totalLines; i++) {
+    const lineY = y + lineHeight * i;
+    ctx.fillText(valueLines[i], x + labelWidth, lineY);
+  }
+
+  return y + lineHeight * totalLines;
+}
+
+/**
+ * options:
+ *  - bountyId
+ *  - username
+ *  - rankName
+ *  - rarityKey
+ *  - rarityLabel
+ *  - pokemons[] (array of strings)
+ *  - startLabel
+ *  - endLabel
+ *  - durationLabel
+ *  - note
+ *  - rewardLabel
+ *  - avatarUrl
+ *
+ * Returns: full file path
+ */
+async function createBountyCard(options) {
   const {
     bountyId,
     username,
@@ -151,152 +124,105 @@ async function createBountyCard(opts) {
     note,
     rewardLabel,
     avatarUrl
-  } = opts;
+  } = options;
 
-  const style = getStyle(rarityKey);
+  const style = getStyleForRarity(rarityKey);
 
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext('2d');
 
-  /* Background gradient */
-  const g = ctx.createLinearGradient(0, 0, CARD_WIDTH, 0);
-  g.addColorStop(0, style.gradientFrom);
-  g.addColorStop(1, style.gradientTo);
-  ctx.fillStyle = g;
+  // Background gradient
+  const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, 0);
+  gradient.addColorStop(0, style.gradientFrom);
+  gradient.addColorStop(1, style.gradientTo);
+  ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  // dark overlay for contrast
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  /* ======================
-       LEFT TEXT PANEL
-  ======================== */
+  // layout
   const leftX = MARGIN;
-  const leftY = MARGIN;
-  const leftW = TEXT_WIDTH;
-  const leftH = CARD_HEIGHT - MARGIN * 2;
+  const topY = MARGIN;
+  const leftWidth = CARD_WIDTH - RIGHT_WIDTH - MARGIN * 3;
 
-  ctx.beginPath();
-  ctx.roundRect(leftX, leftY, leftW, leftH, 30);
-  ctx.fillStyle = style.boxColor;
-  ctx.fill();
+  const rightX = leftX + leftWidth + MARGIN;
+  const rightY = MARGIN;
+  const rightSize = CARD_HEIGHT - MARGIN * 2;
 
-
-  /* Insert sections */
-  let cursorY = leftY + 30;
-
-  cursorY += drawSection(
-    ctx,
-    leftX + 20,
-    cursorY,
-    leftW - 40,
-    "Trainer Info",
-    [
-      `Trainer: ${username}`,
-      `Rank: ${rankName}`,
-      `Rarity: ${rarityLabel}`
-    ],
-    style.boxColor
-  );
-
-  cursorY += 30;
-
-  cursorY += drawSection(
-    ctx,
-    leftX + 20,
-    cursorY,
-    leftW - 40,
-    "Reward",
-    [rewardLabel],
-    style.boxColor
-  );
-
-  cursorY += 30;
-
-  cursorY += drawSection(
-    ctx,
-    leftX + 20,
-    cursorY,
-    leftW - 40,
-    "Pokémon Targets",
-    pokemons.map(p => `• ${p}`),
-    style.boxColor
-  );
-
-  cursorY += 30;
-
-  cursorY += drawSection(
-    ctx,
-    leftX + 20,
-    cursorY,
-    leftW - 40,
-    "Timing",
-    [
-      `Start: ${startLabel}`,
-      `End: ${endLabel}`,
-      `Duration: ${durationLabel}`
-    ],
-    style.boxColor
-  );
-
-  cursorY += 30;
-
-  cursorY += drawSection(
-    ctx,
-    leftX + 20,
-    cursorY,
-    leftW - 40,
-    "Note",
-    [note || "None"],
-    style.boxColor
-  );
-
-  /* ======================
-       RIGHT IMAGE PANEL
-  ======================== */
-  const imgX = leftX + leftW + MARGIN;
-  const imgY = MARGIN;
-  const imgSize = CARD_HEIGHT - MARGIN * 2;
-
+  // RIGHT IMAGE
   ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(imgX, imgY, IMAGE_WIDTH, imgSize, 40);
-  ctx.clip();
-
   try {
     const img = await loadImage(avatarUrl);
 
-    const ratio = img.width / img.height;
-    let w = IMAGE_WIDTH;
-    let h = IMAGE_WIDTH / ratio;
+    let drawW = rightSize;
+    let drawH = rightSize;
+    const aspect = img.width / img.height;
 
-    if (h > imgSize) {
-      h = imgSize;
-      w = imgSize * ratio;
+    if (aspect > 1) {
+      drawH = rightSize / aspect;
+    } else {
+      drawW = rightSize * aspect;
     }
 
-    const dx = imgX + (IMAGE_WIDTH - w) / 2;
-    const dy = imgY + (imgSize - h) / 2;
+    const cx = rightX + (rightSize - drawW) / 2;
+    const cy = rightY + (rightSize - drawH) / 2;
 
-    ctx.drawImage(img, dx, dy, w, h);
+    roundedRectPath(ctx, rightX, rightY, rightSize, rightSize, 40);
+    ctx.clip();
+    ctx.drawImage(img, cx, cy, drawW, drawH);
 
-  } catch (e) {
-    ctx.fillStyle = '#111827';
-    ctx.fillRect(imgX, imgY, IMAGE_WIDTH, imgSize);
-
-    ctx.fillStyle = '#e5e7eb';
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = 'rgba(248, 250, 252, 0.9)';
+    ctx.stroke();
+  } catch (err) {
+    roundedRectPath(ctx, rightX, rightY, rightSize, rightSize, 40);
+    ctx.clip();
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.fillRect(rightX, rightY, rightSize, rightSize);
     ctx.font = 'bold 42px sans-serif';
+    ctx.fillStyle = '#e5e7eb';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText("No Image", imgX + IMAGE_WIDTH / 2, imgY + imgSize / 2);
+    ctx.fillText('No Image', rightX + rightSize / 2, rightY + rightSize / 2);
   }
-
   ctx.restore();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.font = 'bold 44px sans-serif';
 
-  /* Save */
-  const file = path.join(CARDS_DIR, `bounty_${bountyId}.png`);
-  fs.writeFileSync(file, canvas.toBuffer('image/png'));
-  return file;
+  const lineHeight = 56;
+  let y = topY;
+
+  // SECTION 1: Trainer
+  y = drawLabelValue(ctx, 'Trainer', username, leftX, y, leftWidth, lineHeight);
+  y = drawLabelValue(ctx, 'Rank', rankName, leftX, y, leftWidth, lineHeight);
+
+  y += 30;
+
+  // SECTION 2: Target / rarity / reward
+  const targets = (pokemons && pokemons.length) ? pokemons.join(', ') : 'None';
+  y = drawLabelValue(ctx, 'Target', targets, leftX, y, leftWidth, lineHeight);
+  y = drawLabelValue(ctx, 'Rarity', rarityLabel, leftX, y, leftWidth, lineHeight);
+  y = drawLabelValue(ctx, 'Reward', rewardLabel, leftX, y, leftWidth, lineHeight);
+
+  y += 30;
+
+  // SECTION 3: Timing
+  y = drawLabelValue(ctx, 'Start time', startLabel, leftX, y, leftWidth, lineHeight);
+  y = drawLabelValue(ctx, 'Ends', endLabel, leftX, y, leftWidth, lineHeight);
+  y = drawLabelValue(ctx, 'Duration', durationLabel, leftX, y, leftWidth, lineHeight);
+
+  y += 30;
+
+  // SECTION 4: Note
+  y = drawLabelValue(ctx, 'Note', note || 'None', leftX, y, leftWidth, lineHeight);
+
+  // Save image
+  const filePath = path.join(CARDS_DIR, `bounty_${bountyId}.png`);
+  fs.writeFileSync(filePath, canvas.toBuffer('image/png'));
+  return filePath;
 }
 
 module.exports = { createBountyCard };
