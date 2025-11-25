@@ -3,31 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage } = require('canvas');
 
-// Overall canvas. Discord will scale this down, but aspect stays the same.
 const CARD_WIDTH = 2200;
 const CARD_HEIGHT = 1300;
+const MARGIN = 40;
 
-const MARGIN = 60;
-
-// Text vs image width ratio
-const TEXT_RATIO = 0.6;  // 60% text
-const IMAGE_RATIO = 0.4; // 40% image
-
-// Text layout
-const FONT_SIZE = 58;                    // header + value
-const LINE_HEIGHT = Math.round(FONT_SIZE * 1.2); // vertical spacing per row
-const GROUP_GAP = Math.round(LINE_HEIGHT * 0.7); // extra gap between groups
-
-const HEADER_COLOR = '#facc15'; // bright gold
-const VALUE_COLOR = '#f9fafb';
-const BOX_BG_COLOR_DEFAULT = 'rgba(15, 23, 42, 0.95)'; // dark slate-ish
-const BOX_BORDER_COLOR = '#f9fafb';
-const BOX_BORDER_WIDTH = 8;
-
-const NOTE_FONT_SIZE = 58;
-const NOTE_LINE_HEIGHT = Math.round(NOTE_FONT_SIZE * 1.2);
-
-// Directory to save cards
 const CARDS_DIR = path.join(__dirname, 'card-images');
 
 // Ensure output folder exists
@@ -35,7 +14,7 @@ if (!fs.existsSync(CARDS_DIR)) {
   fs.mkdirSync(CARDS_DIR, { recursive: true });
 }
 
-// Rarity styles: gradient background, box colour if ever needed per-rarity
+// Rarity styles: gradient + box colour
 const rarityStyles = {
   paradox: {
     gradientFrom: '#3b82f6',
@@ -43,8 +22,8 @@ const rarityStyles = {
     boxColor: 'rgba(15, 23, 42, 0.95)'
   },
   roamerMonth: {
-    gradientFrom: '#f59e0b',
-    gradientTo: '#ea580c',
+    gradientFrom: '#f97316',
+    gradientTo: '#ec4899',
     boxColor: 'rgba(17, 24, 39, 0.95)'
   },
   legendary: {
@@ -83,138 +62,24 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Simple word wrapping for note text
-function wrapText(ctx, text, maxWidth, fontSpec) {
-  ctx.font = fontSpec;
-  const words = (text || '').split(/\s+/);
+// Simple word-wrap helper
+function wrapText(ctx, text, maxWidth, lineHeight) {
+  const words = String(text || '').split(/\s+/);
   const lines = [];
   let current = '';
 
   for (const word of words) {
-    const testLine = current ? current + ' ' + word : word;
-    if (ctx.measureText(testLine).width > maxWidth && current) {
+    const test = current ? current + ' ' + word : word;
+    if (ctx.measureText(test).width > maxWidth && current) {
       lines.push(current);
       current = word;
     } else {
-      current = testLine;
+      current = test;
     }
   }
   if (current) lines.push(current);
-
-  return lines.length ? lines : [''];
-}
-
-/**
- * Draws the main info block with key/value pairs, vertically centred.
- * rows: [{ label, value, groupBreakAfter?: bool }]
- */
-function drawInfoBlock(ctx, x, y, w, h, rows, boxColor) {
-  const paddingX = 40;
-  const paddingY = 30;
-
-  // Background box
-  ctx.save();
-  roundedRectPath(ctx, x, y, w, h, 40);
-  ctx.fillStyle = boxColor || BOX_BG_COLOR_DEFAULT;
-  ctx.fill();
-
-  // Border
-  ctx.lineWidth = BOX_BORDER_WIDTH;
-  ctx.strokeStyle = BOX_BORDER_COLOR;
-  ctx.stroke();
-
-  // Prepare text
-  const headerFont = `bold ${FONT_SIZE}px sans-serif`;
-  const valueFont = `bold ${FONT_SIZE}px sans-serif`;
-
-  ctx.font = headerFont;
-
-  // Fixed header column width & gap
-  const headerColWidth = 360; // space for "Start time:" etc.
-  const gap = 50;
-  const valueStartX = x + paddingX + headerColWidth + gap;
-  const maxContentWidth = w - paddingX * 2 - headerColWidth - gap;
-
-  // Calculate total height of all lines for vertical centering
-  let linesCount = rows.length;
-  let groupBreaks = 0;
-  for (const row of rows) {
-    if (row.groupBreakAfter) groupBreaks++;
-  }
-  const totalHeight = linesCount * LINE_HEIGHT + groupBreaks * GROUP_GAP;
-  let currentY = y + (h - totalHeight) / 2;
-
-  // Draw each row
-  for (const row of rows) {
-    const label = row.label || '';
-    const value = row.value || '';
-
-    // Label
-    ctx.font = headerFont;
-    ctx.fillStyle = HEADER_COLOR;
-    ctx.textBaseline = 'top';
-
-    ctx.fillText(label, x + paddingX, currentY);
-
-    // Value
-    ctx.font = valueFont;
-    ctx.fillStyle = VALUE_COLOR;
-
-    // Very simple clipping protection: if value is too wide, reduce font a bit
-    let valueToDraw = value;
-    let valueFontSize = FONT_SIZE;
-    while (ctx.measureText(valueToDraw).width > maxContentWidth && valueFontSize > 44) {
-      valueFontSize -= 2;
-      ctx.font = `bold ${valueFontSize}px sans-serif`;
-    }
-
-    ctx.fillText(valueToDraw, valueStartX, currentY);
-
-    currentY += LINE_HEIGHT;
-    if (row.groupBreakAfter) {
-      currentY += GROUP_GAP;
-    }
-
-    // restore default for next loop
-    ctx.font = headerFont;
-  }
-
-  ctx.restore();
-}
-
-/**
- * Draws the note box with vertically centred wrapped text.
- */
-function drawNoteBox(ctx, x, y, w, h, note, boxColor) {
-  const paddingX = 40;
-  const paddingY = 30;
-
-  ctx.save();
-  roundedRectPath(ctx, x, y, w, h, 40);
-  ctx.fillStyle = boxColor || BOX_BG_COLOR_DEFAULT;
-  ctx.fill();
-
-  ctx.lineWidth = BOX_BORDER_WIDTH;
-  ctx.strokeStyle = BOX_BORDER_COLOR;
-  ctx.stroke();
-
-  const fontSpec = `bold ${NOTE_FONT_SIZE}px sans-serif`;
-  const maxWidth = w - paddingX * 2;
-
-  const lines = wrapText(ctx, note || 'None', maxWidth, fontSpec);
-  const totalHeight = lines.length * NOTE_LINE_HEIGHT;
-  let currentY = y + (h - totalHeight) / 2;
-
-  ctx.font = fontSpec;
-  ctx.fillStyle = VALUE_COLOR;
-  ctx.textBaseline = 'top';
-
-  for (const line of lines) {
-    ctx.fillText(line, x + paddingX, currentY);
-    currentY += NOTE_LINE_HEIGHT;
-  }
-
-  ctx.restore();
+  if (lines.length === 0) lines.push('');
+  return lines;
 }
 
 /**
@@ -224,7 +89,7 @@ function drawNoteBox(ctx, x, y, w, h, note, boxColor) {
  *  - rankName
  *  - rarityKey
  *  - rarityLabel
- *  - pokemons[]     (first one treated as "Target")
+ *  - pokemons[]      // up to 3 normally, but supports more
  *  - startLabel
  *  - endLabel
  *  - durationLabel
@@ -232,7 +97,7 @@ function drawNoteBox(ctx, x, y, w, h, note, boxColor) {
  *  - rewardLabel
  *  - avatarUrl
  *
- * Returns: full file path of generated PNG.
+ * Returns: full file path
  */
 async function createBountyCard(options) {
   const {
@@ -252,144 +117,235 @@ async function createBountyCard(options) {
 
   const style = getStyleForRarity(rarityKey);
 
+  // Canvas + base styling
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext('2d');
 
   // Background gradient
-  const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, 0);
+  const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
   gradient.addColorStop(0, style.gradientFrom);
   gradient.addColorStop(1, style.gradientTo);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // Subtle overlay for contrast
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+  // Slight dark overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.20)';
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // Compute layout
-  const textAreaWidth = Math.floor(CARD_WIDTH * TEXT_RATIO) - MARGIN * 2;
-  const imageAreaWidth = Math.floor(CARD_WIDTH * IMAGE_RATIO) - MARGIN * 2;
+  // Layout: left text column (≈60%), right image column (≈40%)
+  const totalInnerWidth = CARD_WIDTH - MARGIN * 3;
+  const rightMaxWidth = totalInnerWidth * 0.4;
+  const rightMaxHeight = CARD_HEIGHT - 2 * MARGIN;
+  const imageSize = Math.min(rightMaxWidth, rightMaxHeight); // square
+
+  const rightX = CARD_WIDTH - MARGIN - imageSize;
+  const rightY = MARGIN;
 
   const leftX = MARGIN;
   const leftY = MARGIN;
-  const leftTotalHeight = CARD_HEIGHT - MARGIN * 2;
+  const leftWidth = rightX - leftX - MARGIN;
+  const leftHeight = CARD_HEIGHT - 2 * MARGIN;
 
-  const gapBetweenBoxes = 40;
-
-  const topBoxHeight = Math.round(leftTotalHeight * 0.7);
-  const noteBoxHeight = leftTotalHeight - topBoxHeight - gapBetweenBoxes;
-
-  const topBoxX = leftX;
-  const topBoxY = leftY;
-  const noteBoxX = leftX;
-  const noteBoxY = topBoxY + topBoxHeight + gapBetweenBoxes;
-
-  // Right-side image: use a square inside the right area, centred vertically
-  const rightAreaX = leftX + textAreaWidth + MARGIN;
-  const rightAreaWidth = imageAreaWidth;
-
-  const maxSquareSize = Math.min(
-    rightAreaWidth,
-    CARD_HEIGHT - 2 * MARGIN
-  );
-  const squareSize = maxSquareSize;
-
-  const imageX = rightAreaX + (rightAreaWidth - squareSize) / 2;
-  const imageY = (CARD_HEIGHT - squareSize) / 2;
-
-  // Draw info box
-  const targetName = (pokemons && pokemons.length) ? pokemons[0] : '—';
-
-  const infoRows = [
-    { label: 'Trainer:', value: username || 'Unknown' },
-    { label: 'Rank:', value: rankName || '—', groupBreakAfter: true },
-
-    { label: 'Target:', value: targetName || '—' },
-    { label: 'Rarity:', value: rarityLabel || '—' },
-    { label: 'Reward:', value: rewardLabel || '—', groupBreakAfter: true },
-
-    { label: 'Start time:', value: startLabel || '—' },
-    { label: 'Ends:', value: endLabel || '—' },
-    { label: 'Duration:', value: durationLabel || '—' }
-  ];
-
-  drawInfoBlock(
-    ctx,
-    topBoxX,
-    topBoxY,
-    textAreaWidth,
-    topBoxHeight,
-    infoRows,
-    style.boxColor
-  );
-
-  // Draw note box
-  drawNoteBox(
-    ctx,
-    noteBoxX,
-    noteBoxY,
-    textAreaWidth,
-    noteBoxHeight,
-    note || 'None',
-    style.boxColor
-  );
-
-  // Draw avatar/card image on the right as a square (no cropping, contain)
+  // Draw right square image
   ctx.save();
   try {
     const img = await loadImage(avatarUrl);
 
     const imgAspect = img.width / img.height;
-    let drawW = squareSize;
-    let drawH = squareSize;
+    let drawW = imageSize;
+    let drawH = imageSize;
 
-    // "Contain" fit inside square
     if (imgAspect > 1) {
-      // wider than tall
-      drawW = squareSize;
-      drawH = squareSize / imgAspect;
+      // image is wider than tall
+      drawH = imageSize / imgAspect;
     } else {
-      // taller than wide
-      drawH = squareSize;
-      drawW = squareSize * imgAspect;
+      drawW = imageSize * imgAspect;
     }
 
-    const cx = imageX + (squareSize - drawW) / 2;
-    const cy = imageY + (squareSize - drawH) / 2;
+    const cx = rightX + (imageSize - drawW) / 2;
+    const cy = rightY + (imageSize - drawH) / 2;
 
-    roundedRectPath(ctx, imageX, imageY, squareSize, squareSize, 42);
+    roundedRectPath(ctx, rightX, rightY, imageSize, imageSize, 40);
     ctx.clip();
-
     ctx.drawImage(img, cx, cy, drawW, drawH);
 
-    ctx.lineWidth = BOX_BORDER_WIDTH;
-    ctx.strokeStyle = BOX_BORDER_COLOR;
+    ctx.restore();
+    ctx.save();
+    roundedRectPath(ctx, rightX, rightY, imageSize, imageSize, 40);
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = 'rgba(248, 250, 252, 0.9)';
     ctx.stroke();
-  } catch (err) {
-    // Fallback if image fails
-    roundedRectPath(ctx, imageX, imageY, squareSize, squareSize, 42);
+  } catch {
+    ctx.restore();
+    ctx.save();
+    roundedRectPath(ctx, rightX, rightY, imageSize, imageSize, 40);
     ctx.clip();
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
-    ctx.fillRect(imageX, imageY, squareSize, squareSize);
-
-    ctx.font = `bold ${FONT_SIZE}px sans-serif`;
-    ctx.fillStyle = VALUE_COLOR;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.fillRect(rightX, rightY, imageSize, imageSize);
+    ctx.font = 'bold 42px sans-serif';
+    ctx.fillStyle = '#e5e7eb';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('No Image', imageX + squareSize / 2, imageY + squareSize / 2);
+    ctx.fillText('No Image', rightX + imageSize / 2, rightY + imageSize / 2);
+    ctx.restore();
+    ctx.save();
+    roundedRectPath(ctx, rightX, rightY, imageSize, imageSize, 40);
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = 'rgba(248, 250, 252, 0.9)';
+    ctx.stroke();
   }
   ctx.restore();
+
+  // Left column: info + note boxes (stacked)
+  const boxGap = 40;
+  const FONT_SIZE = 58;
+  const lineHeight = FONT_SIZE * 1.25; // ~72px
+  const groupSpacing = lineHeight * 0.7; // gap between logical groups
+  const labelColor = '#facc15'; // bright gold
+  const valueColor = '#f9fafb';
+
+  // Prepare the rows for the top info box
+  const infoRows = [];
+  infoRows.push({ label: 'Trainer:', value: username });
+  infoRows.push({ label: 'Rank:', value: rankName });
+  infoRows.push({ spacer: true });
+
+  const pokemonList = Array.isArray(pokemons) && pokemons.length ? pokemons : ['None'];
+
+  // First Pokémon line with label "Target:"
+  infoRows.push({ label: 'Target:', value: pokemonList[0] });
+
+  // Additional Pokémon lines with aligned value only
+  for (let i = 1; i < pokemonList.length; i++) {
+    infoRows.push({ label: '', value: pokemonList[i] });
+  }
+
+  infoRows.push({ label: 'Rarity:', value: rarityLabel });
+  infoRows.push({ label: 'Reward:', value: rewardLabel });
+  infoRows.push({ spacer: true });
+
+  infoRows.push({ label: 'Start time:', value: startLabel });
+  infoRows.push({ label: 'Ends:', value: endLabel });
+  infoRows.push({ label: 'Duration:', value: durationLabel });
+
+  // Count rows for vertical size calculation
+  const nonSpacerRows = infoRows.filter(r => !r.spacer).length;
+  const spacerCount = infoRows.filter(r => r.spacer).length;
+
+  // Padding inside boxes
+  const infoPaddingX = 50;
+  const infoPaddingY = 50;
+  const notePaddingX = 50;
+  const notePaddingY = 40;
+
+  // Estimate note height (wrap first so we know how tall it will be)
+  ctx.font = `bold ${FONT_SIZE}px sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+
+  const noteText = note || 'Good luck!';
+  const maxNoteTextWidth = leftWidth - notePaddingX * 2;
+  const noteLines = wrapText(ctx, noteText, maxNoteTextWidth, lineHeight);
+  const noteTextHeight = noteLines.length * lineHeight;
+  const noteMinHeight = notePaddingY * 2 + lineHeight * 2; // at least room for 2 lines
+  const noteNeededHeight = notePaddingY * 2 + noteTextHeight;
+  const noteBoxHeight = Math.max(noteMinHeight, noteNeededHeight);
+
+  // Now compute the top info box height dynamically
+  const infoTextHeight =
+    nonSpacerRows * lineHeight + spacerCount * groupSpacing;
+  const infoNeededHeight = infoPaddingY * 2 + infoTextHeight;
+
+  const leftAvailableForInfo = leftHeight - boxGap - noteBoxHeight;
+  const infoBoxHeight = Math.max(
+    infoNeededHeight,
+    Math.min(leftAvailableForInfo, leftHeight * 0.9) // safety clamp
+  );
+
+  const infoBoxX = leftX;
+  const infoBoxY = leftY;
+  const infoBoxW = leftWidth;
+  const infoBoxH = infoBoxHeight;
+
+  const noteBoxX = leftX;
+  const noteBoxY = infoBoxY + infoBoxH + boxGap;
+  const noteBoxW = leftWidth;
+  const noteBoxH = leftHeight - infoBoxH - boxGap;
+
+  // Draw top info box background + border
+  ctx.save();
+  roundedRectPath(ctx, infoBoxX, infoBoxY, infoBoxW, infoBoxH, 40);
+  ctx.fillStyle = style.boxColor;
+  ctx.fill();
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#f9fafb';
+  ctx.stroke();
+  ctx.restore();
+
+  // Compute label column width (based on widest label)
+  ctx.font = `bold ${FONT_SIZE}px sans-serif`;
+  const labelsToMeasure = infoRows
+    .filter(r => !r.spacer && r.label)
+    .map(r => r.label);
+  let maxLabelWidth = 0;
+  for (const lab of labelsToMeasure) {
+    const w = ctx.measureText(lab).width;
+    if (w > maxLabelWidth) maxLabelWidth = w;
+  }
+
+  const labelGap = 50; // user requested gap after longest header
+  const labelX = infoBoxX + infoPaddingX;
+  const valueX = labelX + maxLabelWidth + labelGap;
+
+  // Draw info rows
+  let currentY = infoBoxY + infoPaddingY;
+  for (const row of infoRows) {
+    if (row.spacer) {
+      currentY += groupSpacing;
+      continue;
+    }
+
+    // Label
+    ctx.fillStyle = labelColor;
+    ctx.font = `bold ${FONT_SIZE}px sans-serif`;
+    ctx.fillText(row.label, labelX, currentY);
+
+    // Value
+    ctx.fillStyle = valueColor;
+    ctx.font = `bold ${FONT_SIZE}px sans-serif`;
+    ctx.fillText(row.value || '', valueX, currentY);
+
+    currentY += lineHeight;
+  }
+
+  // Draw note box background + border
+  ctx.save();
+  roundedRectPath(ctx, noteBoxX, noteBoxY, noteBoxW, noteBoxH, 40);
+  ctx.fillStyle = style.boxColor;
+  ctx.fill();
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#f9fafb';
+  ctx.stroke();
+  ctx.restore();
+
+  // Draw note text (vertically centred within note box)
+  ctx.font = `bold ${FONT_SIZE}px sans-serif`;
+  ctx.fillStyle = valueColor;
   ctx.textAlign = 'left';
 
-  // Save PNG
-  const fileName = `bounty_${bountyId}.png`;
-  const outPath = path.join(CARDS_DIR, fileName);
-  const buffer = canvas.toBuffer('image/png');
-  fs.writeFileSync(outPath, buffer);
+  const totalNoteTextHeight = noteLines.length * lineHeight;
+  let noteStartY =
+    noteBoxY + (noteBoxH - totalNoteTextHeight) / 2; // vertical centre
 
-  return outPath;
+  for (const line of noteLines) {
+    ctx.fillText(line, noteBoxX + notePaddingX, noteStartY);
+    noteStartY += lineHeight;
+  }
+
+  // Save image
+  const filePath = path.join(CARDS_DIR, `bounty_${bountyId}.png`);
+  fs.writeFileSync(filePath, canvas.toBuffer('image/png'));
+  return filePath;
 }
 
-module.exports = {
-  createBountyCard
-};
+module.exports = { createBountyCard };
