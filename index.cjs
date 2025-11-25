@@ -384,7 +384,7 @@ client.on('interactionCreate', async interaction => {
         bounty.winnerName = claim.claimerName;
         activeBounties.set(claim.bountyId, bounty);
 
-        // Edit original bounty card message to mark completed + remove button
+        // Delete original bounty card message so it can't look active
         if (bounty.channelId && bounty.messageId) {
           try {
             const bountyChannel = await interaction.guild.channels
@@ -395,27 +395,11 @@ client.on('interactionCreate', async interaction => {
                 .fetch(bounty.messageId)
                 .catch(() => null);
               if (bountyMessage) {
-                const oldEmbed = bountyMessage.embeds[0];
-                const newEmbed = EmbedBuilder.from(oldEmbed || new EmbedBuilder())
-                  .setTitle(
-                    ((oldEmbed && oldEmbed.title) || 'Bounty') + ' — ✅ COMPLETED'
-                  )
-                  .addFields(
-                    {
-                      name: 'Completed By',
-                      value: `<@${claim.claimerId}>`,
-                      inline: false
-                    }
-                  );
-
-                await bountyMessage.edit({
-                  embeds: [newEmbed],
-                  components: [] // remove Claim button
-                }).catch(() => {});
+                await bountyMessage.delete().catch(() => {});
               }
             }
           } catch (err) {
-            console.error('❌ Failed to edit bounty card on claim approval:', err);
+            console.error('❌ Failed to delete bounty card on claim approval:', err);
           }
         }
       }
@@ -522,26 +506,30 @@ client.on('interactionCreate', async interaction => {
       const startUnix = Math.floor(bounty.startTime.getTime() / 1000);
       const endUnix = Math.floor(bounty.endTime.getTime() / 1000);
 
-      // Immediate announcement on approval
-      const immediateEmbed = new EmbedBuilder()
-        .setTitle('✅ Bounty Approved')
-        .setDescription('A new bounty has been approved.')
-        .addFields(
-          { name: 'Trainer', value: `<@${bounty.requesterId}>`, inline: true },
-          { name: 'Rarity', value: rarityLabel, inline: true },
-          { name: 'Reward', value: `${bounty.reward.toLocaleString()} PKD`, inline: false },
-          { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
-          { name: 'Starts', value: `<t:${startUnix}:F> (<t:${startUnix}:R>)`, inline: false },
-          { name: 'Ends', value: `<t:${endUnix}:F> (<t:${endUnix}:R>)`, inline: false },
-          { name: 'Duration', value: `${bounty.durationHours} hour(s)`, inline: true },
-          { name: 'Note', value: bounty.notes || 'None', inline: false }
-        )
-        .setTimestamp();
+      const startsNow = !!bounty.startsNow;
 
-      await bountyChannel.send({
-        content: pingText || '',
-        embeds: [immediateEmbed]
-      }).catch(() => {});
+      // Immediate announcement on approval
+      if (!startsNow) {
+        const immediateEmbed = new EmbedBuilder()
+          .setTitle('✅ Bounty Approved')
+          .setDescription('A new bounty has been approved.')
+          .addFields(
+            { name: 'Trainer', value: `<@${bounty.requesterId}>`, inline: true },
+            { name: 'Rarity', value: rarityLabel, inline: true },
+            { name: 'Reward', value: `${bounty.reward.toLocaleString()} PKD`, inline: false },
+            { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
+            { name: 'Starts', value: `<t:${startUnix}:F> (<t:${startUnix}:R>)`, inline: false },
+            { name: 'Ends', value: `<t:${endUnix}:F> (<t:${endUnix}:R>)`, inline: false },
+            { name: 'Duration', value: `${bounty.durationHours} hour(s)`, inline: true },
+            { name: 'Note', value: bounty.notes || 'None', inline: false }
+          )
+          .setTimestamp();
+
+        await bountyChannel.send({
+          content: pingText || '',
+          embeds: [immediateEmbed]
+        }).catch(() => {});
+      }
 
       await interaction.reply({ content: '✔ Bounty approved. Announcements scheduled.', ephemeral: true });
 
@@ -549,8 +537,8 @@ client.on('interactionCreate', async interaction => {
       const delayToStart = Math.max(bounty.startTime.getTime() - now, 0);
       const delayToEnd = Math.max(bounty.endTime.getTime() - now, 0);
 
-      // Scheduled announcement at start time (CARD + Claim button)
-      setTimeout(async () => {
+      // Function to send bounty card (CARD + Claim button)
+      const sendStartCard = async () => {
         const stillActive = activeBounties.get(bountyId);
         if (!stillActive || stillActive.completed) return;
 
@@ -569,10 +557,13 @@ client.on('interactionCreate', async interaction => {
           const lifetime = userRow?.lifetime_points || 0;
           const rankName = getRankName(lifetime);
 
-          const startLabel = stillActive.startTime.toLocaleString('en-GB', {
-            dateStyle: 'medium',
-            timeStyle: 'short'
-          });
+          const startLabel = stillActive.startsNow
+            ? 'Starts Immediately'
+            : stillActive.startTime.toLocaleString('en-GB', {
+                dateStyle: 'medium',
+                timeStyle: 'short'
+              });
+
           const endLabel = stillActive.endTime.toLocaleString('en-GB', {
             dateStyle: 'medium',
             timeStyle: 'short'
@@ -628,7 +619,16 @@ client.on('interactionCreate', async interaction => {
         } catch (err) {
           console.error('❌ Failed to send bounty card:', err);
         }
-      }, delayToStart);
+      };
+
+      // Start card timing:
+      // - "Start now": send immediately
+      // - Scheduled: send at configured start time
+      if (startsNow) {
+        sendStartCard();
+      } else {
+        setTimeout(sendStartCard, delayToStart);
+      }
 
       // Scheduled announcement at end time
       setTimeout(async () => {
@@ -643,8 +643,8 @@ client.on('interactionCreate', async interaction => {
 
         activeBounties.delete(bountyId);
 
-        const endUnix = Math.floor(stillActive.endTime.getTime() / 1000);
-        const rarityDisplay = getRarityDisplayLabel(bountyRarity);
+        const endUnix2 = Math.floor(stillActive.endTime.getTime() / 1000);
+        const rarityDisplay2 = getRarityDisplayLabel(bountyRarity);
         const pokemonListLinesEnd = stillActive.pokemons.map(p => `• ${p}`).join('\n');
 
         const endEmbed = new EmbedBuilder()
@@ -652,10 +652,10 @@ client.on('interactionCreate', async interaction => {
           .setDescription('The bounty has ended. Submissions are now closed.')
           .addFields(
             { name: 'Trainer', value: `<@${stillActive.requesterId}>`, inline: true },
-            { name: 'Rarity', value: rarityDisplay, inline: true },
+            { name: 'Rarity', value: rarityDisplay2, inline: true },
             { name: 'Reward', value: `${stillActive.reward.toLocaleString()} PKD`, inline: false },
             { name: 'Pokémon Targets', value: pokemonListLinesEnd, inline: false },
-            { name: 'Ended', value: `<t:${endUnix}:F>`, inline: false },
+            { name: 'Ended', value: `<t:${endUnix2}:F>`, inline: false },
             { name: 'Duration', value: `${stillActive.durationHours} hour(s)`, inline: true },
             { name: 'Note', value: stillActive.notes || 'None', inline: false }
           )
@@ -1117,7 +1117,8 @@ client.on('interactionCreate', async interaction => {
         endTime,
         durationHours,
         reward,
-        createdAt: new Date()
+        createdAt: new Date(),
+        startsNow: startTimeStr === 'now'
       };
 
       pendingBounties.set(bountyId, bounty);
