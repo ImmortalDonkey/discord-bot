@@ -357,27 +357,29 @@ async function createBountyCard(options) {
   const valueX = labelX + maxLabelWidth + labelGap;
 
   // Draw info rows
-  let currentY = infoBoxY + infoPaddingY;
-  for (const row of infoRows) {
-    if (row.spacer) {
-      currentY += groupSpacing;
-      continue;
-    }
+// Vertically center text inside top info box
+const centeredStartY = infoBoxY + (infoBoxH - infoTextHeight) / 2;
+let currentY = centeredStartY;
 
-    // Label
-    ctx.fillStyle = labelColor;
-    ctx.font = `bold ${FONT_SIZE}px sans-serif`;
-    if (row.label) {
-      ctx.fillText(row.label, labelX, currentY);
-    }
-
-    // Value
-    ctx.fillStyle = valueColor;
-    ctx.font = `bold ${FONT_SIZE}px sans-serif`;
-    ctx.fillText(row.value || '', valueX, currentY);
-
-    currentY += lineHeight;
+for (const row of infoRows) {
+  if (row.spacer) {
+    currentY += groupSpacing;
+    continue;
   }
+
+  // Label
+  ctx.fillStyle = labelColor;
+  ctx.font = `bold ${FONT_SIZE}px sans-serif`;
+  ctx.fillText(row.label, labelX, currentY);
+
+  // Value
+  ctx.fillStyle = valueColor;
+  ctx.font = `bold ${FONT_SIZE}px sans-serif`;
+  ctx.fillText(row.value || '', valueX, currentY);
+
+  currentY += lineHeight;
+}
+
 
   // Draw note box background + border
   ctx.save();
