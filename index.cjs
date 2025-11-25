@@ -9,7 +9,10 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
-  AttachmentBuilder
+  AttachmentBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle
 } = require('discord.js');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
@@ -39,6 +42,7 @@ const pendingReports = new Map();
 // 🔥 Bounty System: in-memory storage
 const pendingBounties = new Map(); // bountyId -> bountyObject
 const activeBounties = new Map();  // bountyId -> bountyObject
+const bountyClaims = new Map();    // claimId  -> claimObject
 // 🔥 End bounty storage
 
 const availableLocations = [
@@ -190,7 +194,7 @@ function clampHours(h) {
 }
 
 function parseHourFromStartTimeString(str) {
-  // expects "HH:MM" or "now"
+  // expects "HH:MM"
   if (!str || typeof str !== 'string') return 0;
   if (str === 'now') return 0; // not used for now-case, but safe
   const parts = str.split(':');
@@ -211,29 +215,36 @@ function getNextOccurrenceOfHour(hour) {
   return start;
 }
 
-/**
- * Round "now" up to the next full hour.
- * e.g. 14:37 → 15:00
- */
-function getRoundedStartFromNow() {
-  const now = new Date();
-  const start = new Date(now);
-  start.setMinutes(0, 0, 0);
-  start.setHours(start.getHours() + 1);
-  return start;
+// Helper: get claims forum channel
+async function getClaimsForumChannel(guild) {
+  const id = process.env.CLAIMS_FORUM_CHANNEL_ID || process.env.CLAIMS_CHANNEL_ID;
+  if (id) {
+    const ch = await guild.channels.fetch(id).catch(() => null);
+    if (ch && ch.type === ChannelType.GuildForum) return ch;
+  }
+  // Fallback: find by name "claims"
+  const found = guild.channels.cache.find(
+    c => c.type === ChannelType.GuildForum && c.name.toLowerCase() === 'claims'
+  );
+  return found || null;
 }
 
 // ==========================
 // Interaction Handling
 // ==========================
 client.on('interactionCreate', async interaction => {
-  if (!interaction.isCommand() && !interaction.isAutocomplete() && !interaction.isButton()) return;
+  if (
+    !interaction.isCommand() &&
+    !interaction.isAutocomplete() &&
+    !interaction.isButton() &&
+    !interaction.isModalSubmit()
+  ) return;
 
   // ======================
   // BUTTON HANDLERS
   // ======================
   if (interaction.isButton()) {
-    // Points claim approve button
+    // Points claim approve button (PKD conversion, existing system)
     if (interaction.customId.startsWith("approveclaim_")) {
       const [_, userId, pointsRequested] = interaction.customId.split("_");
 
@@ -272,7 +283,168 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // 🔥 Bounty buttons (approve / deny)
+    // 🔥 Bounty CLAIM button (opens modal)
+    if (interaction.customId.startsWith('claimbounty_')) {
+      const bountyId = interaction.customId.substring('claimbounty_'.length);
+      const bounty = activeBounties.get(bountyId);
+
+      if (!bounty || bounty.completed) {
+        await interaction.reply({
+          content: '❌ This bounty is no longer active.',
+          ephemeral: true
+        });
+        return;
+      }
+
+      const now = new Date();
+      if (now < bounty.startTime || now > bounty.endTime) {
+        await interaction.reply({
+          content: '❌ This bounty is not currently active.',
+          ephemeral: true
+        });
+        return;
+      }
+
+      const modal = new ModalBuilder()
+        .setCustomId(`bountyclaim_${bountyId}`)
+        .setTitle('Claim Bounty');
+
+      const proofInput = new TextInputBuilder()
+        .setCustomId('pokemonProof')
+        .setLabel('Pokémon ID / proof link')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMaxLength(200);
+
+      const row = new ActionRowBuilder().addComponents(proofInput);
+      modal.addComponents(row);
+
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // 🔥 Bounty claim APPROVE / DENY (staff in #claims forum)
+    if (
+      interaction.customId.startsWith('approvebountyclaim_') ||
+      interaction.customId.startsWith('denybountyclaim_')
+    ) {
+      const isApprove = interaction.customId.startsWith('approvebountyclaim_');
+      const prefix = isApprove ? 'approvebountyclaim_' : 'denybountyclaim_';
+      const claimId = interaction.customId.substring(prefix.length);
+
+      const claim = bountyClaims.get(claimId);
+      if (!claim) {
+        await interaction.reply({
+          content: '❌ Claim not found or already processed.',
+          ephemeral: true
+        });
+        return;
+      }
+
+      // staff check
+      const staffRolesEnv = process.env.STAFF_ROLES || '';
+      const staffRoles = staffRolesEnv.split(',').map(s => s.trim()).filter(Boolean);
+      const memberRoleIds = interaction.member.roles.cache.map(r => r.id);
+      const isStaff = staffRoles.some(r => memberRoleIds.includes(r));
+
+      if (!isStaff && !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        await interaction.reply({
+          content: '❌ You do not have permission to process bounty claims.',
+          ephemeral: true
+        });
+        return;
+      }
+
+      const originalEmbed = EmbedBuilder.from(
+        interaction.message.embeds[0] || new EmbedBuilder()
+      );
+
+      if (!isApprove) {
+        // DENY
+        claim.status = 'denied';
+        bountyClaims.set(claimId, claim);
+
+        const deniedEmbed = originalEmbed
+          .setColor('Red')
+          .setTitle('🎯 Bounty Claim (Denied)');
+
+        await interaction.message.edit({ embeds: [deniedEmbed], components: [] });
+        await interaction.reply({ content: '❌ Claim denied.', ephemeral: true });
+        return;
+      }
+
+      // APPROVE
+      claim.status = 'approved';
+      bountyClaims.set(claimId, claim);
+
+      const bounty = activeBounties.get(claim.bountyId);
+      if (bounty) {
+        bounty.completed = true;
+        bounty.winnerId = claim.claimerId;
+        bounty.winnerName = claim.claimerName;
+        activeBounties.set(claim.bountyId, bounty);
+
+        // Edit original bounty card message to mark completed + remove button
+        if (bounty.channelId && bounty.messageId) {
+          try {
+            const bountyChannel = await interaction.guild.channels
+              .fetch(bounty.channelId)
+              .catch(() => null);
+            if (bountyChannel) {
+              const bountyMessage = await bountyChannel.messages
+                .fetch(bounty.messageId)
+                .catch(() => null);
+              if (bountyMessage) {
+                const oldEmbed = bountyMessage.embeds[0];
+                const newEmbed = EmbedBuilder.from(oldEmbed || new EmbedBuilder())
+                  .setTitle(
+                    ((oldEmbed && oldEmbed.title) || 'Bounty') + ' — ✅ COMPLETED'
+                  )
+                  .addFields(
+                    {
+                      name: 'Completed By',
+                      value: `<@${claim.claimerId}>`,
+                      inline: false
+                    }
+                  );
+
+                await bountyMessage.edit({
+                  embeds: [newEmbed],
+                  components: [] // remove Claim button
+                }).catch(() => {});
+              }
+            }
+          } catch (err) {
+            console.error('❌ Failed to edit bounty card on claim approval:', err);
+          }
+        }
+      }
+
+      // Edit claim thread message
+      const approvedEmbed = originalEmbed
+        .setColor('Green')
+        .setTitle('🎯 Bounty Claim (Approved)')
+        .addFields(
+          {
+            name: 'Approved By',
+            value: `<@${interaction.user.id}>`,
+            inline: true
+          }
+        );
+
+      await interaction.message.edit({
+        embeds: [approvedEmbed],
+        components: [] // remove approve/deny buttons
+      });
+
+      await interaction.reply({
+        content: '✔ Claim approved. Remember to award PKD in-game.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    // 🔥 Bounty buttons (approve / deny bounty request)
     if (interaction.customId.startsWith('approvebounty_') || interaction.customId.startsWith('denybounty_')) {
       const isApprove = interaction.customId.startsWith('approvebounty_');
       const prefix = isApprove ? 'approvebounty_' : 'denybounty_';
@@ -307,45 +479,15 @@ client.on('interactionCreate', async interaction => {
         return;
       }
 
-      // ======================
-      // APPROVE BOUNTY
-      // ======================
+      // Approve
       pendingBounties.delete(bountyId);
-
-      // Compute final start/end at APPROVAL time for "now" bounties
-      let effectiveBounty = { ...bounty };
-      const isImmediateStart = effectiveBounty.startMode === 'now';
-      const durationMs = effectiveBounty.durationHours * 60 * 60 * 1000;
-
-      if (isImmediateStart) {
-        // Round up to the next full hour from APPROVAL
-        const roundedStart = getRoundedStartFromNow();
-        const endTime = new Date(roundedStart.getTime() + durationMs);
-
-        effectiveBounty.startTime = roundedStart;
-        effectiveBounty.endTime = endTime;
-      } else {
-        // For scheduled bounties, startTime/endTime were already computed at request
-        // but we sanity-check and compute if missing for any reason
-        if (!effectiveBounty.startTime) {
-          const hour = parseHourFromStartTimeString(effectiveBounty.startMode || '00:00');
-          const start = getNextOccurrenceOfHour(hour);
-          effectiveBounty.startTime = start;
-        }
-        if (!effectiveBounty.endTime) {
-          effectiveBounty.endTime = new Date(effectiveBounty.startTime.getTime() + durationMs);
-        }
-      }
-
-      effectiveBounty = {
-        ...effectiveBounty,
+      activeBounties.set(bountyId, {
+        ...bounty,
         approved: true,
-        approvedBy: interaction.user.id
-      };
+        approvedBy: interaction.user.id,
+        completed: false
+      });
 
-      activeBounties.set(bountyId, effectiveBounty);
-
-      // Update staff-review message title only (still useful for logs)
       const approvedEmbed = EmbedBuilder.from(interaction.message.embeds[0] || new EmbedBuilder())
         .setColor('Green')
         .setTitle('📝 Bounty Request (Approved)');
@@ -366,7 +508,7 @@ client.on('interactionCreate', async interaction => {
       }
 
       // Determine rarity of bounty (highest rarity among targets)
-      const bountyRarity = getHighestRarityForList(effectiveBounty.pokemons);
+      const bountyRarity = getHighestRarityForList(bounty.pokemons);
       const rarityLabel = getRarityDisplayLabel(bountyRarity);
 
       const rarityRoleId = process.env[`ROLE_${bountyRarity.toUpperCase()}`];
@@ -376,58 +518,80 @@ client.on('interactionCreate', async interaction => {
       if (allBountyRoleId) pingParts.push(`<@&${allBountyRoleId}>`);
       const pingText = pingParts.join(' ');
 
-      const pokemonListLines = effectiveBounty.pokemons.map(p => `• ${p}`).join('\n');
-      const startUnix = Math.floor(effectiveBounty.startTime.getTime() / 1000);
-      const endUnix = Math.floor(effectiveBounty.endTime.getTime() / 1000);
+      const pokemonListLines = bounty.pokemons.map(p => `• ${p}`).join('\n');
+      const startUnix = Math.floor(bounty.startTime.getTime() / 1000);
+      const endUnix = Math.floor(bounty.endTime.getTime() / 1000);
 
-      // Helper: send the bounty card (used for both immediate + scheduled start)
-      const sendBountyCard = async (bountyToSend) => {
+      // Immediate announcement on approval
+      const immediateEmbed = new EmbedBuilder()
+        .setTitle('✅ Bounty Approved')
+        .setDescription('A new bounty has been approved.')
+        .addFields(
+          { name: 'Trainer', value: `<@${bounty.requesterId}>`, inline: true },
+          { name: 'Rarity', value: rarityLabel, inline: true },
+          { name: 'Reward', value: `${bounty.reward.toLocaleString()} PKD`, inline: false },
+          { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
+          { name: 'Starts', value: `<t:${startUnix}:F> (<t:${startUnix}:R>)`, inline: false },
+          { name: 'Ends', value: `<t:${endUnix}:F> (<t:${endUnix}:R>)`, inline: false },
+          { name: 'Duration', value: `${bounty.durationHours} hour(s)`, inline: true },
+          { name: 'Note', value: bounty.notes || 'None', inline: false }
+        )
+        .setTimestamp();
+
+      await bountyChannel.send({
+        content: pingText || '',
+        embeds: [immediateEmbed]
+      }).catch(() => {});
+
+      await interaction.reply({ content: '✔ Bounty approved. Announcements scheduled.', ephemeral: true });
+
+      const now = Date.now();
+      const delayToStart = Math.max(bounty.startTime.getTime() - now, 0);
+      const delayToEnd = Math.max(bounty.endTime.getTime() - now, 0);
+
+      // Scheduled announcement at start time (CARD + Claim button)
+      setTimeout(async () => {
+        const stillActive = activeBounties.get(bountyId);
+        if (!stillActive || stillActive.completed) return;
+
         try {
-          const bountyRarityLocal = getHighestRarityForList(bountyToSend.pokemons);
-          const rarityDisplay = getRarityDisplayLabel(bountyRarityLocal);
-
           // Fetch member for nickname & avatar
           const member = await bountyChannel.guild.members
-            .fetch(bountyToSend.requesterId)
+            .fetch(stillActive.requesterId)
             .catch(() => null);
-          const displayName = member?.displayName || bountyToSend.requesterName;
+          const displayName = member?.displayName || stillActive.requesterName;
           const avatarUrl =
             member?.displayAvatarURL({ extension: 'png', size: 512 }) ||
             client.user.displayAvatarURL({ extension: 'png', size: 512 });
 
           // Rank from DB
-          const userRow = await db.getUserById(bountyToSend.requesterId);
+          const userRow = await db.getUserById(stillActive.requesterId);
           const lifetime = userRow?.lifetime_points || 0;
           const rankName = getRankName(lifetime);
 
-          // For "now" bounties, we label as "Starts Immediately" in the card
-          const startLabel =
-            bountyToSend.startMode === 'now'
-              ? 'Starts Immediately'
-              : bountyToSend.startTime.toLocaleString('en-GB', {
-                  dateStyle: 'medium',
-                  timeStyle: 'short'
-                });
-
-          const endLabel = bountyToSend.endTime.toLocaleString('en-GB', {
+          const startLabel = stillActive.startTime.toLocaleString('en-GB', {
             dateStyle: 'medium',
             timeStyle: 'short'
           });
-
-          const durationLabel = `${bountyToSend.durationHours} hour(s)`;
-          const rewardLabel = `${bountyToSend.reward.toLocaleString()} PKD`;
+          const endLabel = stillActive.endTime.toLocaleString('en-GB', {
+            dateStyle: 'medium',
+            timeStyle: 'short'
+          });
+          const durationLabel = `${stillActive.durationHours} hour(s)`;
+          const rarityDisplay = getRarityDisplayLabel(bountyRarity);
+          const rewardLabel = `${stillActive.reward.toLocaleString()} PKD`;
 
           const cardPath = await createBountyCard({
-            bountyId: bountyToSend.id,
+            bountyId,
             username: displayName,
             rankName,
-            rarityKey: bountyRarityLocal,
+            rarityKey: bountyRarity,
             rarityLabel: rarityDisplay,
-            pokemons: bountyToSend.pokemons || [],
+            pokemons: stillActive.pokemons || [],
             startLabel,
             endLabel,
             durationLabel,
-            note: bountyToSend.notes || '',
+            note: stillActive.notes || '',
             rewardLabel,
             avatarUrl
           });
@@ -439,72 +603,48 @@ client.on('interactionCreate', async interaction => {
             .setColor('DarkButNotBlack')
             .setImage(`attachment://${fileName}`);
 
-          await bountyChannel.send({
+          const claimRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`claimbounty_${bountyId}`)
+              .setLabel('Claim Bounty')
+              .setStyle(ButtonStyle.Success)
+          );
+
+          const msg = await bountyChannel.send({
             content: pingText || '',
             embeds: [cardEmbed],
-            files: [attachment]
-          }).catch(() => {});
+            files: [attachment],
+            components: [claimRow]
+          }).catch(() => null);
+
+          if (msg) {
+            const updated = {
+              ...stillActive,
+              channelId: msg.channelId,
+              messageId: msg.id
+            };
+            activeBounties.set(bountyId, updated);
+          }
         } catch (err) {
           console.error('❌ Failed to send bounty card:', err);
         }
-      };
+      }, delayToStart);
 
-      // For SCHEDULED bounties, keep "Bounty Approved" embed in bounty channel
-      if (!isImmediateStart) {
-        const immediateEmbed = new EmbedBuilder()
-          .setTitle('✅ Bounty Approved')
-          .setDescription('A new bounty has been approved.')
-          .addFields(
-            { name: 'Trainer', value: `<@${effectiveBounty.requesterId}>`, inline: true },
-            { name: 'Rarity', value: rarityLabel, inline: true },
-            { name: 'Reward', value: `${effectiveBounty.reward.toLocaleString()} PKD`, inline: false },
-            { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
-            { name: 'Starts', value: `<t:${startUnix}:F> (<t:${startUnix}:R>)`, inline: false },
-            { name: 'Ends', value: `<t:${endUnix}:F> (<t:${endUnix}:R>)`, inline: false },
-            { name: 'Duration', value: `${effectiveBounty.durationHours} hour(s)`, inline: true },
-            { name: 'Note', value: effectiveBounty.notes || 'None', inline: false }
-          )
-          .setTimestamp();
-
-        await bountyChannel.send({
-          content: pingText || '',
-          embeds: [immediateEmbed]
-        }).catch(() => {});
-      }
-
-      await interaction.reply({
-        content: isImmediateStart
-          ? '✔ Bounty approved and started immediately.'
-          : '✔ Bounty approved. Announcements scheduled.',
-        ephemeral: true
-      });
-
-      const now = Date.now();
-      const delayToStart = Math.max(effectiveBounty.startTime.getTime() - now, 0);
-      const delayToEnd = Math.max(effectiveBounty.endTime.getTime() - now, 0);
-
-      // For "Start Now": send the card immediately (no extra "Bounty Approved" embed)
-      if (isImmediateStart) {
-        await sendBountyCard(effectiveBounty);
-      } else {
-        // Scheduled announcement at start time (CARD-only embed)
-        setTimeout(async () => {
-          const stillActive = activeBounties.get(bountyId);
-          if (!stillActive) return;
-          await sendBountyCard(stillActive);
-        }, delayToStart);
-      }
-
-      // Scheduled announcement at end time (both modes)
+      // Scheduled announcement at end time
       setTimeout(async () => {
         const stillActive = activeBounties.get(bountyId);
         if (!stillActive) return;
+
+        // If bounty already completed via claim, silently clear it and skip "finished" embed
+        if (stillActive.completed) {
+          activeBounties.delete(bountyId);
+          return;
+        }
+
         activeBounties.delete(bountyId);
 
-        const endUnixFinal = Math.floor(stillActive.endTime.getTime() / 1000);
-        const rarityDisplay = getRarityDisplayLabel(
-          getHighestRarityForList(stillActive.pokemons)
-        );
+        const endUnix = Math.floor(stillActive.endTime.getTime() / 1000);
+        const rarityDisplay = getRarityDisplayLabel(bountyRarity);
         const pokemonListLinesEnd = stillActive.pokemons.map(p => `• ${p}`).join('\n');
 
         const endEmbed = new EmbedBuilder()
@@ -515,7 +655,7 @@ client.on('interactionCreate', async interaction => {
             { name: 'Rarity', value: rarityDisplay, inline: true },
             { name: 'Reward', value: `${stillActive.reward.toLocaleString()} PKD`, inline: false },
             { name: 'Pokémon Targets', value: pokemonListLinesEnd, inline: false },
-            { name: 'Ended', value: `<t:${endUnixFinal}:F>`, inline: false },
+            { name: 'Ended', value: `<t:${endUnix}:F>`, inline: false },
             { name: 'Duration', value: `${stillActive.durationHours} hour(s)`, inline: true },
             { name: 'Note', value: stillActive.notes || 'None', inline: false }
           )
@@ -529,6 +669,125 @@ client.on('interactionCreate', async interaction => {
 
       return;
     }
+  }
+
+  // ======================
+  // MODAL HANDLERS
+  // ======================
+  if (interaction.isModalSubmit()) {
+    // Bounty claim modal submit
+    if (interaction.customId.startsWith('bountyclaim_')) {
+      const bountyId = interaction.customId.substring('bountyclaim_'.length);
+      const bounty = activeBounties.get(bountyId);
+
+      if (!bounty || bounty.completed) {
+        await interaction.reply({
+          content: '❌ This bounty is no longer active.',
+          ephemeral: true
+        });
+        return;
+      }
+
+      const now = new Date();
+      if (now < bounty.startTime || now > bounty.endTime) {
+        await interaction.reply({
+          content: '❌ This bounty is not currently active.',
+          ephemeral: true
+        });
+        return;
+      }
+
+      const proof = interaction.fields.getTextInputValue('pokemonProof');
+      const claimId = `${bountyId}_${interaction.user.id}_${Date.now()}`;
+
+      const claim = {
+        id: claimId,
+        bountyId,
+        claimerId: interaction.user.id,
+        claimerName: interaction.user.username,
+        proof,
+        createdAt: new Date(),
+        status: 'pending'
+      };
+      bountyClaims.set(claimId, claim);
+
+      const claimsChannel = await getClaimsForumChannel(interaction.guild);
+      if (!claimsChannel) {
+        await interaction.reply({
+          content: '❌ Claims forum channel not found. Please tell a staff member.',
+          ephemeral: true
+        });
+        return;
+      }
+
+      const staffRolesEnv = process.env.STAFF_ROLES || '';
+      const staffMention = staffRolesEnv
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(id => `<@&${id}>`)
+        .join(' ');
+
+      const titlePokemon =
+        (bounty.pokemons && bounty.pokemons.length && bounty.pokemons[0]) || 'Bounty';
+
+      const embed = new EmbedBuilder()
+        .setColor('Gold')
+        .setTitle('🎯 New Bounty Claim')
+        .setDescription('A bounty claim has been submitted.')
+        .addFields(
+          { name: 'Bounty ID', value: bountyId, inline: true },
+          {
+            name: 'Target(s)',
+            value: (bounty.pokemons || []).join('\n') || 'Unknown',
+            inline: true
+          },
+          { name: 'Claimer', value: `<@${interaction.user.id}>`, inline: false },
+          {
+            name: 'Reward',
+            value: `${bounty.reward.toLocaleString()} PKD`,
+            inline: false
+          },
+          { name: 'Proof', value: proof || 'None', inline: false }
+        )
+        .setTimestamp();
+
+      const buttonsRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`approvebountyclaim_${claimId}`)
+          .setLabel('Approve')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`denybountyclaim_${claimId}`)
+          .setLabel('Deny')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      try {
+        const thread = await claimsChannel.threads.create({
+          name: `Claim | ${titlePokemon} | ${interaction.user.username}`,
+          message: {
+            content: staffMention || '',
+            embeds: [embed],
+            components: [buttonsRow]
+          }
+        });
+        claim.threadId = thread.id;
+        bountyClaims.set(claimId, claim);
+      } catch (err) {
+        console.error('❌ Failed to create claims thread:', err);
+      }
+
+      await interaction.reply({
+        content: '✅ Your claim has been submitted for staff review.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    // other modals could go here...
+
+    return;
   }
 
   // ======================
@@ -733,7 +992,7 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ content: "🛑 Report cancelled.", ephemeral: true });
     }
 
-    // CLAIM COMMAND
+    // CLAIM COMMAND (existing PKD conversion)
     if (commandName === 'claim') {
       const pointsRequested = interaction.options.getInteger('points');
       const userRow = await db.getUserById(user.id);
@@ -838,15 +1097,14 @@ client.on('interactionCreate', async interaction => {
       const durationHours = clampHours(durationHoursRaw);
       const durationMs = durationHours * 60 * 60 * 1000;
 
-      // For "now", we compute actual start/end at APPROVAL time.
-      let startTime = null;
-      let endTime = null;
-
-      if (startTimeStr !== 'now') {
+      let startTime;
+      if (startTimeStr === 'now') {
+        startTime = new Date();
+      } else {
         const hour = parseHourFromStartTimeString(startTimeStr);
         startTime = getNextOccurrenceOfHour(hour);
-        endTime = new Date(startTime.getTime() + durationMs);
       }
+      const endTime = new Date(startTime.getTime() + durationMs);
 
       const bountyId = `${Date.now()}_${interaction.user.id}`;
       const bounty = {
@@ -859,8 +1117,7 @@ client.on('interactionCreate', async interaction => {
         endTime,
         durationHours,
         reward,
-        createdAt: new Date(),
-        startMode: startTimeStr // 'now' or 'HH:MM'
+        createdAt: new Date()
       };
 
       pendingBounties.set(bountyId, bounty);
@@ -886,21 +1143,15 @@ client.on('interactionCreate', async interaction => {
         .join(' ');
 
       const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n');
+      const startUnix = Math.floor(startTime.getTime() / 1000);
+      const endUnix = Math.floor(endTime.getTime() / 1000);
       const bountyRarity = getHighestRarityForList(pokemons);
       const rarityLabel = getRarityDisplayLabel(bountyRarity);
 
-      let startFieldValue;
-      let endFieldValue;
-
-      if (startTimeStr === 'now') {
-        startFieldValue = 'Starts Immediately upon approval';
-        endFieldValue = `Runs for ${durationHours} hour(s) from approval time`;
-      } else {
-        const startUnix = Math.floor(startTime.getTime() / 1000);
-        const endUnix = Math.floor(endTime.getTime() / 1000);
-        startFieldValue = `<t:${startUnix}:F>`;
-        endFieldValue = `<t:${endUnix}:F>`;
-      }
+      const startFieldValue =
+        startTimeStr === 'now'
+          ? `<t:${startUnix}:F> (Starts on approval)`
+          : `<t:${startUnix}:F>`;
 
       const embed = new EmbedBuilder()
         .setTitle('📝 New Bounty Request')
@@ -911,7 +1162,7 @@ client.on('interactionCreate', async interaction => {
           { name: 'Reward', value: `${reward.toLocaleString()} PKD`, inline: false },
           { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
           { name: 'Requested Start', value: startFieldValue, inline: false },
-          { name: 'Requested End', value: endFieldValue, inline: false },
+          { name: 'Requested End', value: `<t:${endUnix}:F>`, inline: false },
           { name: 'Duration', value: `${durationHours} hour(s)`, inline: true },
           { name: 'Note', value: notes, inline: false }
         )
