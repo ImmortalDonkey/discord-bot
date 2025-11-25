@@ -404,6 +404,84 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
+// ===============================
+// POST "BOUNTY COMPLETED" CARD
+// ===============================
+try {
+  const bountyChannelId = process.env.BOUNTY_CHANNEL_ID;
+  const bountyChannel = bountyChannelId
+    ? await interaction.guild.channels.fetch(bountyChannelId).catch(() => null)
+    : null;
+
+  if (bountyChannel) {
+    const rarityDisplay = getRarityDisplayLabel(getHighestRarityForList(bounty.pokemons));
+
+    // Trainer rank from DB
+    const userRow = await db.getUserById(bounty.requesterId);
+    const lifetime = userRow?.lifetime_points || 0;
+    const rankName = getRankName(lifetime);
+
+    // Trainer display name + avatar
+    const member = await bountyChannel.guild.members
+      .fetch(bounty.requesterId)
+      .catch(() => null);
+
+    const displayName = member?.displayName || bounty.requesterName;
+    const avatarUrl =
+      member?.displayAvatarURL({ extension: 'png', size: 512 }) ||
+      client.user.displayAvatarURL({ extension: 'png', size: 512 });
+
+    const startLabel = bounty.startsNow
+      ? 'Starts Immediately'
+      : bounty.startTime.toLocaleString('en-GB', {
+          dateStyle: 'medium',
+          timeStyle: 'short'
+        });
+
+    const endLabel = bounty.endTime.toLocaleString('en-GB', {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+
+    const cardPath = await createBountyCard({
+      bountyId: bounty.id,
+      username: displayName,
+      rankName,
+      rarityKey: getHighestRarityForList(bounty.pokemons),
+      rarityLabel: rarityDisplay,
+      pokemons: bounty.pokemons,
+      startLabel,
+      endLabel,
+      durationLabel: `${bounty.durationHours} hour(s)`,
+      note: bounty.notes || '',
+      rewardLabel: `${bounty.reward.toLocaleString()} PKD`,
+      avatarUrl
+    });
+
+    const attachment = new AttachmentBuilder(cardPath, {
+      name: `bounty_completed_${bounty.id}.png`
+    });
+
+    const completedEmbed = new EmbedBuilder()
+      .setColor("Green")
+      .setTitle("Bounty — ✔️ COMPLETED")
+      .addFields({
+        name: "Completed By",
+        value: `<@${claim.claimerId}>`
+      })
+      .setImage(`attachment://bounty_completed_${bounty.id}.png`)
+      .setTimestamp();
+
+    await bountyChannel.send({
+      embeds: [completedEmbed],
+      files: [attachment]
+    });
+  }
+} catch (err) {
+  console.error("❌ Failed to post completed bounty card:", err);
+}
+
+
       // Edit claim thread message
       const approvedEmbed = originalEmbed
         .setColor('Green')
