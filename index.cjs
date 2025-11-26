@@ -26,7 +26,7 @@ const {
   handleModalInteraction
 } = require('./handlers/modalHandler.cjs');
 
-// FIXED: correct signature (NO client param)
+// Autocomplete (NO client parameter)
 const handleAutocompleteInteraction = require('./handlers/autocompleteHandler.cjs');
 
 
@@ -41,7 +41,7 @@ const client = new Client({
   ]
 });
 
-// Shared in-memory state (used by command modules)
+// Shared state
 client.playerLocations = new Map();
 client.pendingReports = new Map();
 client.pendingBounties = new Map();
@@ -50,12 +50,92 @@ client.bountyClaims = new Map();
 
 
 // ──────────────────────────────────────
+// REQUIRED HELPERS FOR BOUNTYREQUEST
+// (These were missing & caused the command to break)
+// ──────────────────────────────────────
+
+client.rarityGroups = {
+  roamerMonth: [
+    "Clone Venusaur","Clone Charizard","Clone Blastoise",
+    "Ancient Jigglypuff","Ancient Alakazam","Ancient Gengar",
+    "Crystal Onix","Pink Rhyhorn","Snorlax (Snowman)",
+    "Mewtwo (Shadow)","Golden Sudowoodo","XD001","Reddy",
+    "Meta Groudon","Rayquaza (Illusion)","Dialga (Primal)","Z2"
+  ],
+  paradox: [
+    "Walking Wake","Gouging Fire","Raging Bolt",
+    "Iron Leaves","Iron Boulder","Iron Crown"
+  ],
+  legendary: [
+    "Raikou","Entei","Suicune",
+    "Latias","Latios",
+    "Glastrier","Spectrier",
+    "Koraidon","Miraidon"
+  ],
+  rare: ["Cyclizar","Gimmighoul (Roaming)"],
+  common: ["Zygarde (Cell)","Bramblin","Bombirdier","Varoom"]
+};
+
+client.rarityPriority = ['paradox','roamerMonth','legendary','rare','common'];
+
+client.getRarity = function(name) {
+  name = (name || '').toLowerCase();
+  for (const key of client.rarityPriority) {
+    if ((client.rarityGroups[key] || [])
+      .some(p => p.toLowerCase() === name)) return key;
+  }
+  return 'common';
+};
+
+client.getHighestRarityForList = function(list = []) {
+  if (!list.length) return 'common';
+  let best = 'common';
+  for (const n of list) {
+    const r = client.getRarity(n);
+    if (client.rarityPriority.indexOf(r) < client.rarityPriority.indexOf(best))
+      best = r;
+  }
+  return best;
+};
+
+client.getRarityDisplayLabel = function(key) {
+  if (key === 'paradox') return 'Paradox';
+  if (key === 'roamerMonth') return 'Roamer of the Month';
+  if (key === 'legendary' || key === 'rare') return 'Legendary / Rare';
+  return 'Common';
+};
+
+client.clampHours = function(h) {
+  if (!h || isNaN(h)) return 6;
+  h = parseInt(h);
+  if (h < 1) h = 1;
+  if (h > 72) h = 72;
+  return h;
+};
+
+client.parseHourFromStartTimeString = function(str) {
+  if (!str || typeof str !== 'string') return 0;
+  if (str === 'now') return 0;
+  const hour = parseInt(str.split(':')[0], 10);
+  return isNaN(hour) ? 0 : hour;
+};
+
+client.getNextOccurrenceOfHour = function(hour) {
+  const now = new Date();
+  const start = new Date(now);
+  start.setMinutes(0,0,0);
+  start.setHours(hour);
+  if (start <= now) start.setDate(start.getDate() + 1);
+  return start;
+};
+
+
+// ──────────────────────────────────────
 // Ready
 // ──────────────────────────────────────
 client.once('ready', async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 
-  // DB init
   try {
     await db.init();
     console.log('✅ Database initialised');
@@ -63,14 +143,12 @@ client.once('ready', async () => {
     console.error('❌ DB init failed:', err);
   }
 
-  // Google Sheets (optional)
   try {
     await initGoogleSheet();
   } catch (err) {
     console.error('⚠ Sheets init failed:', err);
   }
 
-  // Load handlers
   try {
     initCommandHandlers(client);
     initButtonHandlers(client);
@@ -87,7 +165,6 @@ client.once('ready', async () => {
 // ──────────────────────────────────────
 client.on('interactionCreate', async (interaction) => {
   try {
-    // FIXED: must pass ONLY interaction
     if (interaction.isAutocomplete()) {
       return handleAutocompleteInteraction(interaction);
     }
@@ -107,24 +184,24 @@ client.on('interactionCreate', async (interaction) => {
   } catch (err) {
     console.error('❌ Interaction error:', err);
 
-    if (interaction.isRepliable && interaction.isRepliable()) {
-      const payload = {
-        content: '❌ An error occurred while processing that interaction.',
-        ephemeral: true
-      };
+    const payload = {
+      content: '❌ An error occurred while processing that interaction.',
+      ephemeral: true
+    };
 
-      if (interaction.deferred || interaction.replied) {
-        await interaction.followUp(payload).catch(() => {});
+    try {
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(payload);
       } else {
-        await interaction.reply(payload).catch(() => {});
+        await interaction.reply(payload);
       }
-    }
+    } catch {}
   }
 });
 
 
 // ──────────────────────────────────────
-// Login + tiny web server (for uptime pings)
+// Login + web server
 // ──────────────────────────────────────
 client.login(process.env.DISCORD_TOKEN);
 
