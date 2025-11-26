@@ -1,5 +1,3 @@
-
-// interactions/autocomplete/locationAuto.cjs
 const availableLocations = [
   "Route 1","Route 2","Route 3","Route 4","Route 6","Route 7",
   "Route 8","Route 9","Route 10","Route 11","Route 12","Route 13",
@@ -10,8 +8,7 @@ const availableLocations = [
 ];
 
 module.exports = {
-  commands: ["setlocation", "report"],
-  options: ["location", "route"],
+  name: "location",     // 🔥 must match option name EXACTLY
 
   async run(interaction) {
     const focused = interaction.options.getFocused();
