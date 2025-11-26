@@ -1,6 +1,6 @@
 // handlers/autocompleteHandler.cjs
-const path = require("path");
 const fs = require("fs");
+const path = require("path");
 
 let autoModules = [];
 
@@ -10,35 +10,42 @@ if (fs.existsSync(autoDir)) {
   const files = fs.readdirSync(autoDir).filter(f => f.endsWith(".cjs"));
 
   for (const file of files) {
-    const mod = require(path.join(autoDir, file));
+    try {
+      const mod = require(path.join(autoDir, file));
 
-    const valid =
-      mod &&
-      typeof mod.execute === "function" &&
-      (mod.commandName || mod.commandName2);
+      // Must export: commandName + optionName + execute()
+      if (
+        !mod ||
+        !mod.commandName ||
+        !mod.optionName ||
+        typeof mod.execute !== "function"
+      ) {
+        console.warn(`⚠ Invalid autocomplete file skipped: ${file}`);
+        continue;
+      }
 
-    if (!valid) {
-      console.warn(`⚠ Invalid autocomplete file skipped: ${file}`);
-      continue;
+      autoModules.push(mod);
+      console.log(`🔎 Loaded autocomplete: ${mod.commandName}.${mod.optionName}`);
+    } catch (err) {
+      console.error(`❌ Failed to load ${file}:`, err);
     }
-
-    autoModules.push(mod);
-    console.log(`✅ Loaded autocomplete module: ${file}`);
   }
 }
 
-module.exports = async (client, interaction) => {
-  const name = interaction.commandName;
+module.exports = async function (interaction) {
+  const command = interaction.commandName;
+  const focused = interaction.options.getFocused(true); // { name, value }
+  const option = focused.name;
 
-  const handler = autoModules.find(mod =>
-    mod.commandName === name || mod.commandName2 === name
+  const handler = autoModules.find(
+    m => m.commandName === command && m.optionName === option
   );
 
   if (!handler) return;
 
   try {
-    await handler.execute(client, interaction);
+    await handler.execute(interaction);
   } catch (err) {
-    console.error(`❌ Autocomplete error (${name}):`, err);
+    console.error(`❌ Autocomplete error (${command}.${option}):`, err);
   }
 };
