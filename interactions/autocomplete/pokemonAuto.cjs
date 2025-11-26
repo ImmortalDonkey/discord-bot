@@ -24,8 +24,7 @@ const rarityGroups = {
 const allPokemon = Object.values(rarityGroups).flat();
 
 module.exports = {
-  commands: ["report", "bountyrequest"],
-  options: ["pokemon", "pokemon1", "pokemon2", "pokemon3"],
+  name: "pokemon",   // MUST match option name
 
   async run(interaction) {
     const focused = interaction.options.getFocused();
