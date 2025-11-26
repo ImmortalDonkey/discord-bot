@@ -6,12 +6,25 @@ const {
   ButtonStyle
 } = require('discord.js');
 
+// Import your rarity + time utilities
+const rarityGroups = require('../../utils/rarity.cjs');
+const {
+  getHighestRarityForList,
+  getRarityDisplayLabel
+} = require('../../utils/rarity.cjs');
+
+const {
+  clampHours,
+  parseHourFromStartTimeString,
+  getNextOccurrenceOfHour
+} = require('../../utils/timeUtils.cjs');
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('bountyrequest')
     .setDescription('Submit a new bounty request')
 
-    .addStringOption(o => 
+    .addStringOption(o =>
       o.setName('pokemon1')
         .setDescription('Main Pokémon')
         .setAutocomplete(true)
@@ -93,36 +106,16 @@ module.exports = {
         .setAutocomplete(true)
     ),
 
-  /**
-   * EXECUTE
-   *
-   * Provided by index.cjs:
-   * - pendingBounties
-   * - rarityGroups
-   * - rarityPriority
-   * - getHighestRarityForList
-   * - getRarityDisplayLabel
-   * - clampHours
-   * - parseHourFromStartTimeString
-   * - getNextOccurrenceOfHour
-   */
-  async execute(interaction, ctx) {
 
-    // ctx contains all shared objects FROM index.cjs
-    const {
-      pendingBounties,
-      rarityGroups,
-      rarityPriority,
-      getHighestRarityForList,
-      getRarityDisplayLabel,
-      clampHours,
-      parseHourFromStartTimeString,
-      getNextOccurrenceOfHour
-    } = ctx;
+  // NEW SIGNATURE: must be execute(client, interaction)
+  async execute(client, interaction) {
+
+    // 🔹 Extract client.pendingBounties from index.cjs
+    const pendingBounties = client.pendingBounties;
 
     const member = interaction.member;
 
-    // ROLE CHECK
+    // ROLE CHECK (unchanged logic)
     const bountyRoleId = process.env.ROLE_BOUNTY_HUNTER || null;
     let hasRole = false;
 
@@ -141,7 +134,9 @@ module.exports = {
       });
     }
 
-    // --- Extract ---
+    // ────────────────────────────────────────
+    // EXTRACT SLASH INPUTS
+    // ────────────────────────────────────────
     const p1 = interaction.options.getString('pokemon1');
     const p2 = interaction.options.getString('pokemon2');
     const p3 = interaction.options.getString('pokemon3');
@@ -152,6 +147,7 @@ module.exports = {
 
     const pokemons = [p1, p2, p3].filter(Boolean);
 
+    // Duration clamp
     const durationHours = clampHours(durationHoursRaw);
     const durationMs = durationHours * 3600000;
 
@@ -163,11 +159,15 @@ module.exports = {
       const hour = parseHourFromStartTimeString(startTimeStr);
       startTime = getNextOccurrenceOfHour(hour);
     }
+
     const endTime = new Date(startTime.getTime() + durationMs);
 
     const bountyId = `${Date.now()}_${interaction.user.id}`;
 
-    // Create bounty object
+
+    // ────────────────────────────────────────
+    // CREATE BOUNTY OBJECT
+    // ────────────────────────────────────────
     const bounty = {
       id: bountyId,
       requesterId: interaction.user.id,
@@ -184,7 +184,10 @@ module.exports = {
 
     pendingBounties.set(bountyId, bounty);
 
-    // GET REQUEST CHANNEL
+
+    // ────────────────────────────────────────
+    // SEND TO STAFF CHANNEL
+    // ────────────────────────────────────────
     const requestChannelId = process.env.BOUNTY_REQUEST_CHANNEL_ID;
     const requestChannel = requestChannelId
       ? await interaction.guild.channels.fetch(requestChannelId).catch(() => null)
@@ -217,6 +220,7 @@ module.exports = {
       startTimeStr === 'now'
         ? `<t:${startUnix}:F> (Starts on approval)`
         : `<t:${startUnix}:F>`;
+
 
     // EMBED
     const embed = new EmbedBuilder()
