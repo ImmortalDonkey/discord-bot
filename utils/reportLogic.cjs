@@ -4,9 +4,40 @@ const { getRarity } = require('./rarity.cjs');
 const { awardPoints } = require('./points.cjs');
 const { getRankName } = require('./rankSystem.cjs');
 
+// In-memory history of THIS HOUR’S reports
+// Key: pokemonName.toLowerCase()
+// Value: array of report objects { userId, pokemon, createdAt, ... }
+const reportHistory = new Map();
+
+/**
+ * Clean out previous hour's reports.
+ * Should run before any duplicate checking.
+ */
+function cleanupOldReports() {
+  const now = new Date();
+  const currentHour = now.getHours();
+
+  for (const [pokemon, reports] of reportHistory) {
+    const filtered = reports.filter(r => {
+      const t = r.createdAt;
+      return (
+        t.getHours() === currentHour &&
+        t.getDate() === now.getDate() &&
+        t.getMonth() === now.getMonth() &&
+        t.getFullYear() === now.getFullYear()
+      );
+    });
+
+    if (filtered.length === 0) {
+      reportHistory.delete(pokemon);
+    } else {
+      reportHistory.set(pokemon, filtered);
+    }
+  }
+}
+
 /**
  * Build a report object (pure logic).
- * Does NOT send Discord messages or files.
  */
 function buildReport({
   userId,
@@ -17,18 +48,16 @@ function buildReport({
 }) {
   const rarity = getRarity(pokemon);
 
-  // Calculate expiry: always end-of-hour
   const now = new Date();
   const expiry = new Date(now);
   expiry.setMinutes(59, 59, 999);
 
-  // Format "Available until: 12:00"
   const expiryLabel = expiry.toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit'
   });
 
-  return {
+  const report = {
     id: `${Date.now()}_${userId}`,
     userId,
     username,
@@ -36,15 +65,17 @@ function buildReport({
     pokemon,
     route,
     rarity,
-    pointsAwarded: 0,  // set AFTER awarding
+    pointsAwarded: 0,
+    createdAt: now,
     expiry,
-    expiryLabel,
-    createdAt: now
+    expiryLabel
   };
+
+  return report;
 }
 
 /**
- * Award points + fetch lifetime + rank
+ * Award base points & return lifetime + rank.
  */
 async function processReportPoints(userId, username, rarity) {
   const rarityPoints = {
@@ -75,28 +106,37 @@ async function processReportPoints(userId, username, rarity) {
 }
 
 /**
- * Detect duplicate reports within the same hour
+ * Check if this Pokémon was reported already this hour.
  */
-function isDuplicateReport(existingReports, pokemon) {
-  const now = new Date();
+function isDuplicateReport(pokemon) {
+  cleanupOldReports();
 
-  // same pokemon reported this hour?
-  return existingReports.some(r => {
-    const sameName = r.pokemon.toLowerCase() === pokemon.toLowerCase();
+  const key = pokemon.toLowerCase();
+  const history = reportHistory.get(key);
+  return history && history.length > 0;
+}
 
-    // same hour?
-    const sameHour =
-      r.createdAt.getHours() === now.getHours() &&
-      r.createdAt.getDate() === now.getDate() &&
-      r.createdAt.getMonth() === now.getMonth() &&
-      r.createdAt.getFullYear() === now.getFullYear();
-
-    return sameName && sameHour;
-  });
+/**
+ * Store report in hourly log.
+ */
+function storeReport(report) {
+  const key = report.pokemon.toLowerCase();
+  if (!reportHistory.has(key)) {
+    reportHistory.set(key, []);
+  }
+  reportHistory.get(key).push(report);
 }
 
 module.exports = {
+  // main logic functions
   buildReport,
   processReportPoints,
-  isDuplicateReport
+  isDuplicateReport,
+  storeReport,
+
+  // exposed for scheduled cleanup (optional)
+  cleanupOldReports,
+  
+  // exposed for debugging or analytics
+  reportHistory
 };
