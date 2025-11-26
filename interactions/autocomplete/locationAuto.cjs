@@ -1,4 +1,5 @@
 // interactions/autocomplete/locationAuto.cjs
+
 const availableLocations = [
   "Route 1","Route 2","Route 3","Route 4","Route 6","Route 7",
   "Route 8","Route 9","Route 10","Route 11","Route 12","Route 13",
@@ -9,16 +10,22 @@ const availableLocations = [
 ];
 
 module.exports = {
+  // BOTH commands that use location autocomplete
   commandName: "report",
-  optionName: "route",
+  commandName2: "setlocation",
 
-  async execute(interaction) {
-    const focused = interaction.options.getFocused();
+  // BOTH option names used for location
+  options: ["route", "location"],
+
+  async execute(client, interaction) {
+    const focused = interaction.options.getFocused() || "";
 
     const filtered = availableLocations
       .filter(loc => loc.toLowerCase().includes(focused.toLowerCase()))
       .slice(0, 25);
 
-    await interaction.respond(filtered.map(l => ({ name: l, value: l })));
+    return interaction.respond(
+      filtered.map(l => ({ name: l, value: l }))
+    );
   }
 };
