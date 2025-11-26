@@ -1,38 +1,43 @@
 // handlers/autocompleteHandler.cjs
-const path = require('path');
-const fs = require('fs');
+const fs = require("fs");
+const path = require("path");
 
-const autoModules = [];
+// Load all autocomplete modules
+const handlers = [];
+const folder = path.join(__dirname, "..", "interactions", "autocomplete");
 
-// NOTE: matches your structure: interactions/autocomplete/*.cjs
-const autoDir = path.join(__dirname, '..', 'interactions', 'autocomplete');
+for (const file of fs.readdirSync(folder)) {
+  if (!file.endsWith(".cjs")) continue;
 
-if (fs.existsSync(autoDir)) {
-  const files = fs.readdirSync(autoDir).filter(f => f.endsWith('.cjs'));
+  const mod = require(path.join(folder, file));
 
-  for (const file of files) {
-    const mod = require(path.join(autoDir, file));
-
-    // each module should export: { commandName, execute(client, interaction) }
-    if (mod && mod.commandName && typeof mod.execute === 'function') {
-      autoModules.push(mod);
-      console.log(`✅ Loaded autocomplete module for /${mod.commandName} (${file})`);
-    } else {
-      console.warn(`⚠ Skipping autocomplete file "${file}" – missing commandName/execute.`);
-    }
+  // Must export:  commands:[], options:[], run()
+  if (
+    mod &&
+    Array.isArray(mod.commands) &&
+    Array.isArray(mod.options) &&
+    typeof mod.run === "function"
+  ) {
+    handlers.push(mod);
+    console.log(`✅ Loaded autocomplete module: ${file}`);
+  } else {
+    console.warn(`⚠ Invalid autocomplete module skipped: ${file}`);
   }
-} else {
-  console.warn('⚠ No autocomplete directory found at', autoDir);
 }
 
-module.exports = async (client, interaction) => {
-  const name = interaction.commandName;
-  const mod = autoModules.find(m => m.commandName === name);
-  if (!mod) return;
+module.exports = async function handleAutocomplete(interaction) {
+  const command = interaction.commandName;
+  const focused = interaction.options.getFocused(true); // includes name + value
 
-  try {
-    await mod.execute(client, interaction);
-  } catch (err) {
-    console.error(`❌ Autocomplete error for "/${name}":`, err);
+  for (const h of handlers) {
+    if (h.commands.includes(command) && h.options.includes(focused.name)) {
+      return h.run(interaction);
+    }
   }
+
+  console.log(
+    "❌ No autocomplete match:",
+    "command =", command,
+    "option =", focused.name
+  );
 };
