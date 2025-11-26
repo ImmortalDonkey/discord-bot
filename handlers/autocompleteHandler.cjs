@@ -2,41 +2,43 @@
 const path = require("path");
 const fs = require("fs");
 
-const modules = [];
+let autoModules = [];
 
 const autoDir = path.join(__dirname, "..", "interactions", "autocomplete");
 
 if (fs.existsSync(autoDir)) {
-  for (const file of fs.readdirSync(autoDir).filter(f => f.endsWith(".cjs"))) {
+  const files = fs.readdirSync(autoDir).filter(f => f.endsWith(".cjs"));
+
+  for (const file of files) {
     const mod = require(path.join(autoDir, file));
 
-    if (!mod.commandName || !mod.optionName || typeof mod.execute !== "function") {
-      console.warn(`⚠ Invalid autocomplete module skipped: ${file}`);
+    const valid =
+      mod &&
+      typeof mod.execute === "function" &&
+      (mod.commandName || mod.commandName2);
+
+    if (!valid) {
+      console.warn(`⚠ Invalid autocomplete file skipped: ${file}`);
       continue;
     }
 
-    modules.push(mod);
+    autoModules.push(mod);
     console.log(`✅ Loaded autocomplete module: ${file}`);
   }
 }
 
-module.exports = async (interaction) => {
-  const cmd = interaction.commandName;
-  const opt = interaction.options.getFocused(true).name;
+module.exports = async (client, interaction) => {
+  const name = interaction.commandName;
 
-  const mod = modules.find(m =>
-    m.commandName === cmd &&
-    m.optionName === opt
+  const handler = autoModules.find(mod =>
+    mod.commandName === name || mod.commandName2 === name
   );
 
-  if (!mod) {
-    console.warn(`❌ No autocomplete match: command = ${cmd} option = ${opt}`);
-    return;
-  }
+  if (!handler) return;
 
   try {
-    await mod.execute(interaction);
+    await handler.execute(client, interaction);
   } catch (err) {
-    console.error(`❌ Autocomplete error in ${mod.commandName}/${mod.optionName}:`, err);
+    console.error(`❌ Autocomplete error (${name}):`, err);
   }
 };
