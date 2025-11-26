@@ -7,6 +7,20 @@ const {
   ButtonStyle
 } = require('discord.js');
 
+// Correct utils (names from your /utils folder)
+const {
+  rarityGroups,
+  rarityPriority,
+  getHighestRarityForList,
+  getRarityDisplayLabel
+} = require('../../utils/rarity.cjs');
+
+const {
+  clampHours,
+  parseHourFromStartTimeString,
+  getNextOccurrenceOfHour
+} = require('../../utils/timeUtils.cjs');
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('bountyrequest')
@@ -25,30 +39,10 @@ module.exports = {
         .setRequired(true)
         .addChoices(
           { name: 'Start Now', value: 'now' },
-          { name: '00:00', value: '00:00' },
-          { name: '01:00', value: '01:00' },
-          { name: '02:00', value: '02:00' },
-          { name: '03:00', value: '03:00' },
-          { name: '04:00', value: '04:00' },
-          { name: '05:00', value: '05:00' },
-          { name: '06:00', value: '06:00' },
-          { name: '07:00', value: '07:00' },
-          { name: '08:00', value: '08:00' },
-          { name: '09:00', value: '09:00' },
-          { name: '10:00', value: '10:00' },
-          { name: '11:00', value: '11:00' },
-          { name: '12:00', value: '12:00' },
-          { name: '13:00', value: '13:00' },
-          { name: '14:00', value: '14:00' },
-          { name: '15:00', value: '15:00' },
-          { name: '16:00', value: '16:00' },
-          { name: '17:00', value: '17:00' },
-          { name: '18:00', value: '18:00' },
-          { name: '19:00', value: '19:00' },
-          { name: '20:00', value: '20:00' },
-          { name: '21:00', value: '21:00' },
-          { name: '22:00', value: '22:00' },
-          { name: '23:00', value: '23:00' }
+          ...Array.from({ length: 24 }, (_, h) => ({
+            name: `${String(h).padStart(2, '0')}:00`,
+            value: `${String(h).padStart(2, '0')}:00`
+          }))
         )
     )
 
@@ -56,6 +50,18 @@ module.exports = {
       o.setName('duration')
         .setDescription('How long the bounty runs for')
         .setRequired(true)
+        .addChoices(
+          { name: '1 hour', value: 1 },
+          { name: '2 hours', value: 2 },
+          { name: '3 hours', value: 3 },
+          { name: '4 hours', value: 4 },
+          { name: '5 hours', value: 5 },
+          { name: '6 hours', value: 6 },
+          { name: '12 hours', value: 12 },
+          { name: '24 hours', value: 24 },
+          { name: '48 hours', value: 48 },
+          { name: '72 hours', value: 72 }
+        )
     )
 
     .addIntegerOption(o =>
@@ -82,26 +88,13 @@ module.exports = {
         .setAutocomplete(true)
     ),
 
-  // FIXED: ONLY receives (interaction)
-  async execute(interaction) {
-
-    const client = interaction.client;
-
-    // Pull shared objects
-    const {
-      pendingBounties,
-      rarityGroups,
-      rarityPriority,
-      getHighestRarityForList,
-      getRarityDisplayLabel,
-      clampHours,
-      parseHourFromStartTimeString,
-      getNextOccurrenceOfHour
-    } = client;
-
+  async execute(client, interaction) {
+    const pendingBounties = client.pendingBounties; // ONLY thing we require from client
     const member = interaction.member;
 
-    // Role check
+    // ───────────────────────────────
+    // ROLE CHECK
+    // ───────────────────────────────
     const bountyRoleId = process.env.ROLE_BOUNTY_HUNTER || null;
     let hasRole = false;
 
@@ -120,7 +113,9 @@ module.exports = {
       });
     }
 
-    // Inputs
+    // ───────────────────────────────
+    // Extract options
+    // ───────────────────────────────
     const p1 = interaction.options.getString('pokemon1');
     const p2 = interaction.options.getString('pokemon2');
     const p3 = interaction.options.getString('pokemon3');
@@ -134,7 +129,9 @@ module.exports = {
     const durationHours = clampHours(durationHoursRaw);
     const durationMs = durationHours * 3600000;
 
-    // Start time
+    // ───────────────────────────────
+    // START TIME
+    // ───────────────────────────────
     let startTime;
     if (startTimeStr === 'now') {
       startTime = new Date();
@@ -147,6 +144,9 @@ module.exports = {
 
     const bountyId = `${Date.now()}_${interaction.user.id}`;
 
+    // ───────────────────────────────
+    // STORE NEW BOUNTY
+    // ───────────────────────────────
     const bounty = {
       id: bountyId,
       requesterId: interaction.user.id,
@@ -163,9 +163,13 @@ module.exports = {
 
     pendingBounties.set(bountyId, bounty);
 
-    // Channel
+    // ───────────────────────────────
+    // CHANNEL RESOLUTION
+    // ───────────────────────────────
     const requestChannelId = process.env.BOUNTY_REQUEST_CHANNEL_ID;
-    const requestChannel = await interaction.guild.channels.fetch(requestChannelId).catch(() => null);
+    const requestChannel = requestChannelId
+      ? await interaction.guild.channels.fetch(requestChannelId).catch(() => null)
+      : null;
 
     if (!requestChannel) {
       return interaction.reply({
@@ -183,7 +187,7 @@ module.exports = {
       .map(id => `<@&${id}>`)
       .join(' ');
 
-    // Rarity display
+    // Rarity
     const rarity = getHighestRarityForList(pokemons);
     const rarityLabel = getRarityDisplayLabel(rarity);
 
@@ -196,7 +200,9 @@ module.exports = {
         ? `<t:${startUnix}:F> (Starts on approval)`
         : `<t:${startUnix}:F>`;
 
-    // Embed
+    // ───────────────────────────────
+    // EMBED
+    // ───────────────────────────────
     const embed = new EmbedBuilder()
       .setTitle('📝 New Bounty Request')
       .setDescription('A new bounty has been requested and is awaiting staff approval.')
@@ -212,7 +218,7 @@ module.exports = {
       )
       .setTimestamp();
 
-    const row = new ActionRowBuilder().addComponents(
+    const buttons = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`approvebounty_${bountyId}`)
         .setLabel('Approve')
@@ -226,7 +232,7 @@ module.exports = {
     await requestChannel.send({
       content: staffMention || '',
       embeds: [embed],
-      components: [row]
+      components: [buttons]
     });
 
     return interaction.reply({
