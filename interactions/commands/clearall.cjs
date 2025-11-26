@@ -1,14 +1,17 @@
 // interactions/commands/clearall.cjs
-const { PermissionFlagsBits } = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
-  name: "clearall",
+  data: new SlashCommandBuilder()
+    .setName('clearall')
+    .setDescription('Clear ALL player locations (Admin only)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(client, interaction) {
-    // Admin only
+    // Verify admin permissions
     if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
       return interaction.reply({
-        content: "❌ Admins only.",
+        content: '❌ Admins only.',
         ephemeral: true
       });
     }
@@ -16,6 +19,6 @@ module.exports = {
     const playerLocations = client.playerLocations;
     playerLocations.clear();
 
-    return interaction.reply("🧹 All locations cleared.");
+    return interaction.reply('🧹 All locations cleared.');
   }
 };
