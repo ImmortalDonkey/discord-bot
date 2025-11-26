@@ -3,27 +3,15 @@ const {
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle,
-  PermissionFlagsBits
+  ButtonStyle
 } = require('discord.js');
-
-const {
-  pendingBounties,
-  rarityGroups,
-  rarityPriority,
-  getHighestRarityForList,
-  getRarityDisplayLabel,
-  clampHours,
-  parseHourFromStartTimeString,
-  getNextOccurrenceOfHour
-} = require('../../core/bountyCore.cjs');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('bountyrequest')
     .setDescription('Submit a new bounty request')
 
-    .addStringOption(o =>
+    .addStringOption(o => 
       o.setName('pokemon1')
         .setDescription('Main Pokémon')
         .setAutocomplete(true)
@@ -105,10 +93,36 @@ module.exports = {
         .setAutocomplete(true)
     ),
 
-  async execute(interaction) {
+  /**
+   * EXECUTE
+   *
+   * Provided by index.cjs:
+   * - pendingBounties
+   * - rarityGroups
+   * - rarityPriority
+   * - getHighestRarityForList
+   * - getRarityDisplayLabel
+   * - clampHours
+   * - parseHourFromStartTimeString
+   * - getNextOccurrenceOfHour
+   */
+  async execute(interaction, ctx) {
+
+    // ctx contains all shared objects FROM index.cjs
+    const {
+      pendingBounties,
+      rarityGroups,
+      rarityPriority,
+      getHighestRarityForList,
+      getRarityDisplayLabel,
+      clampHours,
+      parseHourFromStartTimeString,
+      getNextOccurrenceOfHour
+    } = ctx;
+
     const member = interaction.member;
 
-    // --- ROLE CHECK (unchanged) ---
+    // ROLE CHECK
     const bountyRoleId = process.env.ROLE_BOUNTY_HUNTER || null;
     let hasRole = false;
 
@@ -127,7 +141,7 @@ module.exports = {
       });
     }
 
-    // --- Extract fields ---
+    // --- Extract ---
     const p1 = interaction.options.getString('pokemon1');
     const p2 = interaction.options.getString('pokemon2');
     const p3 = interaction.options.getString('pokemon3');
@@ -138,11 +152,10 @@ module.exports = {
 
     const pokemons = [p1, p2, p3].filter(Boolean);
 
-    // Clamp duration
     const durationHours = clampHours(durationHoursRaw);
-    const durationMs = durationHours * 60 * 60 * 1000;
+    const durationMs = durationHours * 3600000;
 
-    // --- Start & End time ---
+    // START TIME
     let startTime;
     if (startTimeStr === 'now') {
       startTime = new Date();
@@ -152,8 +165,9 @@ module.exports = {
     }
     const endTime = new Date(startTime.getTime() + durationMs);
 
-    // --- Create bounty object ---
     const bountyId = `${Date.now()}_${interaction.user.id}`;
+
+    // Create bounty object
     const bounty = {
       id: bountyId,
       requesterId: interaction.user.id,
@@ -170,7 +184,7 @@ module.exports = {
 
     pendingBounties.set(bountyId, bounty);
 
-    // --- Get request channel ---
+    // GET REQUEST CHANNEL
     const requestChannelId = process.env.BOUNTY_REQUEST_CHANNEL_ID;
     const requestChannel = requestChannelId
       ? await interaction.guild.channels.fetch(requestChannelId).catch(() => null)
@@ -178,12 +192,12 @@ module.exports = {
 
     if (!requestChannel) {
       return interaction.reply({
-        content: '❌ Bounty request channel not configured. Ask an admin to set BOUNTY_REQUEST_CHANNEL_ID.',
+        content: '❌ Bounty request channel not configured.',
         ephemeral: true
       });
     }
 
-    // --- Staff ping ---
+    // STAFF PING
     const staffRolesEnv = process.env.STAFF_ROLES || '';
     const staffMention = staffRolesEnv
       .split(',')
@@ -204,7 +218,7 @@ module.exports = {
         ? `<t:${startUnix}:F> (Starts on approval)`
         : `<t:${startUnix}:F>`;
 
-    // --- Build embed ---
+    // EMBED
     const embed = new EmbedBuilder()
       .setTitle('📝 New Bounty Request')
       .setDescription('A new bounty has been requested and is awaiting staff approval.')
@@ -220,13 +234,11 @@ module.exports = {
       )
       .setTimestamp();
 
-    // --- Buttons: Approve / Deny ---
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`approvebounty_${bountyId}`)
         .setLabel('Approve')
         .setStyle(ButtonStyle.Success),
-
       new ButtonBuilder()
         .setCustomId(`denybounty_${bountyId}`)
         .setLabel('Deny')
@@ -245,4 +257,3 @@ module.exports = {
     });
   }
 };
-
