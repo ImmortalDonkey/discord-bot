@@ -1,5 +1,4 @@
 // interactions/buttons/bountyButtons.cjs
-
 const {
   EmbedBuilder,
   ActionRowBuilder,
@@ -8,14 +7,16 @@ const {
 } = require("discord.js");
 
 module.exports = {
-  idPrefix: ["approvebounty_", "denybounty_"],  // <── FIX: multiple prefixes supported
+  // REQUIRED BY YOUR LOADER:
+  // All button prefixes go here ⬇️
+  ids: ["approvebounty_", "denybounty_", "claimbounty_"],
 
   async execute(client, interaction) {
     const id = interaction.customId;
 
-    // ────────────────────────────────
-    // APPROVE
-    // ────────────────────────────────
+    // ─────────────────────────────
+    // APPROVE BOUNTY
+    // ─────────────────────────────
     if (id.startsWith("approvebounty_")) {
       const bountyId = id.replace("approvebounty_", "");
       const bounty = client.pendingBounties.get(bountyId);
@@ -34,11 +35,12 @@ module.exports = {
 
       if (!channel) {
         return interaction.reply({
-          content: "❌ Cannot find the configured bounty channel.",
+          content: "❌ Bounty channel not found.",
           ephemeral: true
         });
       }
 
+      // Move from pending → active
       client.pendingBounties.delete(bountyId);
       client.activeBounties.set(bountyId, bounty);
 
@@ -50,40 +52,20 @@ module.exports = {
         .setColor("Green")
         .setDescription("A bounty has been approved and is now live!")
         .addFields(
-          {
-            name: "Requester",
-            value: `<@${bounty.requesterId}>`,
-            inline: true
-          },
-          {
-            name: "Reward",
-            value: `${bounty.reward.toLocaleString()} PKD`,
-            inline: true
-          },
+          { name: "Requester", value: `<@${bounty.requesterId}>`, inline: true },
+          { name: "Reward", value: `${bounty.reward.toLocaleString()} PKD`, inline: true },
           {
             name: "Targets",
             value: bounty.pokemons.map(p => `• ${p}`).join("\n"),
             inline: false
           },
-          {
-            name: "Start",
-            value: `<t:${startUnix}:F>`,
-            inline: true
-          },
-          {
-            name: "End",
-            value: `<t:${endUnix}:F>`,
-            inline: true
-          },
-          {
-            name: "Notes",
-            value: bounty.notes,
-            inline: false
-          }
+          { name: "Start", value: `<t:${startUnix}:F>`, inline: true },
+          { name: "End", value: `<t:${endUnix}:F>`, inline: true },
+          { name: "Notes", value: bounty.notes, inline: false }
         )
         .setTimestamp();
 
-      const claimButton = new ActionRowBuilder().addComponents(
+      const claimBtn = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`claimbounty_${bountyId}`)
           .setLabel("Claim Bounty")
@@ -92,18 +74,18 @@ module.exports = {
 
       await channel.send({
         embeds: [embed],
-        components: [claimButton]
+        components: [claimBtn]
       });
 
       return interaction.reply({
-        content: "✅ Bounty approved and posted.",
+        content: "✅ Bounty approved and posted!",
         ephemeral: true
       });
     }
 
-    // ────────────────────────────────
-    // DENY
-    // ────────────────────────────────
+    // ─────────────────────────────
+    // DENY BOUNTY
+    // ─────────────────────────────
     if (id.startsWith("denybounty_")) {
       const bountyId = id.replace("denybounty_", "");
       const bounty = client.pendingBounties.get(bountyId);
@@ -119,16 +101,34 @@ module.exports = {
 
       // DM requester
       try {
-        const u = await client.users.fetch(bounty.requesterId);
-        await u.send(
-          `❌ Your bounty request for **${bounty.pokemons.join(
-            ", "
-          )}** was denied by staff.`
+        const usr = await client.users.fetch(bounty.requesterId);
+        usr.send(
+          `❌ Your bounty request for **${bounty.pokemons.join(", ")}** was denied by staff.`
         );
       } catch {}
 
       return interaction.reply({
         content: "🚫 Bounty denied.",
+        ephemeral: true
+      });
+    }
+
+    // ─────────────────────────────
+    // CLAIM BOUNTY (PLACEHOLDER)
+    // ─────────────────────────────
+    if (id.startsWith("claimbounty_")) {
+      const bountyId = id.replace("claimbounty_", "");
+      const bounty = client.activeBounties.get(bountyId);
+
+      if (!bounty) {
+        return interaction.reply({
+          content: "❌ This bounty is not active.",
+          ephemeral: true
+        });
+      }
+
+      return interaction.reply({
+        content: "📨 Claim submitted! (Claim system coming next.)",
         ephemeral: true
       });
     }
