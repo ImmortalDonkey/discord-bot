@@ -1,10 +1,13 @@
 // interactions/commands/cancelreport.cjs
+const { SlashCommandBuilder } = require('discord.js');
 
 module.exports = {
-  name: 'cancelreport',
+  data: new SlashCommandBuilder()
+    .setName('cancelreport')
+    .setDescription('Cancel your pending roaming Pokémon report'),
 
   async execute(client, interaction) {
-    // Ensure pendingReports map exists
+    // Ensure the map exists
     if (!client.pendingReports) {
       client.pendingReports = new Map();
     }
@@ -12,21 +15,18 @@ module.exports = {
     const pendingReports = client.pendingReports;
     const userId = interaction.user.id;
 
-    const entry = pendingReports.get(userId);
-
-    // Nothing to cancel
-    if (!entry) {
+    if (!pendingReports.has(userId)) {
       return interaction.reply({
-        content: '❌ You have no active report to cancel.',
+        content: '❌ You have **no report** to cancel.',
         ephemeral: true
       });
     }
 
-    // Remove the pending report
+    // Remove the user's pending report
     pendingReports.delete(userId);
 
     return interaction.reply({
-      content: `🛑 Your report for **${entry.pokemon}** on **${entry.route}** has been cancelled.`,
+      content: '🛑 Your report has been cancelled.',
       ephemeral: true
     });
   }
