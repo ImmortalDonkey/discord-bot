@@ -1,42 +1,59 @@
-// handlers/autocompleteHandler.cjs
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
 
-let modules = [];
+const autoModules = [];
 
+// Folder: interactions/autocomplete/
 const autoDir = path.join(__dirname, '..', 'interactions', 'autocomplete');
 
 if (fs.existsSync(autoDir)) {
   const files = fs.readdirSync(autoDir).filter(f => f.endsWith('.cjs'));
 
-  for (const f of files) {
-    const mod = require(path.join(autoDir, f));
+  for (const file of files) {
+    const mod = require(path.join(autoDir, file));
 
-    if (mod && Array.isArray(mod.commands) && typeof mod.run === 'function') {
-      modules.push(mod);
-      console.log(`✅ Loaded autocomplete module: ${f}`);
+    // EXPECTED:
+    // commands: ["report"]
+    // options: ["pokemon"]
+    // run(interaction)
+
+    if (
+      mod &&
+      Array.isArray(mod.commands) &&
+      Array.isArray(mod.options) &&
+      typeof mod.run === "function"
+    ) {
+      autoModules.push(mod);
+      console.log(`✅ Loaded autocomplete: ${file}`);
     } else {
-      console.log(`⚠ Skipped autocomplete file: ${f}`);
+      console.warn(`⚠ Invalid autocomplete file skipped: ${file}`);
     }
   }
 } else {
-  console.warn(`⚠ Autocomplete folder missing: ${autoDir}`);
+  console.warn('⚠ autocomplete directory missing:', autoDir);
 }
 
-module.exports = async function handleAutocomplete(interaction) {
+module.exports = async (client, interaction) => {
   const cmd = interaction.commandName;
-  const focusedName = interaction.options.getFocused(true).name;
+  const focused = interaction.options.getFocused(true);
+  const option = focused?.name;
 
-  for (const mod of modules) {
-    if (mod.commands.includes(cmd) && mod.options.includes(focusedName)) {
-      try {
-        return await mod.run(interaction);
-      } catch (err) {
-        console.error(`❌ Error in autocomplete module (${cmd}/${focusedName}):`, err);
-        return interaction.respond([]);
-      }
-    }
+  // Debug log
+  // console.log("Autocomplete event:", { cmd, option });
+
+  // Look for a matching module
+  const mod = autoModules.find(m =>
+    m.commands.includes(cmd) && m.options.includes(option)
+  );
+
+  if (!mod) {
+    console.warn(`❌ No autocomplete match: command=${cmd} option=${option}`);
+    return;
   }
 
-  return interaction.respond([]);
+  try {
+    await mod.run(interaction);
+  } catch (err) {
+    console.error(`❌ Autocomplete error in ${cmd}/${option}:`, err);
+  }
 };
