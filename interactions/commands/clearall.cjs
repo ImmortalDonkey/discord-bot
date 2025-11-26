@@ -19,4 +19,3 @@ module.exports = {
     return interaction.reply("🧹 All locations cleared.");
   }
 };
-
