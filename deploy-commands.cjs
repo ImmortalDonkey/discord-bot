@@ -186,7 +186,17 @@ const commands = [
         .setDescription('Optional third Pokémon')
         .setAutocomplete(true)
         .setRequired(false)
-    )
+    ),
+
+  // 🆕 NEW: /activebounties
+  new SlashCommandBuilder()
+    .setName('activebounties')
+    .setDescription('View all currently active bounties'),
+
+  // 🆕 NEW: /activeroutes
+  new SlashCommandBuilder()
+    .setName('activeroutes')
+    .setDescription('View all routes with active sightings')
 ]
 .map(command => command.toJSON());
 
