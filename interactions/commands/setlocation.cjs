@@ -7,7 +7,7 @@ module.exports = {
     const loc = interaction.options.getString("location");
     const user = interaction.user;
 
-    // Shared global or client-attached map
+    // Shared global map
     const playerLocations = client.playerLocations;
 
     playerLocations.set(user.id, {
@@ -22,8 +22,8 @@ module.exports = {
           .setColor("Green")
           .setTitle("📍 Location Updated")
           .setDescription(`Your location is now **${loc}**`)
-      ]
+      ],
+      ephemeral: true   // <-- restored privacy
     });
   }
 };
-
