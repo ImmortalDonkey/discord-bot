@@ -1,17 +1,8 @@
 // utils/reportLimiter.cjs
 
-/**
- * Tracks reports within each calendar hour.
- * 
- * Structure:
- *   lastReports = {
- *      "<pokemon name lowercase>": "2025-11-26-14"   // HH block
- *   }
- */
 const lastReports = new Map();
 
 /**
- * Get the current calendar hour block string.
  * Example: "2025-11-26-14"
  */
 function getHourBlock(date = new Date()) {
@@ -31,13 +22,12 @@ function getHourBlock(date = new Date()) {
  *   { allowed: false, nextResetUnix, nextResetLabel }
  */
 function checkReportAllowed(pokemonName, reportTime = new Date()) {
-  const key = pokemonName.toLowerCase();
+  const key = (pokemonName || '').toLowerCase();
   const block = getHourBlock(reportTime);
 
   const lastBlock = lastReports.get(key);
 
   if (lastBlock && lastBlock === block) {
-    // Already reported this hour → return info about when reset happens
     const reset = new Date(reportTime);
     reset.setMinutes(60, 0, 0); // next :00
     const nextResetUnix = Math.floor(reset.getTime() / 1000);
@@ -49,9 +39,7 @@ function checkReportAllowed(pokemonName, reportTime = new Date()) {
     };
   }
 
-  // Allowed. Update lock.
   lastReports.set(key, block);
-
   return { allowed: true };
 }
 
