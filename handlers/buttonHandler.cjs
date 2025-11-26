@@ -4,36 +4,75 @@ const fs = require('fs');
 
 const buttonHandlers = [];
 
-// Load every file in interactions/buttons
-const buttonsDir = path.join(__dirname, '..', 'interactions', 'buttons');
-const files = fs.readdirSync(buttonsDir).filter(f => f.endsWith('.cjs'));
+/**
+ * Load all button handlers from interactions/buttons.
+ * Each module should export:
+ *   - ids: array of strings (exact IDs or prefixes like "approvebounty_")
+ *   - execute(client, interaction)
+ */
+function initButtonHandlers(client) {
+  const buttonsDir = path.join(__dirname, '..', 'interactions', 'buttons');
 
-for (const file of files) {
-  const handler = require(path.join(buttonsDir, file));
-  if (handler && handler.ids && handler.execute) {
-    buttonHandlers.push(handler);
-  } else {
-    console.warn(`⚠ Invalid button handler: ${file}`);
+  if (!fs.existsSync(buttonsDir)) {
+    console.warn('⚠ No buttons directory found at', buttonsDir);
+    return;
+  }
+
+  const files = fs.readdirSync(buttonsDir).filter(f => f.endsWith('.cjs'));
+
+  for (const file of files) {
+    const fullPath = path.join(buttonsDir, file);
+    try {
+      const mod = require(fullPath);
+      if (!mod || !Array.isArray(mod.ids) || typeof mod.execute !== 'function') {
+        console.warn(`⚠ Skipping button file "${file}" – missing ids[] or execute().`);
+        continue;
+      }
+
+      buttonHandlers.push(mod);
+      console.log(`✅ Loaded button handler from ${file}`);
+    } catch (err) {
+      console.error(`❌ Error loading button file "${file}":`, err);
+    }
   }
 }
 
-module.exports = async (client, interaction) => {
+/**
+ * Route button presses to the correct module.
+ * Supports:
+ *   - exact match: id === customId
+ *   - prefix match: id + "*" pattern (we treat any id ending with "_" as prefix)
+ */
+async function handleButtonInteraction(client, interaction) {
   const id = interaction.customId;
 
-  for (const handler of buttonHandlers) {
-    if (handler.ids.some(prefix => id.startsWith(prefix))) {
-      try {
-        return await handler.execute(client, interaction);
-      } catch (err) {
-        console.error(`❌ Button Error (${id}):`, err);
-        return interaction.reply({
-          content: '❌ Button error.',
-          ephemeral: true
-        });
-      }
-    }
+  // try exact match first, then prefix match
+  const handler = buttonHandlers.find(mod =>
+    mod.ids.some(btnId =>
+      id === btnId || id.startsWith(btnId)
+    )
+  );
+
+  if (!handler) {
+    console.warn(`⚠ No button handler for "${id}".`);
+    return;
   }
 
-  return interaction.reply({ content: '❌ Unknown button.', ephemeral: true });
-};
+  try {
+    await handler.execute(client, interaction);
+  } catch (err) {
+    console.error(`❌ Button handler error (${id}):`, err);
 
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.reply({
+        content: '❌ Error while processing this button.',
+        ephemeral: true
+      }).catch(() => {});
+    }
+  }
+}
+
+module.exports = {
+  initButtonHandlers,
+  handleButtonInteraction
+};
