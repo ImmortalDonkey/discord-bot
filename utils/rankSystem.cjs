@@ -1,6 +1,5 @@
 // utils/rankSystem.cjs
 
-// Rank tiers based on lifetime points
 const RANKS = [
   { name: 'Rookie Trainer', min: 0 },
   { name: 'Trainer', min: 50 },
@@ -12,9 +11,6 @@ const RANKS = [
   { name: 'Master', min: 10000 }
 ];
 
-/**
- * Get rank name based on lifetime points.
- */
 function getRankName(lifetime) {
   let rank = RANKS[0].name;
   for (const r of RANKS) {
@@ -23,8 +19,4 @@ function getRankName(lifetime) {
   return rank;
 }
 
-module.exports = {
-  RANKS,
-  getRankName
-};
-
+module.exports = { RANKS, getRankName };
