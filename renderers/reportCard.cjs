@@ -20,7 +20,7 @@ try {
 const CARDS_DIR = path.join(__dirname, 'cards');
 if (!fs.existsSync(CARDS_DIR)) fs.mkdirSync(CARDS_DIR, { recursive: true });
 
-const SPRITES_DIR = path.join(__dirname, 'sprites');
+const SPRITES_DIR = path.join(process.cwd(), 'sprites');
 
 // Background gradients per rarity
 const rarityGradients = {
