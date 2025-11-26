@@ -1,34 +1,36 @@
 // interactions/commands/claim.cjs
 const {
+  SlashCommandBuilder,
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle,
+  ButtonStyle
 } = require('discord.js');
 
 const db = require('../../database.cjs');
 const { getRankName } = require('../../utils/rankSystem.cjs');
 
 module.exports = {
-  name: "claim",
+  data: new SlashCommandBuilder()
+    .setName('claim')
+    .setDescription('Convert your points into PKD (opens a staff review thread)')
+    .addIntegerOption(option =>
+      option.setName('points')
+        .setDescription('How many points you want to claim')
+        .setRequired(true)
+    ),
 
   async execute(client, interaction) {
     const user = interaction.user;
-    const pointsRequested = interaction.options.getInteger("points");
+    const pointsRequested = interaction.options.getInteger('points');
 
-    // Ensure state map exists
-    if (!client.bountyClaims) client.bountyClaims = new Map();
-
-    // Fetch user balance
+    // Get current points from DB
     const row = await db.getUserById(user.id);
     const currentPoints = row?.points || 0;
-    const lifetime = row?.lifetime_points || 0;
-    const rankName = getRankName(lifetime);
 
-    // Validation
     if (pointsRequested <= 0) {
       return interaction.reply({
-        content: "❌ Points must be greater than zero.",
+        content: '❌ Points must be greater than zero.',
         ephemeral: true
       });
     }
@@ -40,75 +42,70 @@ module.exports = {
       });
     }
 
-    // PKD conversion
-    const pkdValue = pointsRequested * 200_000;
+    const pkdValue = pointsRequested * 200000;
+    const lifetime = row?.lifetime_points || 0;
+    const rankName = getRankName(lifetime);
 
-    // Claims forum
+    // Get claims forum
     const forumId = process.env.CLAIMS_FORUM_CHANNEL_ID;
-    const forum = await interaction.guild.channels.fetch(forumId).catch(() => null);
+    const forum = forumId
+      ? await interaction.guild.channels.fetch(forumId).catch(() => null)
+      : null;
 
     if (!forum) {
       return interaction.reply({
-        content: "❌ Claims forum channel not found. Check `CLAIMS_FORUM_CHANNEL_ID`.",
+        content: '❌ Claims forum channel not found. Ask an admin to check `CLAIMS_FORUM_CHANNEL_ID`.',
         ephemeral: true
       });
     }
+
+    // Staff mention from env (like elsewhere)
+    const staffRolesEnv = process.env.STAFF_ROLES || '';
+    const staffMention = staffRolesEnv
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(id => `<@&${id}>`)
+      .join(' ');
 
     // Create forum thread
     const thread = await forum.threads.create({
       name: `Claim • ${user.username} • ${pointsRequested} pts`,
       message: {
-        content: `📨 New claim request from <@${user.id}>`
+        content: `${staffMention} New claim request from <@${user.id}>`,
       }
     });
 
-    // Store claim in memory
-    client.bountyClaims.set(thread.id, {
-      userId: user.id,
-      points: pointsRequested,
-      pkd: pkdValue,
-      status: "pending",
-      createdAt: Date.now()
-    });
-
-    // Embed
+    // Build claim embed
     const embed = new EmbedBuilder()
       .setColor('Gold')
-      .setTitle(`Point Claim Request`)
-      .setThumbnail(user.displayAvatarURL({ dynamic: true }))
+      .setTitle('💱 Point Claim Request')
       .addFields(
-        { name: "User", value: `<@${user.id}>`, inline: true },
-        { name: "Rank", value: rankName, inline: true },
-        { name: "Points Requested", value: `${pointsRequested}`, inline: true },
-        { name: "PKD Value", value: `${pkdValue.toLocaleString()} pkd`, inline: true }
+        { name: 'User', value: `<@${user.id}>`, inline: true },
+        { name: 'Rank', value: rankName, inline: true },
+        { name: 'Points Requested', value: String(pointsRequested), inline: true },
+        { name: 'PKD Value', value: `${pkdValue.toLocaleString()} pkd`, inline: true },
+        { name: 'Current Points', value: String(currentPoints), inline: true }
       )
       .setTimestamp();
 
-    // Buttons
+    // Buttons (match existing button handler logic)
     const rowButtons = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`claim_approve_${thread.id}`)
-        .setLabel("Approve")
+        .setCustomId(`claim_approve_${user.id}_${pointsRequested}`)
+        .setLabel('Approve')
         .setStyle(ButtonStyle.Success),
 
       new ButtonBuilder()
-        .setCustomId(`claim_deny_${thread.id}`)
-        .setLabel("Deny")
+        .setCustomId(`claim_deny_${user.id}`)
+        .setLabel('Deny')
         .setStyle(ButtonStyle.Danger)
     );
 
-    await thread.send({
-      embeds: [embed],
-      components: [rowButtons]
-    });
-
-    // DM the user
-    user.send({
-      content: `🧾 Your claim request for **${pointsRequested} points** (${pkdValue.toLocaleString()} pkd) has been submitted.\n\nYou’ll be notified when it is approved or denied.`
-    }).catch(() => {});
+    await thread.send({ embeds: [embed], components: [rowButtons] });
 
     return interaction.reply({
-      content: `🧾 Your claim request has been submitted.\nThread: <#${thread.id}>`,
+      content: `🧾 Your claim request has been submitted: <#${thread.id}>`,
       ephemeral: true
     });
   }
