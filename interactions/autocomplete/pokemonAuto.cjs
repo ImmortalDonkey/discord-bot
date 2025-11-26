@@ -24,17 +24,16 @@ const rarityGroups = {
 const allPokemon = Object.values(rarityGroups).flat();
 
 module.exports = {
-  name: "pokemon",   // MUST match option name
+  commandName: "report",
+  optionName: "pokemon",
 
-  async run(interaction) {
+  async execute(interaction) {
     const focused = interaction.options.getFocused();
 
     const filtered = allPokemon
       .filter(p => p.toLowerCase().includes(focused.toLowerCase()))
       .slice(0, 25);
 
-    return interaction.respond(
-      filtered.map(p => ({ name: p, value: p }))
-    );
+    await interaction.respond(filtered.map(p => ({ name: p, value: p })));
   }
 };
