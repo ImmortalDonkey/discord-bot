@@ -13,19 +13,17 @@ if (fs.existsSync(autoDir)) {
     try {
       const mod = require(path.join(autoDir, file));
 
-      // Must export: commandName + optionName + execute()
-      if (
-        !mod ||
-        !mod.commandName ||
-        !mod.optionName ||
-        typeof mod.execute !== "function"
-      ) {
-        console.warn(`⚠ Invalid autocomplete file skipped: ${file}`);
-        continue;
-      }
+      const modules = Array.isArray(mod) ? mod : [mod];
 
-      autoModules.push(mod);
-      console.log(`🔎 Loaded autocomplete: ${mod.commandName}.${mod.optionName}`);
+      modules.forEach(m => {
+        if (m.commandName && m.optionName && typeof m.execute === "function") {
+          autoModules.push(m);
+          console.log(`🔎 Loaded autocomplete: ${m.commandName}.${m.optionName}`);
+        } else {
+          console.warn(`⚠ Invalid autocomplete file skipped: ${file}`);
+        }
+      });
+
     } catch (err) {
       console.error(`❌ Failed to load ${file}:`, err);
     }
@@ -34,7 +32,7 @@ if (fs.existsSync(autoDir)) {
 
 module.exports = async function (interaction) {
   const command = interaction.commandName;
-  const focused = interaction.options.getFocused(true); // { name, value }
+  const focused = interaction.options.getFocused(true);
   const option = focused.name;
 
   const handler = autoModules.find(
