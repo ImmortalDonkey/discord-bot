@@ -22,11 +22,11 @@ module.exports = {
           .setColor("Orange")
           .setTitle(`📍 ${target.username}’s Location`)
           .addFields(
-            { name: "Location", value: data.location },
-            { name: "Updated", value: data.timestamp.toLocaleString() }
+            { name: "Location", value: data.location, inline: true },
+            { name: "Updated", value: data.timestamp.toLocaleString(), inline: true }
           )
-      ]
+      ],
+      ephemeral: true   // 🔒 Always keep location lookup private
     });
   }
 };
-
