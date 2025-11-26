@@ -4,35 +4,63 @@ const fs = require('fs');
 
 const modalHandlers = [];
 
-const modalsDir = path.join(__dirname, '..', 'interactions', 'modals');
-const files = fs.readdirSync(modalsDir).filter(f => f.endsWith('.cjs'));
+/**
+ * Load all modal handlers from interactions/modals.
+ * Each should export:
+ *   - idPrefix: string (e.g. "bountyclaim_")
+ *   - execute(client, interaction)
+ */
+function initModalHandlers(client) {
+  const modalsDir = path.join(__dirname, '..', 'interactions', 'modals');
 
-for (const file of files) {
-  const handler = require(path.join(modalsDir, file));
-  if (handler && handler.idPrefix && handler.execute) {
-    modalHandlers.push(handler);
-  } else {
-    console.warn(`⚠ Invalid modal handler: ${file}`);
+  if (!fs.existsSync(modalsDir)) {
+    console.warn('⚠ No modals directory found at', modalsDir);
+    return;
+  }
+
+  const files = fs.readdirSync(modalsDir).filter(f => f.endsWith('.cjs'));
+
+  for (const file of files) {
+    const fullPath = path.join(modalsDir, file);
+    try {
+      const mod = require(fullPath);
+      if (!mod || !mod.idPrefix || typeof mod.execute !== 'function') {
+        console.warn(`⚠ Skipping modal file "${file}" – missing idPrefix or execute().`);
+        continue;
+      }
+
+      modalHandlers.push(mod);
+      console.log(`✅ Loaded modal handler from ${file}`);
+    } catch (err) {
+      console.error(`❌ Error loading modal file "${file}":`, err);
+    }
   }
 }
 
-module.exports = async (client, interaction) => {
+async function handleModalInteraction(client, interaction) {
   const id = interaction.customId;
+  const handler = modalHandlers.find(m => id.startsWith(m.idPrefix));
 
-  for (const handler of modalHandlers) {
-    if (id.startsWith(handler.idPrefix)) {
-      try {
-        return await handler.execute(client, interaction);
-      } catch (err) {
-        console.error(`❌ Modal Error (${id}):`, err);
-        return interaction.reply({
-          content: '❌ Modal error.',
-          ephemeral: true
-        });
-      }
-    }
+  if (!handler) {
+    console.warn(`⚠ No modal handler for "${id}".`);
+    return;
   }
 
-  return interaction.reply({ content: '❌ Unknown modal.', ephemeral: true });
-};
+  try {
+    await handler.execute(client, interaction);
+  } catch (err) {
+    console.error(`❌ Modal handler error (${id}):`, err);
 
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.reply({
+        content: '❌ Error while processing this form.',
+        ephemeral: true
+      }).catch(() => {});
+    }
+  }
+}
+
+module.exports = {
+  initModalHandlers,
+  handleModalInteraction
+};
