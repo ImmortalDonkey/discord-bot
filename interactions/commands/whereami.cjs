@@ -22,11 +22,11 @@ module.exports = {
           .setColor("Blue")
           .setTitle("📍 Your Location")
           .addFields(
-            { name: "Location", value: data.location },
-            { name: "Updated", value: data.timestamp.toLocaleString() }
+            { name: "Location", value: data.location, inline: true },
+            { name: "Updated", value: data.timestamp.toLocaleString(), inline: true }
           )
-      ]
+      ],
+      ephemeral: true   // 🔒 Make output private — same as legacy bot
     });
   }
 };
-
