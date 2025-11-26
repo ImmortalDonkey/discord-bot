@@ -1,3 +1,4 @@
+// interactions/commands/bountyrequest.cjs
 const {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -5,19 +6,6 @@ const {
   ButtonBuilder,
   ButtonStyle
 } = require('discord.js');
-
-// Import your rarity + time utilities
-const rarityGroups = require('../../utils/rarity.cjs');
-const {
-  getHighestRarityForList,
-  getRarityDisplayLabel
-} = require('../../utils/rarity.cjs');
-
-const {
-  clampHours,
-  parseHourFromStartTimeString,
-  getNextOccurrenceOfHour
-} = require('../../utils/timeUtils.cjs');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -106,16 +94,25 @@ module.exports = {
         .setAutocomplete(true)
     ),
 
-
-  // NEW SIGNATURE: must be execute(client, interaction)
   async execute(client, interaction) {
 
-    // 🔹 Extract client.pendingBounties from index.cjs
-    const pendingBounties = client.pendingBounties;
+    // Pull shared objects from client
+    const {
+      pendingBounties,
+      rarityGroups,
+      rarityPriority,
+      getHighestRarityForList,
+      getRarityDisplayLabel,
+      clampHours,
+      parseHourFromStartTimeString,
+      getNextOccurrenceOfHour
+    } = client;
 
     const member = interaction.member;
 
-    // ROLE CHECK (unchanged logic)
+    // ───────────────────────────────
+    // ROLE CHECK
+    // ───────────────────────────────
     const bountyRoleId = process.env.ROLE_BOUNTY_HUNTER || null;
     let hasRole = false;
 
@@ -134,9 +131,9 @@ module.exports = {
       });
     }
 
-    // ────────────────────────────────────────
-    // EXTRACT SLASH INPUTS
-    // ────────────────────────────────────────
+    // ───────────────────────────────
+    // Extract inputs
+    // ───────────────────────────────
     const p1 = interaction.options.getString('pokemon1');
     const p2 = interaction.options.getString('pokemon2');
     const p3 = interaction.options.getString('pokemon3');
@@ -147,11 +144,12 @@ module.exports = {
 
     const pokemons = [p1, p2, p3].filter(Boolean);
 
-    // Duration clamp
     const durationHours = clampHours(durationHoursRaw);
     const durationMs = durationHours * 3600000;
 
+    // ───────────────────────────────
     // START TIME
+    // ───────────────────────────────
     let startTime;
     if (startTimeStr === 'now') {
       startTime = new Date();
@@ -164,10 +162,9 @@ module.exports = {
 
     const bountyId = `${Date.now()}_${interaction.user.id}`;
 
-
-    // ────────────────────────────────────────
-    // CREATE BOUNTY OBJECT
-    // ────────────────────────────────────────
+    // ───────────────────────────────
+    // Store bounty in memory
+    // ───────────────────────────────
     const bounty = {
       id: bountyId,
       requesterId: interaction.user.id,
@@ -184,10 +181,9 @@ module.exports = {
 
     pendingBounties.set(bountyId, bounty);
 
-
-    // ────────────────────────────────────────
-    // SEND TO STAFF CHANNEL
-    // ────────────────────────────────────────
+    // ───────────────────────────────
+    // CHANNEL RESOLUTION
+    // ───────────────────────────────
     const requestChannelId = process.env.BOUNTY_REQUEST_CHANNEL_ID;
     const requestChannel = requestChannelId
       ? await interaction.guild.channels.fetch(requestChannelId).catch(() => null)
@@ -209,6 +205,7 @@ module.exports = {
       .map(id => `<@&${id}>`)
       .join(' ');
 
+    // Rarity
     const rarity = getHighestRarityForList(pokemons);
     const rarityLabel = getRarityDisplayLabel(rarity);
 
@@ -221,8 +218,9 @@ module.exports = {
         ? `<t:${startUnix}:F> (Starts on approval)`
         : `<t:${startUnix}:F>`;
 
-
+    // ───────────────────────────────
     // EMBED
+    // ───────────────────────────────
     const embed = new EmbedBuilder()
       .setTitle('📝 New Bounty Request')
       .setDescription('A new bounty has been requested and is awaiting staff approval.')
