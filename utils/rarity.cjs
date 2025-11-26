@@ -1,6 +1,6 @@
 // utils/rarity.cjs
 
-// Rarity groups
+// Rarity groups (from your working index.cjs)
 const rarityGroups = {
   roamerMonth: [
     "Clone Venusaur", "Clone Charizard", "Clone Blastoise",
@@ -19,24 +19,14 @@ const rarityGroups = {
     "Glastrier", "Spectrier",
     "Koraidon", "Miraidon"
   ],
-  rare: [
-    "Cyclizar", "Gimmighoul (Roaming)"
-  ],
-  common: [
-    "Zygarde (Cell)", "Bramblin", "Bombirdier", "Varoom"
-  ]
+  rare: ["Cyclizar", "Gimmighoul (Roaming)"],
+  common: ["Zygarde (Cell)", "Bramblin", "Bombirdier", "Varoom"]
 };
 
-// Rarity priority (higher first in the array)
-const rarityPriority = [
-  'paradox',
-  'roamerMonth',
-  'legendary',
-  'rare',
-  'common'
-];
+// Rarity priority (highest -> lowest)
+const rarityPriority = ['paradox', 'roamerMonth', 'legendary', 'rare', 'common'];
 
-// Points per rarity
+// Base points per rarity (full value before diminishing)
 const rarityPoints = {
   roamerMonth: 30,
   paradox: 200,
@@ -45,28 +35,24 @@ const rarityPoints = {
   common: 1
 };
 
-/**
- * Determine rarity of a single Pokémon
- */
+// Determine rarity key from a Pokémon name
 function getRarity(pokemon) {
   const name = (pokemon || '').toLowerCase();
   for (const key of rarityPriority) {
     const list = rarityGroups[key] || [];
-    if (list.some(p => p.toLowerCase() === name)) {
-      return key;
-    }
+    if (list.some(p => p.toLowerCase() === name)) return key;
   }
   return 'common';
 }
 
 /**
- * Determine the *highest* rarity from a list of Pokémon names
+ * Given a list of Pokémon names, return the *highest* rarity according
+ * to the configured priority.
  */
-function getHighestRarityForList(names = []) {
-  if (!names.length) return 'common';
-
+function getHighestRarityForList(pokemonNames = []) {
+  if (!pokemonNames.length) return 'common';
   let best = 'common';
-  for (const name of names) {
+  for (const name of pokemonNames) {
     const r = getRarity(name);
     if (rarityPriority.indexOf(r) < rarityPriority.indexOf(best)) {
       best = r;
@@ -75,14 +61,11 @@ function getHighestRarityForList(names = []) {
   return best;
 }
 
-/**
- * Human readable rarity label
- */
+// Nice display label for rarity keys
 function getRarityDisplayLabel(key) {
   if (key === 'paradox') return 'Paradox';
   if (key === 'roamerMonth') return 'Roamer of the Month';
-  if (key === 'legendary') return 'Legendary';
-  if (key === 'rare') return 'Rare';
+  if (key === 'legendary' || key === 'rare') return 'Legendary / Rare';
   return 'Common';
 }
 
@@ -94,4 +77,3 @@ module.exports = {
   getHighestRarityForList,
   getRarityDisplayLabel
 };
-
