@@ -1,4 +1,6 @@
 // interactions/autocomplete/pokemonAuto.cjs
+
+// Your existing rarity groups:
 const rarityGroups = {
   roamerMonth: [
     "Clone Venusaur", "Clone Charizard", "Clone Blastoise",
@@ -24,16 +26,19 @@ const rarityGroups = {
 const allPokemon = Object.values(rarityGroups).flat();
 
 module.exports = {
-  commandName: "report",
-  optionName: "pokemon",
+  commandName: "report",                // applies to /report
+  commandName2: "bountyrequest",        // ALSO applies to /bountyrequest
+  options: ["pokemon", "pokemon1", "pokemon2", "pokemon3"],
 
-  async execute(interaction) {
-    const focused = interaction.options.getFocused();
+  async execute(client, interaction) {
+    const focused = interaction.options.getFocused() || "";
 
     const filtered = allPokemon
-      .filter(p => p.toLowerCase().includes(focused.toLowerCase()))
+      .filter(x => x.toLowerCase().includes(focused.toLowerCase()))
       .slice(0, 25);
 
-    await interaction.respond(filtered.map(p => ({ name: p, value: p })));
+    return interaction.respond(
+      filtered.map(p => ({ name: p, value: p }))
+    );
   }
 };
