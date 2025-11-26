@@ -26,7 +26,9 @@ const {
   handleModalInteraction
 } = require('./handlers/modalHandler.cjs');
 
+// FIXED: correct signature (NO client param)
 const handleAutocompleteInteraction = require('./handlers/autocompleteHandler.cjs');
+
 
 // ──────────────────────────────────────
 // Discord client
@@ -46,13 +48,14 @@ client.pendingBounties = new Map();
 client.activeBounties = new Map();
 client.bountyClaims = new Map();
 
+
 // ──────────────────────────────────────
 // Ready
 // ──────────────────────────────────────
 client.once('ready', async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 
-  // Initialise SQLite schema
+  // DB init
   try {
     await db.init();
     console.log('✅ Database initialised');
@@ -78,13 +81,15 @@ client.once('ready', async () => {
   }
 });
 
+
 // ──────────────────────────────────────
 // Interaction routing
 // ──────────────────────────────────────
 client.on('interactionCreate', async (interaction) => {
   try {
+    // FIXED: must pass ONLY interaction
     if (interaction.isAutocomplete()) {
-      return handleAutocompleteInteraction(client, interaction);
+      return handleAutocompleteInteraction(interaction);
     }
 
     if (interaction.isButton()) {
@@ -98,6 +103,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
       return handleCommandInteraction(client, interaction);
     }
+
   } catch (err) {
     console.error('❌ Interaction error:', err);
 
@@ -115,6 +121,7 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 });
+
 
 // ──────────────────────────────────────
 // Login + tiny web server (for uptime pings)
