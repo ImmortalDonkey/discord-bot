@@ -1,28 +1,35 @@
-// reportCard.cjs
+// renderers/reportCard.cjs
 const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage, registerFont } = require('canvas');
 
-// Optional: adjust to your real font path
+// ────────────────────────────────
+// Font loading (optional)
+// ────────────────────────────────
 try {
-  registerFont(path.join(__dirname, 'fonts', 'Montserrat-Bold.ttf'), {
+  registerFont(path.join(__dirname, '..', 'fonts', 'Montserrat-Bold.ttf'), {
     family: 'Montserrat',
     weight: 'bold'
   });
-  registerFont(path.join(__dirname, 'fonts', 'Montserrat-Regular.ttf'), {
+  registerFont(path.join(__dirname, '..', 'fonts', 'Montserrat-Regular.ttf'), {
     family: 'Montserrat',
     weight: 'normal'
   });
 } catch {
-  // If fonts missing, canvas will fall back to system fonts
+  // fallback font used automatically
 }
 
-const CARDS_DIR = path.join(__dirname, 'cards');
+// ────────────────────────────────
+// Correct paths for your file structure
+// ────────────────────────────────
+const CARDS_DIR = path.join(__dirname, '..', 'cards');
+const SPRITES_DIR = path.join(__dirname, '..', 'sprites');
+
 if (!fs.existsSync(CARDS_DIR)) fs.mkdirSync(CARDS_DIR, { recursive: true });
 
-const SPRITES_DIR = path.join(process.cwd(), 'sprites');
-
-// Background gradients per rarity
+// ────────────────────────────────
+// Gradient background colours per rarity
+// ────────────────────────────────
 const rarityGradients = {
   paradox: ['#3a0b63', '#00bcd4'],
   roamerMonth: ['#e65100', '#ff4081'],
@@ -35,6 +42,9 @@ function getGradientColors(rarityKey) {
   return rarityGradients[rarityKey] || rarityGradients.common;
 }
 
+// ────────────────────────────────
+// Helpers
+// ────────────────────────────────
 function roundedRect(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -56,161 +66,8 @@ async function loadSprite(pokemonName) {
     await fs.promises.access(file, fs.constants.R_OK);
     return await loadImage(file);
   } catch {
-    return null;
+    return null; // sprite missing
   }
-}
-
-/**
- * Internal renderer for both active + expired states
- */
-async function renderReportCard({
-  id,
-  trainerName,
-  rankName,
-  pokemonName,
-  rarityLabel,
-  rarityKey,
-  points,
-  routeName,
-  statusText // "Available until end of the hour" or "No longer available"
-}) {
-  const width = 1280;
-  const height = 720;
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d');
-
-  // Background gradient
-  const [c1, c2] = getGradientColors(rarityKey);
-  const bgGrad = ctx.createLinearGradient(0, 0, width, height);
-  bgGrad.addColorStop(0, c1);
-  bgGrad.addColorStop(1, c2);
-  ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, width, height);
-
-  // Big left panel
-  const panelMargin = 30;
-  const gap = 20;
-  const bigPanelWidth = width * 0.6 - panelMargin * 2;
-  const bigPanelHeight = height * 0.65;
-  const rightPanelWidth = width * 0.35;
-  const rightPanelHeight = bigPanelHeight;
-
-  // Left big card
-  ctx.fillStyle = '#07111f';
-  roundedRect(ctx, panelMargin, panelMargin, bigPanelWidth, bigPanelHeight, 30);
-  ctx.fill();
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = '#ffffff';
-  ctx.stroke();
-
-  // Right sprite card
-  const rightX = width - rightPanelWidth - panelMargin;
-  roundedRect(ctx, rightX, panelMargin, rightPanelWidth, rightPanelHeight, 30);
-  ctx.fill();
-  ctx.stroke();
-
-  // Bottom left "Available" card
-  const bottomHeight = height * 0.2;
-  const bottomTop = height - bottomHeight - panelMargin;
-  const bottomLeftWidth = bigPanelWidth;
-  const bottomRightWidth = rightPanelWidth;
-
-  roundedRect(ctx, panelMargin, bottomTop, bottomLeftWidth, bottomHeight, 30);
-  ctx.fill();
-  ctx.stroke();
-
-  // Bottom right "Route" card
-  roundedRect(ctx, rightX, bottomTop, bottomRightWidth, bottomHeight, 30);
-  ctx.fill();
-  ctx.stroke();
-
-  // Text styles
-  ctx.textBaseline = 'top';
-
-  // Top-left labels
-  const leftPaddingX = panelMargin + 30;
-  let cursorY = panelMargin + 30;
-
-  ctx.font = 'bold 40px Montserrat, sans-serif';
-  ctx.fillStyle = '#ffca28';
-  ctx.fillText('Trainer:', leftPaddingX, cursorY);
-
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 40px Montserrat, sans-serif';
-  ctx.fillText(trainerName, leftPaddingX + 200, cursorY);
-
-  cursorY += 55;
-  ctx.fillStyle = '#ffca28';
-  ctx.font = 'bold 40px Montserrat, sans-serif';
-  ctx.fillText('Rank:', leftPaddingX, cursorY);
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(rankName, leftPaddingX + 200, cursorY);
-
-  // Spacer
-  cursorY += 80;
-
-  // Main sentence
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 42px Montserrat, sans-serif';
-  const sentence = `${trainerName} has spotted a wild "${pokemonName}"!`;
-  wrapText(ctx, sentence, leftPaddingX, cursorY, bigPanelWidth - 60, 50);
-  cursorY += 120;
-
-  // Rarity & points
-  ctx.font = 'bold 40px Montserrat, sans-serif';
-  ctx.fillStyle = '#ffca28';
-  ctx.fillText('Rarity:', leftPaddingX, cursorY);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(rarityLabel, leftPaddingX + 170, cursorY);
-
-  cursorY += 55;
-  ctx.fillStyle = '#ffca28';
-  ctx.fillText('Points awarded:', leftPaddingX, cursorY);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(String(points), leftPaddingX + 330, cursorY);
-
-  // Bottom left text (status)
-  const statusX = panelMargin + 40;
-  const statusY = bottomTop + 45;
-  ctx.font = 'bold 46px Montserrat, sans-serif';
-  ctx.fillStyle = '#ffca28';
-  ctx.fillText('Available until:', statusX, statusY);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(statusText, statusX + 360, statusY);
-
-  // Bottom right (Route name)
-  const routeX = rightX + 40;
-  const routeY = bottomTop + 45;
-  ctx.font = 'bold 50px Montserrat, sans-serif';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(routeName, routeX, routeY);
-
-  // Sprite
-  const sprite = await loadSprite(pokemonName);
-  if (sprite) {
-    const padding = 40;
-    const boxWidth = rightPanelWidth - padding * 2;
-    const boxHeight = rightPanelHeight - padding * 2;
-
-    const spriteRatio = sprite.width / sprite.height;
-    let drawW = boxWidth;
-    let drawH = drawW / spriteRatio;
-    if (drawH > boxHeight) {
-      drawH = boxHeight;
-      drawW = drawH * spriteRatio;
-    }
-
-    const sx = rightX + (rightPanelWidth - drawW) / 2;
-    const sy = panelMargin + (rightPanelHeight - drawH) / 2;
-
-    ctx.drawImage(sprite, sx, sy, drawW, drawH);
-  }
-
-  const outPath = path.join(CARDS_DIR, `report_${id}.png`);
-  const buffer = canvas.toBuffer('image/png');
-  await fs.promises.writeFile(outPath, buffer);
-  return outPath;
 }
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
@@ -219,9 +76,9 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
 
   for (let n = 0; n < words.length; n++) {
     const testLine = line + words[n] + ' ';
-    const metrics = ctx.measureText(testLine);
-    const testWidth = metrics.width;
-    if (testWidth > maxWidth && n > 0) {
+    const width = ctx.measureText(testLine).width;
+
+    if (width > maxWidth && n > 0) {
       ctx.fillText(line, x, y);
       line = words[n] + ' ';
       y += lineHeight;
@@ -232,7 +89,156 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
   ctx.fillText(line, x, y);
 }
 
-// Public helpers
+// ────────────────────────────────
+// CORE RENDERER (for active + expired)
+// ────────────────────────────────
+async function renderReportCard({
+  id,
+  trainerName,
+  rankName,
+  pokemonName,
+  rarityKey,
+  rarityLabel,
+  points,
+  routeName,
+  statusText
+}) {
+  const width = 1280;
+  const height = 720;
+
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  // Background gradient
+  const [c1, c2] = getGradientColors(rarityKey);
+  const bg = ctx.createLinearGradient(0, 0, width, height);
+  bg.addColorStop(0, c1);
+  bg.addColorStop(1, c2);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, width, height);
+
+  const margin = 30;
+  const leftWidth = width * 0.6 - margin * 2;
+  const leftHeight = height * 0.65;
+
+  const rightWidth = width * 0.35;
+  const rightHeight = leftHeight;
+  const rightX = width - rightWidth - margin;
+
+  // Left panel
+  ctx.fillStyle = '#07111f';
+  roundedRect(ctx, margin, margin, leftWidth, leftHeight, 30);
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  // Right sprite box
+  roundedRect(ctx, rightX, margin, rightWidth, rightHeight, 30);
+  ctx.fill();
+  ctx.stroke();
+
+  // Bottom panels
+  const bottomHeight = height * 0.2;
+  const bottomY = height - bottomHeight - margin;
+
+  roundedRect(ctx, margin, bottomY, leftWidth, bottomHeight, 30);
+  ctx.fill();
+  ctx.stroke();
+
+  roundedRect(ctx, rightX, bottomY, rightWidth, bottomHeight, 30);
+  ctx.fill();
+  ctx.stroke();
+
+  // TEXT
+  const leftPad = margin + 30;
+  let y = margin + 30;
+
+  ctx.font = 'bold 40px Montserrat';
+  ctx.fillStyle = '#ffca28';
+  ctx.fillText('Trainer:', leftPad, y);
+
+  ctx.fillStyle = '#fff';
+  ctx.fillText(trainerName, leftPad + 200, y);
+
+  y += 55;
+  ctx.fillStyle = '#ffca28';
+  ctx.fillText('Rank:', leftPad, y);
+
+  ctx.fillStyle = '#fff';
+  ctx.fillText(rankName, leftPad + 200, y);
+
+  y += 80;
+  ctx.font = 'bold 42px Montserrat';
+  ctx.fillStyle = '#fff';
+  wrapText(
+    ctx,
+    `${trainerName} has spotted a wild "${pokemonName}"!`,
+    leftPad,
+    y,
+    leftWidth - 60,
+    50
+  );
+
+  y += 120;
+  ctx.font = 'bold 40px Montserrat';
+  ctx.fillStyle = '#ffca28';
+  ctx.fillText('Rarity:', leftPad, y);
+
+  ctx.fillStyle = '#fff';
+  ctx.fillText(rarityLabel, leftPad + 170, y);
+
+  y += 55;
+  ctx.fillStyle = '#ffca28';
+  ctx.fillText('Points awarded:', leftPad, y);
+
+  ctx.fillStyle = '#fff';
+  ctx.fillText(String(points), leftPad + 330, y);
+
+  // Bottom left — availability
+  ctx.font = 'bold 46px Montserrat';
+  ctx.fillStyle = '#ffca28';
+  ctx.fillText('Available until:', margin + 40, bottomY + 45);
+
+  ctx.fillStyle = '#fff';
+  ctx.fillText(statusText, margin + 360, bottomY + 45);
+
+  // Bottom right — route
+  ctx.font = 'bold 50px Montserrat';
+  ctx.fillStyle = '#fff';
+  ctx.fillText(routeName, rightX + 40, bottomY + 45);
+
+  // Sprite
+  const sprite = await loadSprite(pokemonName);
+  if (sprite) {
+    const pad = 40;
+    const boxW = rightWidth - pad * 2;
+    const boxH = rightHeight - pad * 2;
+    const ratio = sprite.width / sprite.height;
+
+    let w = boxW;
+    let h = w / ratio;
+
+    if (h > boxH) {
+      h = boxH;
+      w = h * ratio;
+    }
+
+    const dx = rightX + (rightWidth - w) / 2;
+    const dy = margin + (rightHeight - h) / 2;
+
+    ctx.drawImage(sprite, dx, dy, w, h);
+  }
+
+  // Save PNG
+  const out = path.join(CARDS_DIR, `report_${id}.png`);
+  const buffer = canvas.toBuffer('image/png');
+  await fs.promises.writeFile(out, buffer);
+
+  return out;
+}
+
+// PUBLIC FUNCTIONS
 async function createReportCardActive(opts) {
   return renderReportCard({
     ...opts,
