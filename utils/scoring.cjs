@@ -1,15 +1,6 @@
 // utils/scoring.cjs
 
-/**
- * Base rarity points (full value for 00–30 minutes)
- */
-const rarityPoints = {
-  roamerMonth: 30,
-  paradox: 200,
-  legendary: 20,
-  rare: 20,
-  common: 1
-};
+const { rarityPoints } = require('./rarity.cjs');
 
 /**
  * Determine points multiplier based on the minute in the hour.
@@ -20,7 +11,7 @@ function getMinuteMultiplier(minute) {
   if (minute < 30) return 1.0;   // 100%
   if (minute < 40) return 0.75;  // 75%
   if (minute < 50) return 0.50;  // 50%
-  return 0.10;                   // 10% (minimum 1 point)
+  return 0.10;                   // 10% (min 1 point)
 }
 
 /**
@@ -44,11 +35,7 @@ function calculateAwardedPoints(rarityKey, reportTime = new Date()) {
   return final;
 }
 
-/**
- * Export everything needed by commands/report.cjs
- */
 module.exports = {
-  rarityPoints,
-  calculateAwardedPoints,
-  getMinuteMultiplier
+  getMinuteMultiplier,
+  calculateAwardedPoints
 };
