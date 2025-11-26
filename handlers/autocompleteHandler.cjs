@@ -1,59 +1,42 @@
-const path = require('path');
-const fs = require('fs');
+// handlers/autocompleteHandler.cjs
+const path = require("path");
+const fs = require("fs");
 
-const autoModules = [];
+const modules = [];
 
-// Folder: interactions/autocomplete/
-const autoDir = path.join(__dirname, '..', 'interactions', 'autocomplete');
+const autoDir = path.join(__dirname, "..", "interactions", "autocomplete");
 
 if (fs.existsSync(autoDir)) {
-  const files = fs.readdirSync(autoDir).filter(f => f.endsWith('.cjs'));
-
-  for (const file of files) {
+  for (const file of fs.readdirSync(autoDir).filter(f => f.endsWith(".cjs"))) {
     const mod = require(path.join(autoDir, file));
 
-    // EXPECTED:
-    // commands: ["report"]
-    // options: ["pokemon"]
-    // run(interaction)
-
-    if (
-      mod &&
-      Array.isArray(mod.commands) &&
-      Array.isArray(mod.options) &&
-      typeof mod.run === "function"
-    ) {
-      autoModules.push(mod);
-      console.log(`✅ Loaded autocomplete: ${file}`);
-    } else {
-      console.warn(`⚠ Invalid autocomplete file skipped: ${file}`);
+    if (!mod.commandName || !mod.optionName || typeof mod.execute !== "function") {
+      console.warn(`⚠ Invalid autocomplete module skipped: ${file}`);
+      continue;
     }
+
+    modules.push(mod);
+    console.log(`✅ Loaded autocomplete module: ${file}`);
   }
-} else {
-  console.warn('⚠ autocomplete directory missing:', autoDir);
 }
 
-module.exports = async (client, interaction) => {
+module.exports = async (interaction) => {
   const cmd = interaction.commandName;
-  const focused = interaction.options.getFocused(true);
-  const option = focused?.name;
+  const opt = interaction.options.getFocused(true).name;
 
-  // Debug log
-  // console.log("Autocomplete event:", { cmd, option });
-
-  // Look for a matching module
-  const mod = autoModules.find(m =>
-    m.commands.includes(cmd) && m.options.includes(option)
+  const mod = modules.find(m =>
+    m.commandName === cmd &&
+    m.optionName === opt
   );
 
   if (!mod) {
-    console.warn(`❌ No autocomplete match: command=${cmd} option=${option}`);
+    console.warn(`❌ No autocomplete match: command = ${cmd} option = ${opt}`);
     return;
   }
 
   try {
-    await mod.run(interaction);
+    await mod.execute(interaction);
   } catch (err) {
-    console.error(`❌ Autocomplete error in ${cmd}/${option}:`, err);
+    console.error(`❌ Autocomplete error in ${mod.commandName}/${mod.optionName}:`, err);
   }
 };
