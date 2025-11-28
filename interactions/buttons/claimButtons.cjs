@@ -1,23 +1,33 @@
 // interactions/buttons/claimButtons.cjs
 const {
-  PermissionFlagsBits,
-  EmbedBuilder
+  EmbedBuilder,
+  PermissionFlagsBits
 } = require('discord.js');
 
 const db = require('../../database.cjs');
 
 module.exports = {
-  ids: ['claim_approve_'],
+  ids: ['claimapprove_'],
 
   async execute(client, interaction) {
-    const { customId } = interaction;
+    const id = interaction.customId;
 
-    // Format: claim_approve_<userId>_<points>
-    const parts = customId.split('_');
-    const userId = parts[2];
-    const pointsRequested = parseInt(parts[3], 10);
+    console.log("CLAIM BUTTON PRESSED:", id);
 
-    // Permission check
+    // Format: claimapprove_<userId>_<points>
+    const [, userId, pointsStr] = id.split('_');
+    const points = parseInt(pointsStr, 10);
+
+    if (!points || !userId) {
+      return interaction.reply({
+        content: '❌ Invalid button format.',
+        ephemeral: true
+      });
+    }
+
+    // ────────────────────────────────────────────────
+    // PERMISSION CHECK
+    // ────────────────────────────────────────────────
     const perms = interaction.memberPermissions;
     if (
       !perms.has(PermissionFlagsBits.ManageGuild) &&
@@ -25,77 +35,55 @@ module.exports = {
     ) {
       return interaction.reply({
         content: '❌ You do not have permission to approve claims.',
-        ephemeral: true,
+        ephemeral: true
       });
     }
 
-    // Fetch user from DB
+    // ────────────────────────────────────────────────
+    // CHECK USER'S POINTS AGAIN
+    // ────────────────────────────────────────────────
     const row = await db.getUserById(userId);
-    if (!row) {
+    if (!row || row.points < points) {
       return interaction.reply({
-        content: '❌ Could not find this user in the database.',
-        ephemeral: true,
+        content: '❌ User no longer has enough points to claim.',
+        ephemeral: true
       });
     }
 
     // Deduct points
-    const updatedPoints = row.points - pointsRequested;
-    await db.updateUserPoints(userId, updatedPoints);
+    await db.addPoints(userId, row.username, -points, `Claimed PKD`);
 
-    // Build updated embed
-    const origEmbed = interaction.message.embeds[0];
-    const updatedEmbed = EmbedBuilder.from(origEmbed)
-      .setColor('Green')
-      .addFields({
-        name: 'Status',
-        value: `Approved by ${interaction.user}`,
-        inline: false
-      });
+    // Update embed in thread
+    const message = interaction.message;
+    const updated = EmbedBuilder.from(message.embeds[0]);
 
-    // Update the message (remove buttons)
-    await interaction.update({
-      embeds: [updatedEmbed],
-      components: []
+    updated.addFields({
+      name: 'Status',
+      value: `✅ Approved by <@${interaction.user.id}>`
     });
 
-    // Try to DM the user
+    await interaction.update({
+      embeds: [updated],
+      components: [] // remove buttons
+    });
+
+    // DM user
     try {
       const user = await client.users.fetch(userId);
       await user.send(
-        `✅ Your claim for **${pointsRequested} points** was approved!\n` +
-        `Your new balance is **${updatedPoints} points**.`
+        `💸 Your claim for **${points} points** has been approved!\n` +
+        `You now have **${row.points - points} points** remaining.`
       );
-    } catch {
-      // ignore DM errors
-    }
+    } catch {}
 
-    // ────────────────────────────────────────────
-    // NEW FEATURE:
-    // Remove original staff ping + schedule thread deletion
-    // ────────────────────────────────────────────
-    try {
-      const thread = interaction.channel;
+    // ────────────────────────────────────────────────
+    // AUTO DELETE THREAD AFTER 60 SECONDS
+    // ────────────────────────────────────────────────
+    const thread = interaction.channel;
+    setTimeout(() => {
+      thread.delete().catch(() => {});
+    }, 60000);
 
-      // Fetch first message (the staff ping)
-      const messages = await thread.messages.fetch({ limit: 10 });
-      const firstMessage = messages.last(); // oldest message in thread
-      
-      if (firstMessage && firstMessage.author.id === client.user.id) {
-        await firstMessage.edit("🔔 Claim acknowledged and processed.");
-      }
-
-      // Schedule auto-delete in 1 minute
-      setTimeout(async () => {
-        try {
-          await thread.delete();
-        } catch {
-          // thread may already be deleted
-        }
-      }, 60_000);
-
-    } catch (err) {
-      console.error("Error cleaning up claim thread:", err);
-    }
-
+    return;
   }
 };
