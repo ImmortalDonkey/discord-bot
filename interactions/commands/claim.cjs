@@ -24,21 +24,21 @@ module.exports = {
     const user = interaction.user;
     const pointsRequested = interaction.options.getInteger('points');
 
-    // Get current points from DB
+    // Fetch user points
     const row = await db.getUserById(user.id);
     const currentPoints = row?.points || 0;
 
     if (pointsRequested <= 0) {
       return interaction.reply({
         content: '❌ Points must be greater than zero.',
-        ephemeral: true
+        flags: 64
       });
     }
 
     if (pointsRequested > currentPoints) {
       return interaction.reply({
         content: `❌ You only have **${currentPoints}** points available.`,
-        ephemeral: true
+        flags: 64
       });
     }
 
@@ -46,7 +46,7 @@ module.exports = {
     const lifetime = row?.lifetime_points || 0;
     const rankName = getRankName(lifetime);
 
-    // Get claims forum
+    // Claims forum
     const forumId = process.env.CLAIMS_FORUM_CHANNEL_ID;
     const forum = forumId
       ? await interaction.guild.channels.fetch(forumId).catch(() => null)
@@ -55,18 +55,18 @@ module.exports = {
     if (!forum) {
       return interaction.reply({
         content: '❌ Claims forum channel not found. Ask an admin to check `CLAIMS_FORUM_CHANNEL_ID`.',
-        ephemeral: true
+        flags: 64
       });
     }
 
-    // Staff mention from env
+    // Staff roles mention
     const staffRolesEnv = process.env.STAFF_ROLES || '';
     const staffMention = staffRolesEnv
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
       .map(id => `<@&${id}>`)
-      .join(' ');
+      .join(' ') || '@Staff';
 
     // Create forum thread
     const thread = await forum.threads.create({
@@ -76,7 +76,7 @@ module.exports = {
       }
     });
 
-    // Build claim embed
+    // Build embed
     const embed = new EmbedBuilder()
       .setColor('Gold')
       .setTitle('💱 Point Claim Request')
@@ -89,10 +89,10 @@ module.exports = {
       )
       .setTimestamp();
 
-    // Buttons (note: no Deny, just Approve)
+    // APPROVE button — FIXED PREFIX
     const rowButtons = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`claimapprove_${user.id}_${pointsRequested}`)
+        .setCustomId(`claim_approve_${user.id}_${pointsRequested}`)
         .setLabel('Approve Claim')
         .setStyle(ButtonStyle.Success)
     );
@@ -101,7 +101,7 @@ module.exports = {
 
     return interaction.reply({
       content: `🧾 Your claim request has been submitted: <#${thread.id}>`,
-      ephemeral: true
+      flags: 64
     });
   }
 };
