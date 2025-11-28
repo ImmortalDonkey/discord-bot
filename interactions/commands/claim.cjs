@@ -24,7 +24,7 @@ module.exports = {
     const user = interaction.user;
     const pointsRequested = interaction.options.getInteger('points');
 
-    // Get current points from DB
+    // Fetch user data
     const row = await db.getUserById(user.id);
     const currentPoints = row?.points || 0;
 
@@ -46,7 +46,7 @@ module.exports = {
     const lifetime = row?.lifetime_points || 0;
     const rankName = getRankName(lifetime);
 
-    // Get claims forum
+    // Claims Forum Channel
     const forumId = process.env.CLAIMS_FORUM_CHANNEL_ID;
     const forum = forumId
       ? await interaction.guild.channels.fetch(forumId).catch(() => null)
@@ -59,7 +59,7 @@ module.exports = {
       });
     }
 
-    // Staff mention from env (like elsewhere)
+    // Staff mention (comma-separated ENV values)
     const staffRolesEnv = process.env.STAFF_ROLES || '';
     const staffMention = staffRolesEnv
       .split(',')
@@ -76,34 +76,30 @@ module.exports = {
       }
     });
 
-    // Build claim embed
+    // Build embed
     const embed = new EmbedBuilder()
       .setColor('Gold')
       .setTitle('💱 Point Claim Request')
       .addFields(
         { name: 'User', value: `<@${user.id}>`, inline: true },
         { name: 'Rank', value: rankName, inline: true },
-        { name: 'Points Requested', value: String(pointsRequested), inline: true },
+        { name: 'Points Requested', value: `${pointsRequested}`, inline: true },
         { name: 'PKD Value', value: `${pkdValue.toLocaleString()} pkd`, inline: true },
-        { name: 'Current Points', value: String(currentPoints), inline: true }
+        { name: 'Current Points', value: `${currentPoints}`, inline: true }
       )
       .setTimestamp();
 
-    // Buttons (match existing button handler logic)
+    // Buttons — ONLY APPROVE
     const rowButtons = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`claim_approve_${user.id}_${pointsRequested}`)
-        .setLabel('Approve')
-        .setStyle(ButtonStyle.Success),
-
-      new ButtonBuilder()
-        .setCustomId(`claim_deny_${user.id}`)
-        .setLabel('Deny')
-        .setStyle(ButtonStyle.Danger)
+        .setLabel('Approve Claim')
+        .setStyle(ButtonStyle.Success)
     );
 
     await thread.send({ embeds: [embed], components: [rowButtons] });
 
+    // Confirmation reply
     return interaction.reply({
       content: `🧾 Your claim request has been submitted: <#${thread.id}>`,
       ephemeral: true
