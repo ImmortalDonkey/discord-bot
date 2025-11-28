@@ -24,7 +24,6 @@ module.exports = {
     const user = interaction.user;
     const pointsRequested = interaction.options.getInteger('points');
 
-    // Fetch user data
     const row = await db.getUserById(user.id);
     const currentPoints = row?.points || 0;
 
@@ -43,10 +42,11 @@ module.exports = {
     }
 
     const pkdValue = pointsRequested * 200000;
-    const lifetime = row?.lifetime_points || 0;
-    const rankName = getRankName(lifetime);
+    const rankName = getRankName(row?.lifetime_points || 0);
 
-    // Claims Forum Channel
+    // ────────────────────────────────────────────────
+    // FETCH CLAIMS FORUM
+    // ────────────────────────────────────────────────
     const forumId = process.env.CLAIMS_FORUM_CHANNEL_ID;
     const forum = forumId
       ? await interaction.guild.channels.fetch(forumId).catch(() => null)
@@ -54,52 +54,57 @@ module.exports = {
 
     if (!forum) {
       return interaction.reply({
-        content: '❌ Claims forum channel not found. Ask an admin to check `CLAIMS_FORUM_CHANNEL_ID`.',
+        content: '❌ Claims forum not found. Check `CLAIMS_FORUM_CHANNEL_ID`.',
         ephemeral: true
       });
     }
 
-    // Staff mention (comma-separated ENV values)
+    // Staff roles mention
     const staffRolesEnv = process.env.STAFF_ROLES || '';
     const staffMention = staffRolesEnv
       .split(',')
-      .map(s => s.trim())
+      .map(id => id.trim())
       .filter(Boolean)
       .map(id => `<@&${id}>`)
       .join(' ');
 
-    // Create forum thread
+    // ────────────────────────────────────────────────
+    // CREATE THREAD
+    // ────────────────────────────────────────────────
     const thread = await forum.threads.create({
       name: `Claim • ${user.username} • ${pointsRequested} pts`,
       message: {
-        content: `${staffMention} New claim request from <@${user.id}>`,
+        content: `${staffMention} New claim request from <@${user.id}>`
       }
     });
 
-    // Build embed
+    // ────────────────────────────────────────────────
+    // EMBED
+    // ────────────────────────────────────────────────
     const embed = new EmbedBuilder()
       .setColor('Gold')
       .setTitle('💱 Point Claim Request')
       .addFields(
         { name: 'User', value: `<@${user.id}>`, inline: true },
         { name: 'Rank', value: rankName, inline: true },
-        { name: 'Points Requested', value: `${pointsRequested}`, inline: true },
+        { name: 'Points Requested', value: String(pointsRequested), inline: true },
         { name: 'PKD Value', value: `${pkdValue.toLocaleString()} pkd`, inline: true },
-        { name: 'Current Points', value: `${currentPoints}`, inline: true }
+        { name: 'Current Points', value: String(currentPoints), inline: true }
       )
       .setTimestamp();
 
-    // Buttons — ONLY APPROVE
+    // ────────────────────────────────────────────────
+    // APPROVE BUTTON ONLY
+    // ────────────────────────────────────────────────
     const rowButtons = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`claim_approve_${user.id}_${pointsRequested}`)
+        .setCustomId(`claimapprove_${user.id}_${pointsRequested}`)
         .setLabel('Approve Claim')
         .setStyle(ButtonStyle.Success)
     );
 
     await thread.send({ embeds: [embed], components: [rowButtons] });
 
-    // Confirmation reply
     return interaction.reply({
       content: `🧾 Your claim request has been submitted: <#${thread.id}>`,
       ephemeral: true
