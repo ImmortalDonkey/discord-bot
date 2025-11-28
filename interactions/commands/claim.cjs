@@ -24,6 +24,7 @@ module.exports = {
     const user = interaction.user;
     const pointsRequested = interaction.options.getInteger('points');
 
+    // Get current points from DB
     const row = await db.getUserById(user.id);
     const currentPoints = row?.points || 0;
 
@@ -42,11 +43,10 @@ module.exports = {
     }
 
     const pkdValue = pointsRequested * 200000;
-    const rankName = getRankName(row?.lifetime_points || 0);
+    const lifetime = row?.lifetime_points || 0;
+    const rankName = getRankName(lifetime);
 
-    // ────────────────────────────────────────────────
-    // FETCH CLAIMS FORUM
-    // ────────────────────────────────────────────────
+    // Get claims forum
     const forumId = process.env.CLAIMS_FORUM_CHANNEL_ID;
     const forum = forumId
       ? await interaction.guild.channels.fetch(forumId).catch(() => null)
@@ -54,23 +54,21 @@ module.exports = {
 
     if (!forum) {
       return interaction.reply({
-        content: '❌ Claims forum not found. Check `CLAIMS_FORUM_CHANNEL_ID`.',
+        content: '❌ Claims forum channel not found. Ask an admin to check `CLAIMS_FORUM_CHANNEL_ID`.',
         ephemeral: true
       });
     }
 
-    // Staff roles mention
+    // Staff mention from env
     const staffRolesEnv = process.env.STAFF_ROLES || '';
     const staffMention = staffRolesEnv
       .split(',')
-      .map(id => id.trim())
+      .map(s => s.trim())
       .filter(Boolean)
       .map(id => `<@&${id}>`)
       .join(' ');
 
-    // ────────────────────────────────────────────────
-    // CREATE THREAD
-    // ────────────────────────────────────────────────
+    // Create forum thread
     const thread = await forum.threads.create({
       name: `Claim • ${user.username} • ${pointsRequested} pts`,
       message: {
@@ -78,9 +76,7 @@ module.exports = {
       }
     });
 
-    // ────────────────────────────────────────────────
-    // EMBED
-    // ────────────────────────────────────────────────
+    // Build claim embed
     const embed = new EmbedBuilder()
       .setColor('Gold')
       .setTitle('💱 Point Claim Request')
@@ -93,9 +89,7 @@ module.exports = {
       )
       .setTimestamp();
 
-    // ────────────────────────────────────────────────
-    // APPROVE BUTTON ONLY
-    // ────────────────────────────────────────────────
+    // Buttons (note: no Deny, just Approve)
     const rowButtons = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`claimapprove_${user.id}_${pointsRequested}`)
