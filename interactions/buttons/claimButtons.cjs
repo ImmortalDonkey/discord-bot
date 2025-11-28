@@ -16,17 +16,16 @@ module.exports = {
   async execute(client, interaction) {
     const id = interaction.customId;
 
-    // APPROVE CLAIM
     if (id.startsWith("claim_approve_")) {
       return approveClaim(client, interaction);
     }
 
-    // CLOSE THREAD
     if (id.startsWith("claim_close_")) {
       return closeClaimThread(client, interaction);
     }
   }
 };
+
 
 // ─────────────────────────────────────────────
 // APPROVE CLAIM BUTTON
@@ -41,7 +40,7 @@ async function approveClaim(client, interaction) {
   if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
     return interaction.reply({
       content: "❌ You do not have permission to approve claims.",
-      ephemeral: true
+      flags: 64
     });
   }
 
@@ -50,7 +49,7 @@ async function approveClaim(client, interaction) {
   if (!row) {
     return interaction.reply({
       content: "❌ Could not find this user in the database.",
-      ephemeral: true
+      flags: 64
     });
   }
 
@@ -71,7 +70,7 @@ async function approveClaim(client, interaction) {
       { name: "Points Requested", value: String(pointsRequested), inline: true },
       { name: "PKD Value", value: `${pkdValue.toLocaleString()} pkd`, inline: true },
       { name: "Current Points (After Claim)", value: String(newPoints), inline: true },
-      { name: "Status", value: `✅ Approved by <@${interaction.user.id}>`, inline: false }
+      { name: "Status", value: `✅ Approved by <@${interaction.user.id}>` }
     );
 
   // Add CLOSE CLAIM button
@@ -82,7 +81,7 @@ async function approveClaim(client, interaction) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  // Update live message
+  // Update message
   await interaction.update({
     embeds: [updatedEmbed],
     components: [closeRow]
@@ -92,13 +91,14 @@ async function approveClaim(client, interaction) {
   try {
     const targetUser = await client.users.fetch(userId);
     await targetUser.send(
-      `💱 Your claim of **${pointsRequested} points** was **approved**!\n` +
+      `💱 Your claim of **${pointsRequested} points** was approved.\n` +
       `You receive **${pkdValue.toLocaleString()} pkd**.`
     );
-  } catch (_) {}
+  } catch {}
 
   return;
 }
+
 
 // ─────────────────────────────────────────────
 // CLOSE CLAIM THREAD BUTTON
@@ -110,16 +110,15 @@ async function closeClaimThread(client, interaction) {
   if (!thread) {
     return interaction.reply({
       content: "❌ Could not find this thread.",
-      ephemeral: true
+      flags: 64
     });
   }
 
   await interaction.reply({
     content: "🕒 This claim thread will be deleted in **1 minute**.",
-    ephemeral: true
+    flags: 64
   });
 
-  // Delete after 60 seconds
   setTimeout(async () => {
     try {
       await thread.delete();
