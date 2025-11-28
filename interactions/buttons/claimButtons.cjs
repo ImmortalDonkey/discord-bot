@@ -1,105 +1,101 @@
 // interactions/buttons/claimButtons.cjs
 const {
-  EmbedBuilder,
-  ButtonBuilder,
-  ActionRowBuilder,
-  ButtonStyle
+  PermissionFlagsBits,
+  EmbedBuilder
 } = require('discord.js');
 
 const db = require('../../database.cjs');
 
 module.exports = {
-  // Buttons handled here
-  ids: [
-    'claim_approve_',   // prefix
-    'claim_close'       // exact
-  ],
+  ids: ['claim_approve_'],
 
   async execute(client, interaction) {
-    const id = interaction.customId;
+    const { customId } = interaction;
 
-    // STAFF APPROVES CLAIM
-    if (id.startsWith('claim_approve_')) {
-      return handleApprove(client, interaction);
-    }
-
-    // CLOSE TICKET
-    if (id === 'claim_close') {
-      return handleCloseTicket(client, interaction);
-    }
-  }
-};
-
-// ─────────────────────────────────────────────
-// ✔ APPROVE POINT CLAIM
-// ─────────────────────────────────────────────
-async function handleApprove(client, interaction) {
-  try {
-    const parts = interaction.customId.split('_');
-    // claim_approve_<userId>_<pointsRequested>
+    // Format: claim_approve_<userId>_<points>
+    const parts = customId.split('_');
     const userId = parts[2];
     const pointsRequested = parseInt(parts[3], 10);
 
-    const userRow = await db.getUserById(userId);
-    const oldPoints = userRow?.points || 0;
-    const newPoints = oldPoints - pointsRequested;
+    // Permission check
+    const perms = interaction.memberPermissions;
+    if (
+      !perms.has(PermissionFlagsBits.ManageGuild) &&
+      !perms.has(PermissionFlagsBits.Administrator)
+    ) {
+      return interaction.reply({
+        content: '❌ You do not have permission to approve claims.',
+        ephemeral: true,
+      });
+    }
+
+    // Fetch user from DB
+    const row = await db.getUserById(userId);
+    if (!row) {
+      return interaction.reply({
+        content: '❌ Could not find this user in the database.',
+        ephemeral: true,
+      });
+    }
 
     // Deduct points
-    await db.addPoints(userId, userRow.username, -pointsRequested, 'PKD Claim Approved');
+    const updatedPoints = row.points - pointsRequested;
+    await db.updateUserPoints(userId, updatedPoints);
 
-    const pkdValue = pointsRequested * 200000;
-
-    // Update embed in the thread
-    const oldEmbed = interaction.message.embeds[0]
-      ? EmbedBuilder.from(interaction.message.embeds[0])
-      : new EmbedBuilder();
-
-    const updatedEmbed = oldEmbed
+    // Build updated embed
+    const origEmbed = interaction.message.embeds[0];
+    const updatedEmbed = EmbedBuilder.from(origEmbed)
       .setColor('Green')
-      .setTitle('✔ Claim Approved')
-      .setFields(
-        { name: 'User', value: `<@${userId}>`, inline: true },
-        { name: 'Points Deducted', value: `${pointsRequested}`, inline: true },
-        { name: 'PKD Value', value: `${pkdValue.toLocaleString()} pkd`, inline: true },
-        { name: 'Old Total', value: `${oldPoints}`, inline: true },
-        { name: 'New Total', value: `${newPoints}`, inline: true }
-      )
-      .setTimestamp();
+      .addFields({
+        name: 'Status',
+        value: `Approved by ${interaction.user}`,
+        inline: false
+      });
 
-    // Replace buttons with ONLY "Close Ticket"
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('claim_close')
-        .setLabel('Close Ticket')
-        .setStyle(ButtonStyle.Danger)
-    );
-
+    // Update the message (remove buttons)
     await interaction.update({
       embeds: [updatedEmbed],
-      components: [row]
+      components: []
     });
 
-  } catch (err) {
-    console.error('❌ Approve claim error:', err);
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({
-        content: '❌ Failed to approve claim.',
-        ephemeral: true
-      }).catch(() => {});
+    // Try to DM the user
+    try {
+      const user = await client.users.fetch(userId);
+      await user.send(
+        `✅ Your claim for **${pointsRequested} points** was approved!\n` +
+        `Your new balance is **${updatedPoints} points**.`
+      );
+    } catch {
+      // ignore DM errors
     }
+
+    // ────────────────────────────────────────────
+    // NEW FEATURE:
+    // Remove original staff ping + schedule thread deletion
+    // ────────────────────────────────────────────
+    try {
+      const thread = interaction.channel;
+
+      // Fetch first message (the staff ping)
+      const messages = await thread.messages.fetch({ limit: 10 });
+      const firstMessage = messages.last(); // oldest message in thread
+      
+      if (firstMessage && firstMessage.author.id === client.user.id) {
+        await firstMessage.edit("🔔 Claim acknowledged and processed.");
+      }
+
+      // Schedule auto-delete in 1 minute
+      setTimeout(async () => {
+        try {
+          await thread.delete();
+        } catch {
+          // thread may already be deleted
+        }
+      }, 60_000);
+
+    } catch (err) {
+      console.error("Error cleaning up claim thread:", err);
+    }
+
   }
-}
-
-// ─────────────────────────────────────────────
-// ✔ CLOSE TICKET (AUTO DELETE IN 60 sec)
-// ─────────────────────────────────────────────
-async function handleCloseTicket(client, interaction) {
-  await interaction.reply({
-    content: '🔒 Ticket will close in **60 seconds**…',
-    ephemeral: true
-  });
-
-  setTimeout(() => {
-    interaction.channel.delete().catch(() => {});
-  }, 60000);
-}
+};
