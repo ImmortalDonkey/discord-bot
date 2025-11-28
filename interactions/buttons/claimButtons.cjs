@@ -1,89 +1,130 @@
 // interactions/buttons/claimButtons.cjs
 const {
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   PermissionFlagsBits
 } = require('discord.js');
 
 const db = require('../../database.cjs');
+const { getRankName } = require('../../utils/rankSystem.cjs');
 
 module.exports = {
-  ids: ['claimapprove_'],
+  ids: ["claim_approve_", "claim_close_"],
 
   async execute(client, interaction) {
     const id = interaction.customId;
 
-    console.log("CLAIM BUTTON PRESSED:", id);
-
-    // Format: claimapprove_<userId>_<points>
-    const [, userId, pointsStr] = id.split('_');
-    const points = parseInt(pointsStr, 10);
-
-    if (!points || !userId) {
-      return interaction.reply({
-        content: '❌ Invalid button format.',
-        ephemeral: true
-      });
+    // APPROVE CLAIM
+    if (id.startsWith("claim_approve_")) {
+      return approveClaim(client, interaction);
     }
 
-    // ────────────────────────────────────────────────
-    // PERMISSION CHECK
-    // ────────────────────────────────────────────────
-    const perms = interaction.memberPermissions;
-    if (
-      !perms.has(PermissionFlagsBits.ManageGuild) &&
-      !perms.has(PermissionFlagsBits.Administrator)
-    ) {
-      return interaction.reply({
-        content: '❌ You do not have permission to approve claims.',
-        ephemeral: true
-      });
+    // CLOSE THREAD
+    if (id.startsWith("claim_close_")) {
+      return closeClaimThread(client, interaction);
     }
-
-    // ────────────────────────────────────────────────
-    // CHECK USER'S POINTS AGAIN
-    // ────────────────────────────────────────────────
-    const row = await db.getUserById(userId);
-    if (!row || row.points < points) {
-      return interaction.reply({
-        content: '❌ User no longer has enough points to claim.',
-        ephemeral: true
-      });
-    }
-
-    // Deduct points
-    await db.addPoints(userId, row.username, -points, `Claimed PKD`);
-
-    // Update embed in thread
-    const message = interaction.message;
-    const updated = EmbedBuilder.from(message.embeds[0]);
-
-    updated.addFields({
-      name: 'Status',
-      value: `✅ Approved by <@${interaction.user.id}>`
-    });
-
-    await interaction.update({
-      embeds: [updated],
-      components: [] // remove buttons
-    });
-
-    // DM user
-    try {
-      const user = await client.users.fetch(userId);
-      await user.send(
-        `💸 Your claim for **${points} points** has been approved!\n` +
-        `You now have **${row.points - points} points** remaining.`
-      );
-    } catch {}
-
-    // ────────────────────────────────────────────────
-    // AUTO DELETE THREAD AFTER 60 SECONDS
-    // ────────────────────────────────────────────────
-    const thread = interaction.channel;
-    setTimeout(() => {
-      thread.delete().catch(() => {});
-    }, 60000);
-
-    return;
   }
 };
+
+// ─────────────────────────────────────────────
+// APPROVE CLAIM BUTTON
+// ─────────────────────────────────────────────
+async function approveClaim(client, interaction) {
+  const parts = interaction.customId.split("_");
+
+  // claim_approve_<userId>_<points>
+  const userId = parts[2];
+  const pointsRequested = parseInt(parts[3], 10);
+
+  if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
+    return interaction.reply({
+      content: "❌ You do not have permission to approve claims.",
+      ephemeral: true
+    });
+  }
+
+  // Fetch user from DB
+  const row = await db.getUserById(userId);
+  if (!row) {
+    return interaction.reply({
+      content: "❌ Could not find this user in the database.",
+      ephemeral: true
+    });
+  }
+
+  const currentPoints = row.points || 0;
+  const newPoints = Math.max(0, currentPoints - pointsRequested);
+  const pkdValue = pointsRequested * 200000;
+
+  // Update DB
+  await db.updateUserPoints(userId, newPoints);
+
+  // Update embed
+  const oldEmbed = interaction.message.embeds[0];
+  const updatedEmbed = EmbedBuilder.from(oldEmbed)
+    .setColor("Green")
+    .setFields(
+      { name: "User", value: `<@${userId}>`, inline: true },
+      { name: "Rank", value: getRankName(row.lifetime_points), inline: true },
+      { name: "Points Requested", value: String(pointsRequested), inline: true },
+      { name: "PKD Value", value: `${pkdValue.toLocaleString()} pkd`, inline: true },
+      { name: "Current Points (After Claim)", value: String(newPoints), inline: true },
+      { name: "Status", value: `✅ Approved by <@${interaction.user.id}>`, inline: false }
+    );
+
+  // Add CLOSE CLAIM button
+  const closeRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`claim_close_${interaction.channel.id}`)
+      .setLabel("Close Claim")
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  // Update live message
+  await interaction.update({
+    embeds: [updatedEmbed],
+    components: [closeRow]
+  });
+
+  // DM the user
+  try {
+    const targetUser = await client.users.fetch(userId);
+    await targetUser.send(
+      `💱 Your claim of **${pointsRequested} points** was **approved**!\n` +
+      `You receive **${pkdValue.toLocaleString()} pkd**.`
+    );
+  } catch (_) {}
+
+  return;
+}
+
+// ─────────────────────────────────────────────
+// CLOSE CLAIM THREAD BUTTON
+// ─────────────────────────────────────────────
+async function closeClaimThread(client, interaction) {
+  const threadId = interaction.customId.replace("claim_close_", "");
+  const thread = interaction.guild.channels.cache.get(threadId);
+
+  if (!thread) {
+    return interaction.reply({
+      content: "❌ Could not find this thread.",
+      ephemeral: true
+    });
+  }
+
+  await interaction.reply({
+    content: "🕒 This claim thread will be deleted in **1 minute**.",
+    ephemeral: true
+  });
+
+  // Delete after 60 seconds
+  setTimeout(async () => {
+    try {
+      await thread.delete();
+    } catch (err) {
+      console.error("Failed to delete claim thread:", err);
+    }
+  }, 60000);
+}
