@@ -3,152 +3,134 @@ const {
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle,
-  ChannelType
-} = require("discord.js");
+  ButtonStyle
+} = require('discord.js');
+
+const {
+  getHighestRarityForList,
+  getRarityDisplayLabel
+} = require('../../utils/rarity.cjs');
 
 module.exports = {
-  idStartsWith: "bountyclaim_",
+  // modalHandler expects idPrefix + execute()
+  idPrefix: 'bountyclaim_',
 
+  /**
+   * customId: bountyclaim_<bountyId>
+   */
   async execute(client, interaction) {
-    const customId = interaction.customId;
-    const bountyId = customId.substring("bountyclaim_".length);
+    const customId = interaction.customId; // bountyclaim_<bountyId>
+    const bountyId = customId.replace('bountyclaim_', '');
 
-    // These maps will be stored in index.cjs and attached to client
-    const activeBounties = client.activeBounties;
-    const bountyClaims = client.bountyClaims;
+    if (!client.activeBounties) client.activeBounties = new Map();
+    const bounty = client.activeBounties.get(bountyId);
 
-    const bounty = activeBounties.get(bountyId);
-
-    if (!bounty || bounty.completed) {
+    if (!bounty) {
       return interaction.reply({
-        content: "❌ This bounty is no longer active.",
+        content: '❌ This bounty is no longer active.',
         ephemeral: true
       });
     }
 
-    const now = new Date();
-    if (now < bounty.startTime || now > bounty.endTime) {
+    const proof = interaction.fields.getTextInputValue('proof_id');
+    const extraNote = interaction.fields.getTextInputValue('extra_note') || '—';
+
+    const forumId = process.env.CLAIMS_FORUM_CHANNEL_ID;
+    if (!forumId) {
       return interaction.reply({
-        content: "❌ This bounty is not currently active.",
+        content: '❌ Claims forum not configured. Ask an admin to set `CLAIMS_FORUM_CHANNEL_ID`.',
         ephemeral: true
       });
     }
 
-    // =====================
-    // Extract user input
-    // =====================
-    const proof = interaction.fields.getTextInputValue("pokemonProof");
-    const claimId = `${bountyId}_${interaction.user.id}_${Date.now()}`;
+    const forum = await interaction.guild.channels.fetch(forumId).catch(() => null);
+    if (!forum) {
+      return interaction.reply({
+        content: '❌ Could not find the claims forum channel.',
+        ephemeral: true
+      });
+    }
 
-    const claim = {
-      id: claimId,
-      bountyId,
-      claimerId: interaction.user.id,
-      claimerName: interaction.user.username,
-      proof,
-      createdAt: new Date(),
-      status: "pending"
-    };
-    bountyClaims.set(claimId, claim);
-
-    // ===============================
-    // STAFF MENTION
-    // ===============================
-    const staffRolesEnv = process.env.STAFF_ROLES || "";
-    const staffPing = staffRolesEnv
-      .split(",")
-      .map(x => x.trim())
+    // Staff mention
+    const staffRolesEnv = process.env.STAFF_ROLES || '';
+    const staffMention = staffRolesEnv
+      .split(',')
+      .map(s => s.trim())
       .filter(Boolean)
       .map(id => `<@&${id}>`)
-      .join(" ");
+      .join(' ');
 
-    // ===============================
-    // GET CLAIMS FORUM CHANNEL
-    // ===============================
-    const claimsChannelId =
-      process.env.CLAIMS_FORUM_CHANNEL_ID || process.env.CLAIMS_CHANNEL_ID;
+    const rarityKey = getHighestRarityForList(bounty.pokemons);
+    const rarityLabel = getRarityDisplayLabel(rarityKey);
 
-    let forum = null;
-    try {
-      forum = await interaction.guild.channels.fetch(claimsChannelId);
-    } catch {}
+    const claimerId = interaction.user.id;
 
-    if (!forum || forum.type !== ChannelType.GuildForum) {
-      return interaction.reply({
-        content: "❌ Claims forum channel not found. Contact staff.",
-        ephemeral: true
-      });
-    }
+    const thread = await forum.threads.create({
+      name: `Bounty Claim • ${interaction.user.username}`,
+      message: {
+        content: `${staffMention} New bounty claim from <@${claimerId}>`
+      }
+    });
 
-    const firstTarget =
-      bounty.pokemons?.length > 0 ? bounty.pokemons[0] : "Bounty";
+    const pokemonList = bounty.pokemons.map(p => `• ${p}`).join('\n') || '—';
 
-    // ===============================
-    // CLAIM EMBED
-    // ===============================
     const embed = new EmbedBuilder()
-      .setColor("Gold")
-      .setTitle("🎯 New Bounty Claim")
-      .setDescription("A bounty claim has been submitted.")
+      .setTitle('📨 Bounty Claim Submitted')
+      .setDescription('A hunter has submitted a claim for an active bounty.')
       .addFields(
-        { name: "Bounty ID", value: bountyId, inline: true },
+        { name: 'Hunter', value: `<@${claimerId}>`, inline: true },
+        { name: 'Requester', value: `<@${bounty.requesterId}>`, inline: true },
+        { name: 'Bounty ID', value: bounty.id, inline: false },
+        { name: 'Rarity', value: rarityLabel, inline: true },
         {
-          name: "Target(s)",
-          value: (bounty.pokemons || []).join("\n") || "Unknown",
-          inline: true
-        },
-        { name: "Claimer", value: `<@${interaction.user.id}>`, inline: false },
-        {
-          name: "Reward",
-          value: `${bounty.reward.toLocaleString()} PKD`,
+          name: 'Targets',
+          value: pokemonList,
           inline: false
         },
-        { name: "Proof", value: proof || "None", inline: false }
+        {
+          name: 'Reward',
+          value: `${bounty.reward.toLocaleString()} PKD`,
+          inline: true
+        },
+        {
+          name: 'Proof / Pokémon ID',
+          value: proof,
+          inline: false
+        },
+        {
+          name: 'Extra Notes',
+          value: extraNote,
+          inline: false
+        }
       )
       .setTimestamp();
 
-    // ===============================
-    // APPROVE / DENY BUTTONS
-    // ===============================
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`approvebountyclaim_${bountyId}_${interaction.user.id}`)
-        .setLabel("Approve")
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`denybountyclaim_${bountyId}_${interaction.user.id}`)
-        .setLabel("Deny")
-        .setStyle(ButtonStyle.Danger)
+        .setCustomId(`approvebountyclaim_${bounty.id}_${claimerId}`)
+        .setLabel('Approve Claim')
+        .setStyle(ButtonStyle.Success)
     );
 
-    // ===============================
-    // CREATE THREAD INSIDE FORUM
-    // ===============================
-    try {
-      const thread = await forum.threads.create({
-        name: `Claim • ${firstTarget} • ${interaction.user.username}`,
-        message: {
-          content: staffPing || "",
-          embeds: [embed],
-          components: [row]
-        }
-      });
+    await thread.send({
+      embeds: [embed],
+      components: [row]
+    });
 
-      // Save thread id
-      claim.threadId = thread.id;
-      bountyClaims.set(claimId, claim);
-    } catch (err) {
-      console.error("❌ Failed to create claim thread:", err);
-    }
+    // OPTIONAL: track claim in memory
+    if (!client.bountyClaims) client.bountyClaims = new Map();
+    client.bountyClaims.set(`${bounty.id}:${claimerId}`, {
+      bountyId: bounty.id,
+      claimerId,
+      threadId: thread.id,
+      proof,
+      extraNote,
+      createdAt: new Date()
+    });
 
-    // ===============================
-    // REPLY TO USER
-    // ===============================
     return interaction.reply({
-      content: "✅ Your claim has been submitted for staff review.",
+      content: `✅ Your bounty claim has been submitted: <#${thread.id}>`,
       ephemeral: true
     });
   }
 };
-
