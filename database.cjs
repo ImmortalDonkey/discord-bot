@@ -66,6 +66,7 @@ async function ensureColumn(table, column, definition) {
 
 // Initialise database
 async function init() {
+  // Points + logs (existing)
   await run(`CREATE TABLE IF NOT EXISTS points (
     discord_id TEXT PRIMARY KEY,
     username TEXT,
@@ -84,6 +85,23 @@ async function init() {
 
   await ensureColumn('points', 'lifetime_points', 'INTEGER DEFAULT 0');
   await ensureColumn('points', 'rank_name', 'TEXT');
+
+  // NEW: scheduled bounties (Option C – only future ones)
+  await run(`CREATE TABLE IF NOT EXISTS scheduled_bounties (
+    id TEXT PRIMARY KEY,
+    guild_id TEXT,
+    requester_id TEXT,
+    requester_name TEXT,
+    pokemons TEXT,               -- JSON array of strings
+    notes TEXT,
+    start_time INTEGER,          -- ms since epoch
+    end_time INTEGER,            -- ms since epoch
+    duration_hours INTEGER,
+    reward INTEGER,
+    created_at INTEGER,
+    announcement_channel_id TEXT,
+    announcement_message_id TEXT
+  )`);
 }
 
 // Fetch user by ID
@@ -141,7 +159,7 @@ async function addPoints(discordId, username, delta, reason = '') {
   return getUserById(discordId);
 }
 
-// NEW FUNCTION — required by claim buttons
+// Required by claim buttons
 async function updateUserPoints(discordId, newPoints) {
   const ts = Date.now();
 
@@ -177,14 +195,81 @@ async function clearAllPoints() {
   await run(`DELETE FROM points`);
 }
 
+// ─────────────────────────────────────────────
+// NEW: Scheduled bounty helpers (Option C)
+// ─────────────────────────────────────────────
+
+/**
+ * Store a scheduled bounty for future activation.
+ * Only used for bounties that START IN THE FUTURE.
+ */
+async function saveScheduledBounty(bounty, announcementChannelId, announcementMessageId) {
+  const pokemonsJson = JSON.stringify(bounty.pokemons || []);
+  const createdAt = bounty.createdAt instanceof Date
+    ? bounty.createdAt.getTime()
+    : Date.now();
+
+  await run(
+    `INSERT OR REPLACE INTO scheduled_bounties (
+      id,
+      guild_id,
+      requester_id,
+      requester_name,
+      pokemons,
+      notes,
+      start_time,
+      end_time,
+      duration_hours,
+      reward,
+      created_at,
+      announcement_channel_id,
+      announcement_message_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      bounty.id,
+      bounty.guildId,
+      bounty.requesterId,
+      bounty.requesterName,
+      pokemonsJson,
+      bounty.notes || '',
+      bounty.startTime.getTime(),
+      bounty.endTime.getTime(),
+      bounty.durationHours,
+      bounty.reward,
+      createdAt,
+      announcementChannelId || null,
+      announcementMessageId || null
+    ]
+  );
+}
+
+/**
+ * Remove a scheduled bounty once it has started (or been cancelled).
+ */
+async function deleteScheduledBounty(bountyId) {
+  await run(`DELETE FROM scheduled_bounties WHERE id = ?`, [bountyId]);
+}
+
+/**
+ * Load all scheduled bounties (used on startup to restore timers).
+ */
+async function getAllScheduledBounties() {
+  return await all(`SELECT * FROM scheduled_bounties`, []);
+}
+
 module.exports = {
   db,
   init,
   getUserById,
   getUserByUsername,
   addPoints,
-  updateUserPoints,  // ← REQUIRED EXPORT
+  updateUserPoints,
   getLeaderboard,
   getAllUsers,
-  clearAllPoints
+  clearAllPoints,
+
+  // new scheduled-bounty helpers
+  saveScheduledBounty,
+  deleteScheduledBounty,
+  getAllScheduledBounties
 };
