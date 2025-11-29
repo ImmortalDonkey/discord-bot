@@ -5,7 +5,7 @@
  */
 function clampHours(h) {
   if (!h || isNaN(h)) return 6;
-  let hh = parseInt(h);
+  let hh = parseInt(h, 10);
   if (hh < 1) hh = 1;
   if (hh > 72) hh = 72;
   return hh;
@@ -13,6 +13,7 @@ function clampHours(h) {
 
 /**
  * Takes "HH:MM" (e.g. "14:00") and returns the hour number 0–23.
+ * "now" returns 0 (caller should special-case it).
  */
 function parseHourFromStartTimeString(str) {
   if (!str || typeof str !== 'string') return 0;
@@ -26,16 +27,17 @@ function parseHourFromStartTimeString(str) {
 }
 
 /**
- * Returns a Date for the next occurrence of a given hour.
+ * Returns a Date for the next occurrence of a given hour of day
+ * in the server's local timezone (your Pi = UK time).
  */
 function getNextOccurrenceOfHour(hour) {
   const now = new Date();
-  const start = new Date(now);
 
+  const start = new Date(now);
   start.setMinutes(0, 0, 0);
   start.setHours(hour);
 
-  // If today’s time already passed, schedule tomorrow
+  // If that time is already passed, move to tomorrow.
   if (start <= now) {
     start.setDate(start.getDate() + 1);
   }
@@ -48,4 +50,3 @@ module.exports = {
   parseHourFromStartTimeString,
   getNextOccurrenceOfHour
 };
-
