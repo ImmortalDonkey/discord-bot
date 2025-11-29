@@ -86,9 +86,12 @@ module.exports = {
     ),
 
   async execute(client, interaction) {
+    const pendingBounties = client.pendingBounties;
     const member = interaction.member;
 
-    // Role check
+    // ───────────────────────────────
+    // ROLE CHECK
+    // ───────────────────────────────
     const bountyRoleId = process.env.ROLE_BOUNTY_HUNTER || null;
     let hasRole = false;
 
@@ -107,7 +110,9 @@ module.exports = {
       });
     }
 
-    // Options
+    // ───────────────────────────────
+    // Extract options
+    // ───────────────────────────────
     const p1 = interaction.options.getString('pokemon1');
     const p2 = interaction.options.getString('pokemon2');
     const p3 = interaction.options.getString('pokemon3');
@@ -121,7 +126,9 @@ module.exports = {
     const durationHours = clampHours(durationHoursRaw);
     const durationMs = durationHours * 3600000;
 
-    // Start/end time
+    // ───────────────────────────────
+    // START + END (SERVER TIME = UK)
+    // ───────────────────────────────
     let startTime;
     if (startTimeStr === 'now') {
       startTime = new Date();
@@ -131,27 +138,42 @@ module.exports = {
     }
 
     const endTime = new Date(startTime.getTime() + durationMs);
+
     const bountyId = `${Date.now()}_${interaction.user.id}`;
 
+    // Rarity
+    const rarityKey = getHighestRarityForList(pokemons);
+    const rarityLabel = getRarityDisplayLabel(rarityKey);
+
+    // ───────────────────────────────
+    // STORE NEW BOUNTY (IN MEMORY)
+    // ───────────────────────────────
     const bounty = {
       id: bountyId,
+      guildId: interaction.guildId,
       requesterId: interaction.user.id,
-      requesterName: interaction.user.username,
+      requesterName: interaction.member?.nickname || interaction.user.username,
       pokemons,
       notes,
-      startTime,
-      endTime,
+      startTime: startTime.getTime(),   // timestamps (ms)
+      endTime: endTime.getTime(),
       durationHours,
       reward,
-      createdAt: new Date(),
-      startsNow: startTimeStr === 'now'
+      createdAt: Date.now(),
+      startsNow: startTimeStr === 'now',
+      rarityKey,
+      rarityLabel,
+      announcementMessageId: null,
+      announcementChannelId: null,
+      cardMessageId: null,
+      cardChannelId: null
     };
 
-    // Store in pending
-    if (!client.pendingBounties) client.pendingBounties = new Map();
-    client.pendingBounties.set(bountyId, bounty);
+    pendingBounties.set(bountyId, bounty);
 
-    // Channel to send staff review embed
+    // ───────────────────────────────
+    // CHANNEL RESOLUTION
+    // ───────────────────────────────
     const requestChannelId = process.env.BOUNTY_REQUEST_CHANNEL_ID;
     const requestChannel = requestChannelId
       ? await interaction.guild.channels.fetch(requestChannelId).catch(() => null)
@@ -173,19 +195,18 @@ module.exports = {
       .map(id => `<@&${id}>`)
       .join(' ');
 
-    // Rarity
-    const rarityKey = getHighestRarityForList(pokemons);
-    const rarityLabel = getRarityDisplayLabel(rarityKey);
-
     const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n');
     const startUnix = Math.floor(startTime.getTime() / 1000);
     const endUnix = Math.floor(endTime.getTime() / 1000);
 
     const startFieldValue =
       startTimeStr === 'now'
-        ? `<t:${startUnix}:F> (Starts on approval)`
+        ? `<t:${startUnix}:F> (Start on approval / immediately)`
         : `<t:${startUnix}:F>`;
 
+    // ───────────────────────────────
+    // EMBED TO STAFF CHANNEL
+    // ───────────────────────────────
     const embed = new EmbedBuilder()
       .setTitle('📝 New Bounty Request')
       .setDescription('A new bounty has been requested and is awaiting staff approval.')
@@ -193,7 +214,7 @@ module.exports = {
         { name: 'Trainer', value: `<@${interaction.user.id}>`, inline: true },
         { name: 'Rarity', value: rarityLabel, inline: true },
         { name: 'Reward', value: `${reward.toLocaleString()} PKD`, inline: false },
-        { name: 'Pokémon Targets', value: pokemonListLines || '—', inline: false },
+        { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
         { name: 'Requested Start', value: startFieldValue, inline: false },
         { name: 'Requested End', value: `<t:${endUnix}:F>`, inline: false },
         { name: 'Duration', value: `${durationHours} hour(s)`, inline: true },
