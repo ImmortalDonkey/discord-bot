@@ -4,14 +4,16 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  PermissionFlagsBits
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require("discord.js");
 
 const { createBountyCard } = require("../../renderers/cardRenderer.cjs");
 const { getRankName } = require("../../utils/rankSystem.cjs");
 const {
   getBountyRarityLabel,
-  getHighestRarityForList
+  getHighestRarityForList,
 } = require("../../utils/rarity.cjs");
 
 module.exports = {
@@ -31,11 +33,11 @@ module.exports = {
       if (!bounty) {
         return interaction.reply({
           content: "❌ This bounty no longer exists.",
-          flags: 64
+          flags: 64,
         });
       }
 
-      // Convert timestamps back to Date (needed for card)
+      // Convert stored timestamps back into Date objects
       bounty.startTime = new Date(bounty.startTime);
       bounty.endTime = new Date(bounty.endTime);
 
@@ -44,36 +46,45 @@ module.exports = {
 
       // ANNOUNCEMENT
       const announceId = process.env.BOUNTY_ANNOUNCE_CHANNEL_ID;
-      const announceChannel =
-        interaction.guild.channels.cache.get(announceId);
+      const announceChannel = interaction.guild.channels.cache.get(announceId);
 
       if (announceChannel) {
         const rarity = getHighestRarityForList(bounty.pokemons);
         const rarityLabel = getBountyRarityLabel(rarity);
 
-        const rolePing = process.env[`ROLE_${rarity.toUpperCase()}`] ||
-                         process.env.ROLE_BOUNTY_ALL ||
-                         "";
+        const rolePing =
+          process.env[`ROLE_${rarity.toUpperCase()}`] ||
+          process.env.ROLE_BOUNTY_ALL ||
+          "";
 
-        await announceChannel.send({
-          content: rolePing ? `<@&${rolePing}>` : "",
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("📢 Bounty Scheduled")
-              .setDescription("This bounty will begin soon.")
-              .addFields(
-                { name: "Trainer", value: `<@${bounty.requesterId}>` },
-                { name: "Rarity", value: rarityLabel },
-                { name: "Starts", value: `<t:${Math.floor(bounty.startTime/1000)}:F>` },
-                { name: "Reward", value: `${bounty.reward.toLocaleString()} PKD` }
-              )
-          ]
-        }).then(msg => { bounty.announcementId = msg.id; });
+        await announceChannel
+          .send({
+            content: rolePing ? `<@&${rolePing}>` : "",
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("📢 Bounty Scheduled")
+                .setDescription("This bounty will begin soon.")
+                .addFields(
+                  { name: "Trainer", value: `<@${bounty.requesterId}>` },
+                  { name: "Rarity", value: rarityLabel },
+                  {
+                    name: "Starts",
+                    value: `<t:${Math.floor(bounty.startTime / 1000)}:F>`,
+                  },
+                  {
+                    name: "Reward",
+                    value: `${bounty.reward.toLocaleString()} PKD`,
+                  }
+                ),
+            ],
+          })
+          .then((msg) => {
+            bounty.announcementId = msg.id;
+            console.log("Announcement sent with ID:", msg.id);
+          });
       }
 
-      await interaction.reply({ content: "✅ Bounty approved!", flags: 64 });
-
-      return;
+      return interaction.reply({ content: "✅ Bounty approved!", flags: 64 });
     }
 
     // -------------------------------------------------------
@@ -85,7 +96,7 @@ module.exports = {
 
       return interaction.reply({
         content: "❌ Bounty denied.",
-        flags: 64
+        flags: 64,
       });
     }
 
@@ -99,40 +110,37 @@ module.exports = {
       if (!bounty) {
         return interaction.reply({
           content: "❌ This bounty is no longer active.",
-          flags: 64
+          flags: 64,
         });
       }
 
-      return interaction.showModal({
-        customId: `claimModal_${bountyId}`,
-        title: "Submit Claim",
-        components: [
-          {
-            type: 1,
-            components: [
-              {
-                type: 4,
-                customId: "pokemonId",
-                label: "Pokémon ID (required)",
-                style: 1,
-                required: true
-              }
-            ]
-          },
-          {
-            type: 1,
-            components: [
-              {
-                type: 4,
-                customId: "proof",
-                label: "Screenshot link (optional)",
-                style: 2,
-                required: false
-              }
-            ]
-          }
-        ]
-      });
+      // Build the correct modal ID your modal handler expects
+      const modalCustomId = `bounty_claim_${bountyId}_${interaction.user.id}`;
+
+      const modal = new ModalBuilder()
+        .setCustomId(modalCustomId)
+        .setTitle("Submit Bounty Claim");
+
+      // Pokémon ID (required)
+      const pokemonIdInput = new TextInputBuilder()
+        .setCustomId("pokemon_id")
+        .setLabel("Pokémon ID (required)")
+        .setRequired(true)
+        .setStyle(TextInputStyle.Short);
+
+      // Screenshot / notes (optional)
+      const proofInput = new TextInputBuilder()
+        .setCustomId("proof_optional")
+        .setLabel("Screenshot link / notes (optional)")
+        .setRequired(false)
+        .setStyle(TextInputStyle.Paragraph);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(pokemonIdInput),
+        new ActionRowBuilder().addComponents(proofInput)
+      );
+
+      return interaction.showModal(modal);
     }
-  }
+  },
 };
