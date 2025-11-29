@@ -7,10 +7,7 @@ const {
   ButtonStyle
 } = require('discord.js');
 
-// Correct utils (names from your /utils folder)
 const {
-  rarityGroups,
-  rarityPriority,
   getHighestRarityForList,
   getRarityDisplayLabel
 } = require('../../utils/rarity.cjs');
@@ -89,7 +86,6 @@ module.exports = {
     ),
 
   async execute(client, interaction) {
-    const pendingBounties = client.pendingBounties; // ONLY thing we require from client
     const member = interaction.member;
 
     // ───────────────────────────────
@@ -130,7 +126,7 @@ module.exports = {
     const durationMs = durationHours * 3600000;
 
     // ───────────────────────────────
-    // START TIME
+    // START / END TIME
     // ───────────────────────────────
     let startTime;
     if (startTimeStr === 'now') {
@@ -145,8 +141,32 @@ module.exports = {
     const bountyId = `${Date.now()}_${interaction.user.id}`;
 
     // ───────────────────────────────
-    // STORE NEW BOUNTY
+    // Rarity + ping roles
     // ───────────────────────────────
+    const rarityKey = getHighestRarityForList(pokemons);
+    const rarityLabel = getRarityDisplayLabel(rarityKey);
+
+    // Map rarity -> env var name
+    const rarityEnvMap = {
+      paradox: 'ROLE_PARADOX',
+      roamerMonth: 'ROLE_ROAMERMONTH',
+      legendary: 'ROLE_LEGENDARY',
+      rare: 'ROLE_RARE',
+      common: 'ROLE_COMMON'
+    };
+
+    const bountyAllRole = process.env.ROLE_BOUNTY_ALL || null;
+    const rarityEnvKey = rarityEnvMap[rarityKey];
+    const rarityRoleId = rarityEnvKey ? process.env[rarityEnvKey] : null;
+
+    const pingRoleIds = [bountyAllRole, rarityRoleId].filter(Boolean);
+
+    // ───────────────────────────────
+    // STORE NEW BOUNTY on client
+    // ───────────────────────────────
+    if (!client.pendingBounties) client.pendingBounties = new Map();
+    if (!client.activeBounties) client.activeBounties = new Map();
+
     const bounty = {
       id: bountyId,
       requesterId: interaction.user.id,
@@ -158,10 +178,15 @@ module.exports = {
       durationHours,
       reward,
       createdAt: new Date(),
-      startsNow: startTimeStr === 'now'
+      startsNow: startTimeStr === 'now',
+
+      // for later use (announcements / cards / pings)
+      rarityKey,
+      rarityLabel,
+      pingRoleIds
     };
 
-    pendingBounties.set(bountyId, bounty);
+    client.pendingBounties.set(bountyId, bounty);
 
     // ───────────────────────────────
     // CHANNEL RESOLUTION
@@ -187,17 +212,14 @@ module.exports = {
       .map(id => `<@&${id}>`)
       .join(' ');
 
-    // Rarity
-    const rarity = getHighestRarityForList(pokemons);
-    const rarityLabel = getRarityDisplayLabel(rarity);
+    const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n') || 'None';
 
-    const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n');
     const startUnix = Math.floor(startTime.getTime() / 1000);
     const endUnix = Math.floor(endTime.getTime() / 1000);
 
     const startFieldValue =
       startTimeStr === 'now'
-        ? `<t:${startUnix}:F> (Starts on approval)`
+        ? `<t:${startUnix}:F> (Starts immediately on approval)`
         : `<t:${startUnix}:F>`;
 
     // ───────────────────────────────
@@ -216,6 +238,7 @@ module.exports = {
         { name: 'Duration', value: `${durationHours} hour(s)`, inline: true },
         { name: 'Note', value: notes, inline: false }
       )
+      .setFooter({ text: `Bounty ID: ${bountyId}` })
       .setTimestamp();
 
     const buttons = new ActionRowBuilder().addComponents(
