@@ -34,67 +34,120 @@ module.exports = {
         });
       }
 
-      // Convert back into Date() objects
+      // Convert timestamp strings → Date()
       bounty.startTime = new Date(bounty.startTime);
       bounty.endTime = new Date(bounty.endTime);
 
       client.pendingBounties.delete(bountyId);
       client.activeBounties.set(bountyId, bounty);
 
-      // ==================================================================
-      // 📢 SEND ANNOUNCEMENT TO BOUNTY-HUNTING CHANNEL
-      // ==================================================================
-      const announceId = process.env.BOUNTY_CHANNEL_ID;
-      const announceChannel =
-        interaction.guild.channels.cache.get(announceId);
+      const bountyChannelId = process.env.BOUNTY_CHANNEL_ID;
+      const bountyChannel = interaction.guild.channels.cache.get(bountyChannelId);
 
-      if (announceChannel) {
-        const rarity = getHighestRarityForList(bounty.pokemons);
-        const rarityLabel = getRarityDisplayLabel(rarity);
-
-        // Correct rarity ping role
-        const roleEnvName = `ROLE_${rarity.toUpperCase()}`;
-        const rolePing =
-          process.env[roleEnvName] ||
-          process.env.ROLE_BOUNTY_ALL ||
-          "";
-
-        const startUnix = Math.floor(bounty.startTime.getTime() / 1000);
-
-        await announceChannel
-          .send({
-            content: rolePing ? `<@&${rolePing}>` : "",
-            embeds: [
-              new EmbedBuilder()
-                .setTitle("📢 Bounty Scheduled")
-                .setDescription("A new bounty has been approved and is scheduled to begin.")
-                .addFields(
-                  { name: "Trainer", value: `<@${bounty.requesterId}>`, inline: true },
-                  { name: "Rarity", value: rarityLabel, inline: true },
-                  {
-                    name: "Starts",
-                    value: `<t:${startUnix}:F>`,
-                    inline: true,
-                  },
-                  {
-                    name: "Reward",
-                    value: `${Number(bounty.reward).toLocaleString()} PKD`,
-                    inline: false,
-                  }
-                )
-            ]
-          })
-          .then((msg) => {
-            bounty.announcementId = msg.id;
-          });
+      if (!bountyChannel) {
+        return interaction.reply({
+          content: "❌ Missing BOUNTY_CHANNEL_ID.",
+          flags: 64,
+        });
       }
 
-      await interaction.reply({
-        content: "✅ Bounty approved!",
-        flags: 64,
+      const rarity = getHighestRarityForList(bounty.pokemons);
+      const rarityLabel = getRarityDisplayLabel(rarity);
+
+      const roleEnvName = `ROLE_${rarity.toUpperCase()}`;
+      const rolePing =
+        process.env[roleEnvName] ||
+        process.env.ROLE_BOUNTY_ALL ||
+        "";
+
+      // ================================
+      // CASE 1: STARTS NOW → post card immediately
+      // ================================
+      if (bounty.startsNow) {
+        const buffer = await createBountyCard(
+          bounty,
+          interaction.guild.members.cache.get(bounty.requesterId)
+        );
+
+        await bountyChannel.send({
+          content: rolePing ? `<@&${rolePing}>` : "",
+          files: [{ attachment: buffer, name: "bounty-card.png" }],
+          components: [
+            new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`claimbounty_${bountyId}`)
+                .setLabel("Claim Bounty")
+                .setStyle(ButtonStyle.Success)
+            ),
+          ],
+        });
+
+        return interaction.reply({
+          content: "✅ Bounty approved & posted!",
+          flags: 64,
+        });
+      }
+
+      // ================================
+      // CASE 2: SCHEDULED → announcement now, card later
+      // ================================
+      const startUnix = Math.floor(bounty.startTime.getTime() / 1000);
+
+      const announceMsg = await bountyChannel.send({
+        content: rolePing ? `<@&${rolePing}>` : "",
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("📢 Bounty Scheduled")
+            .setDescription("A new bounty has been approved and will start soon.")
+            .addFields(
+              { name: "Trainer", value: `<@${bounty.requesterId}>`, inline: true },
+              { name: "Rarity", value: rarityLabel, inline: true },
+              {
+                name: "Starts",
+                value: `<t:${startUnix}:F>`,
+                inline: true,
+              },
+              {
+                name: "Reward",
+                value: `${Number(bounty.reward).toLocaleString()} PKD`,
+                inline: false,
+              }
+            )
+        ]
       });
 
-      return;
+      bounty.announcementId = announceMsg.id;
+
+      // Schedule activation
+      const delay = bounty.startTime.getTime() - Date.now();
+      setTimeout(async () => {
+        try {
+          const member = interaction.guild.members.cache.get(bounty.requesterId);
+          const buffer = await createBountyCard(bounty, member);
+
+          await announceMsg.delete().catch(() => {});
+
+          await bountyChannel.send({
+            content: rolePing ? `<@&${rolePing}>` : "",
+            files: [{ attachment: buffer, name: "bounty-card.png" }],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`claimbounty_${bountyId}`)
+                  .setLabel("Claim Bounty")
+                  .setStyle(ButtonStyle.Success)
+              ),
+            ],
+          });
+        } catch (err) {
+          console.error("Bounty activation failed:", err);
+        }
+      }, delay);
+
+      return interaction.reply({
+        content: "⏳ Bounty approved & scheduled!",
+        flags: 64,
+      });
     }
 
     // ============================================================
@@ -106,7 +159,7 @@ module.exports = {
       client.pendingBounties.delete(bountyId);
 
       return interaction.reply({
-        content: "❌ Bounty denied and removed.",
+        content: "❌ Bounty denied.",
         flags: 64,
       });
     }
@@ -125,32 +178,30 @@ module.exports = {
         });
       }
 
-      // OPEN CLAIM FORM MODAL
+      // Open modal (correct format)
       return interaction.showModal({
         customId: `bounty_claim_${bountyId}_${interaction.user.id}`,
-        title: "Submit Bounty Claim",
+        title: "Submit Claim",
         components: [
-          // Required Pokémon ID field
           {
             type: 1,
             components: [
               {
                 type: 4,
                 customId: "pokemon_id",
-                label: "Pokémon ID (required)",
+                label: "Pokémon ID",
                 style: 1,
                 required: true,
               },
             ],
           },
-          // Optional screenshot/proof
           {
             type: 1,
             components: [
               {
                 type: 4,
                 customId: "proof_optional",
-                label: "Screenshot Link / Notes (optional)",
+                label: "Screenshot / Notes (optional)",
                 style: 2,
                 required: false,
               },
