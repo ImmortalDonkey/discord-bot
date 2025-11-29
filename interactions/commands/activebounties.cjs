@@ -1,93 +1,102 @@
 // interactions/commands/activebounties.cjs
-const { SlashCommandBuilder } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
+const {
+  SlashCommandBuilder
+} = require('discord.js');
+
 const { createBountyCard } = require('../../renderers/cardRenderer.cjs');
-const { getRankName } = require('../../utils/rankSystem.cjs');
-const { getHighestRarityForList, getRarityDisplayLabel } = require('../../utils/rarity.cjs');
 const db = require('../../database.cjs');
+const { getRankName } = require('../../utils/rankSystem.cjs');
+const {
+  getHighestRarityForList,
+  getRarityDisplayLabel
+} = require('../../utils/rarity.cjs');
+
+function formatTimeLabel(date) {
+  if (!(date instanceof Date)) return 'Unknown';
+  return `<t:${Math.floor(date.getTime() / 1000)}:F>`;
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('activebounties')
-    .setDescription('Show all currently active bounties (reposts their cards)'),
+    .setDescription('View all currently active bounties'),
 
   async execute(client, interaction) {
-    const active = client.activeBounties;
-    if (!active || active.size === 0) {
+    if (!client.activeBounties || client.activeBounties.size === 0) {
       return interaction.reply({
-        content: '📭 There are currently no active bounties.',
+        content: 'ℹ There are currently no active bounties.',
         ephemeral: true
       });
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.reply({
+      content: '📋 Posting all active bounties...',
+      ephemeral: true
+    });
 
-    const channel = interaction.channel;
-    const guild = interaction.guild;
+    const bountyChannelId = process.env.BOUNTY_CHANNEL_ID || interaction.channel.id;
+    const bountyChannel = bountyChannelId
+      ? interaction.guild.channels.cache.get(bountyChannelId)
+        || await interaction.guild.channels.fetch(bountyChannelId).catch(() => null)
+      : interaction.channel;
 
-    for (const bounty of active.values()) {
-      try {
-        // Try to reuse existing card if present
-        let cardPath = bounty.cardPath;
-
-        if (!cardPath || !fs.existsSync(cardPath)) {
-          // Rebuild options + regenerate card
-          const member = await guild.members.fetch(bounty.requesterId).catch(() => null);
-          const user = member?.user || (await client.users.fetch(bounty.requesterId).catch(() => null));
-
-          const username =
-            member?.displayName ||
-            user?.username ||
-            bounty.requesterName ||
-            'Unknown Trainer';
-
-          const avatarUrl =
-            user?.displayAvatarURL({ extension: 'png', size: 512 }) ||
-            client.user.displayAvatarURL({ extension: 'png', size: 512 });
-
-          const row = await db.getUserById(bounty.requesterId).catch(() => null);
-          const lifetime = row?.lifetime_points || 0;
-          const rankName = getRankName(lifetime);
-
-          const pokemons = bounty.pokemons || [];
-          const rarityKey = getHighestRarityForList(pokemons);
-          const rarityLabel = getRarityDisplayLabel(rarityKey);
-
-          const startLabel = bounty.startTime.toLocaleString('en-GB', { hour12: false });
-          const endLabel = bounty.endTime.toLocaleString('en-GB', { hour12: false });
-          const durationLabel = `${bounty.durationHours} hour(s)`;
-          const rewardLabel = `${bounty.reward.toLocaleString()} PKD`;
-
-          const options = {
-            bountyId: bounty.id,
-            username,
-            rankName,
-            rarityKey,
-            rarityLabel,
-            pokemons,
-            startLabel,
-            endLabel,
-            durationLabel,
-            note: bounty.notes || '',
-            rewardLabel,
-            avatarUrl
-          };
-
-          cardPath = await createBountyCard(options);
-          bounty.cardPath = cardPath;
-        }
-
-        await channel.send({
-          files: [cardPath]
-        });
-      } catch (err) {
-        console.error('❌ Failed to send active bounty card:', err);
-      }
+    if (!bountyChannel) {
+      return interaction.followUp({
+        content: '❌ Could not find bounty channel.',
+        ephemeral: true
+      });
     }
 
-    return interaction.editReply({
-      content: '📜 Posted all active bounty cards in this channel.'
-    });
+    for (const bounty of client.activeBounties.values()) {
+      try {
+        const rarityKey = getHighestRarityForList(bounty.pokemons);
+        const rarityLabel = getRarityDisplayLabel(rarityKey);
+
+        let displayName = bounty.requesterName;
+        let avatarUrl = interaction.client.user.displayAvatarURL({
+          extension: 'png',
+          size: 512
+        });
+        let rankName = 'Rookie Trainer';
+
+        try {
+          const member = await interaction.guild.members.fetch(bounty.requesterId);
+          displayName = member.displayName || member.user.username;
+          avatarUrl = member.displayAvatarURL({ extension: 'png', size: 512 });
+
+          const row = await db.getUserById(bounty.requesterId);
+          const lifetime = row?.lifetime_points || 0;
+          rankName = getRankName(lifetime);
+        } catch {
+          // ignore
+        }
+
+        const rewardLabel = `${bounty.reward.toLocaleString()} PKD`;
+        const startLabel = formatTimeLabel(bounty.startTime);
+        const endLabel = formatTimeLabel(bounty.endTime);
+        const durationLabel = `${bounty.durationHours} hour(s)`;
+
+        const buffer = await createBountyCard({
+          bountyId: bounty.id,
+          username: displayName,
+          rankName,
+          rarityKey,
+          rarityLabel,
+          pokemons: bounty.pokemons,
+          startLabel,
+          endLabel,
+          durationLabel,
+          note: bounty.notes,
+          rewardLabel,
+          avatarUrl
+        });
+
+        await bountyChannel.send({
+          files: [{ attachment: buffer, name: 'bounty-card.png' }]
+        });
+      } catch (err) {
+        console.error('Error posting active bounty card:', err);
+      }
+    }
   }
 };
