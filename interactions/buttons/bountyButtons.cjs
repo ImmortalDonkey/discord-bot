@@ -3,7 +3,11 @@ const {
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  PermissionFlagsBits,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle
 } = require('discord.js');
 
 const { createBountyCard } = require('../../renderers/cardRenderer.cjs');
@@ -20,292 +24,326 @@ module.exports = {
   async execute(client, interaction) {
     const id = interaction.customId;
 
-    // --------------------------------------------------------------------
-    // 1. APPROVE BOUNTY
-    // --------------------------------------------------------------------
     if (id.startsWith('approvebounty_')) {
-      const bountyId = id.replace('approvebounty_', '');
-      const bounty = client.pendingBounties.get(bountyId);
-
-      if (!bounty) {
-        return interaction.reply({
-          content: '❌ Could not find that bounty. It may already be processed.',
-          flags: 64
-        });
-      }
-
-      // Move from pending → approved / active bucket
-      client.pendingBounties.delete(bountyId);
-      bounty.approved = true;
-      client.activeBounties.set(bountyId, bounty);
-
-      const now = Date.now();
-      const startTime = bounty.startTime.getTime();
-
-      // If "Start Now" or start time already passed → activate immediately
-      if (bounty.startsNow || startTime <= now) {
-        await activateBounty(interaction, client, bounty);
-        return;
-      }
-
-      // Otherwise: scheduled bounty → post announcement and schedule activation
-      const { rarityKey, rarityLabel } = getRarityInfo(bounty);
-      const announceMsg = await postScheduledAnnouncement(
-        interaction,
-        bounty,
-        rarityKey,
-        rarityLabel
-      );
-
-      bounty.announcementMessageId = announceMsg.id;
-      bounty.announcementChannelId = announceMsg.channel.id;
-      client.activeBounties.set(bounty.id, bounty);
-
-      const delay = startTime - now;
-
-      await interaction.reply({
-        content:
-          `📅 **Bounty approved.** A scheduled announcement has been posted.\n` +
-          `This bounty will start automatically at <t:${Math.floor(
-            startTime / 1000
-          )}:F>.`
-      });
-
-      setTimeout(async () => {
-        await activateBounty(interaction, client, bounty);
-      }, delay);
-
-      return;
+      return handleApproveBounty(client, interaction);
     }
 
-    // --------------------------------------------------------------------
-    // 2. DENY BOUNTY
-    // --------------------------------------------------------------------
     if (id.startsWith('denybounty_')) {
-      const bountyId = id.replace('denybounty_', '');
-      const bounty = client.pendingBounties.get(bountyId);
-
-      if (!bounty) {
-        return interaction.reply({
-          content: '❌ Could not find that bounty.',
-          flags: 64
-        });
-      }
-
-      client.pendingBounties.delete(bountyId);
-
-      return interaction.reply({
-        content: '❌ Bounty denied.',
-        flags: 64
-      });
+      return handleDenyBounty(client, interaction);
     }
 
-    // --------------------------------------------------------------------
-    // 3. CLAIM BOUNTY (still simple for now)
-    // --------------------------------------------------------------------
     if (id.startsWith('claimbounty_')) {
-      const bountyId = id.replace('claimbounty_', '');
-      const bounty = client.activeBounties.get(bountyId);
-
-      if (!bounty) {
-        return interaction.reply({
-          content: '❌ This bounty is no longer active.',
-          flags: 64
-        });
-      }
-
-      const userId = interaction.user.id;
-
-      if (!client.bountyClaims.has(bountyId)) {
-        client.bountyClaims.set(bountyId, new Set());
-      }
-      const claimSet = client.bountyClaims.get(bountyId);
-
-      if (claimSet.has(userId)) {
-        return interaction.reply({
-          content: '⚠ You have already claimed this bounty.',
-          flags: 64
-        });
-      }
-
-      claimSet.add(userId);
-
-      return interaction.reply({
-        content: '📝 Claim submitted! Staff will verify shortly.',
-        flags: 64
-      });
+      return handleClaimBounty(client, interaction);
     }
   }
 };
 
-//
-// ────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
 // Helpers
-// ────────────────────────────────────────────────────────────
-//
-
-// Figure out rarity key + label from the bounty's pokemon list
-function getRarityInfo(bounty) {
-  const rarityKey = getHighestRarityForList(bounty.pokemons || []);
-  const rarityLabel = getRarityDisplayLabel(rarityKey);
-  return { rarityKey, rarityLabel };
-}
-
-// Build mention string based on rarity + ROLE_BOUNTY_ALL
-function getRarityPing(rarityKey) {
-  const envMap = {
-    roamerMonth: 'ROLE_ROAMERMONTH',
-    paradox: 'ROLE_PARADOX',
-    legendary: 'ROLE_LEGENDARY',
-    rare: 'ROLE_RARE',
-    common: 'ROLE_COMMON'
+// ─────────────────────────────────────────────
+function getRarityRoleMention(rarityKey) {
+  const map = {
+    paradox: process.env.ROLE_BOUNTY_PARADOX,
+    roamerMonth: process.env.ROLE_BOUNTY_ROAMER_MONTH,
+    legendary: process.env.ROLE_BOUNTY_LEGENDARY,
+    rare: process.env.ROLE_BOUNTY_LEGENDARY,
+    common: process.env.ROLE_BOUNTY_COMMON
   };
 
-  const allRoleId = process.env.ROLE_BOUNTY_ALL;
-  const rarityEnv = envMap[rarityKey];
-  const rarityRoleId = rarityEnv ? process.env[rarityEnv] : null;
+  const roleId = map[rarityKey] || process.env.ROLE_BOUNTY_ALL;
 
-  const mentions = [];
-
-  if (rarityRoleId) mentions.push(`<@&${rarityRoleId}>`);
-  if (allRoleId) mentions.push(`<@&${allRoleId}>`);
-
-  return mentions.join(' ');
+  if (!roleId) return '';
+  return `<@&${roleId}>`;
 }
 
-// Post the scheduled announcement embed (before the bounty starts)
-async function postScheduledAnnouncement(interaction, bounty, rarityKey, rarityLabel) {
-  const bountyChannelId = process.env.BOUNTY_CHANNEL_ID;
-  const channel = interaction.guild.channels.cache.get(bountyChannelId);
-
-  if (!channel) {
-    throw new Error('BOUNTY_CHANNEL_ID is not a valid channel.');
-  }
-
-  const pokemonList = bounty.pokemons.map(p => `• ${p}`).join('\n');
-  const startLabel = `<t:${Math.floor(bounty.startTime.getTime() / 1000)}:F>`;
-  const endLabel = `<t:${Math.floor(bounty.endTime.getTime() / 1000)}:F>`;
-
-  const embed = new EmbedBuilder()
-    .setTitle('📢 Scheduled Bounty')
-    .setDescription('This bounty has been approved and is scheduled to begin soon.')
-    .addFields(
-      { name: 'Trainer', value: `<@${bounty.requesterId}>`, inline: true },
-      { name: 'Rarity', value: rarityLabel, inline: true },
-      {
-        name: 'Reward',
-        value: `${bounty.reward.toLocaleString()} PKD`,
-        inline: false
-      },
-      { name: 'Pokémon Targets', value: pokemonList, inline: false },
-      { name: 'Start Time', value: startLabel, inline: true },
-      { name: 'Ends', value: endLabel, inline: true },
-      { name: 'Duration', value: `${bounty.durationHours} hour(s)`, inline: true }
-    )
-    .setColor('Blue')
-    .setTimestamp();
-
-  const pingText = getRarityPing(rarityKey);
-
-  return await channel.send({
-    content: pingText || undefined,
-    embeds: [embed]
-  });
+function formatTimeLabel(date) {
+  if (!(date instanceof Date)) return 'Unknown';
+  return `<t:${Math.floor(date.getTime() / 1000)}:F>`;
 }
 
-// Activate bounty: delete announcement (if any), generate card PNG, post with button
-async function activateBounty(interaction, client, bounty) {
+// ─────────────────────────────────────────────
+// APPROVE BOUNTY
+// ─────────────────────────────────────────────
+async function handleApproveBounty(client, interaction) {
+  if (
+    !interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild) &&
+    !interaction.memberPermissions.has(PermissionFlagsBits.Administrator)
+  ) {
+    return interaction.reply({
+      content: '❌ You do not have permission to approve bounties.',
+      ephemeral: true
+    });
+  }
+
+  const bountyId = interaction.customId.replace('approvebounty_', '');
+  if (!client.pendingBounties) client.pendingBounties = new Map();
+  if (!client.activeBounties) client.activeBounties = new Map();
+
+  const bounty = client.pendingBounties.get(bountyId);
+  if (!bounty) {
+    return interaction.reply({
+      content: '❌ Could not find that bounty. It may already be processed.',
+      ephemeral: true
+    });
+  }
+
+  // Move to active
+  client.pendingBounties.delete(bountyId);
+  client.activeBounties.set(bountyId, bounty);
+
   const bountyChannelId = process.env.BOUNTY_CHANNEL_ID;
-  const channel = interaction.guild.channels.cache.get(bountyChannelId);
+  const bountyChannel = bountyChannelId
+    ? interaction.guild.channels.cache.get(bountyChannelId)
+      || await interaction.guild.channels.fetch(bountyChannelId).catch(() => null)
+    : null;
 
-  if (!channel) {
-    console.error('BOUNTY_CHANNEL_ID is not a valid channel.');
-    return;
+  if (!bountyChannel) {
+    return interaction.reply({
+      content: '❌ Bounty channel not configured or not found.',
+      ephemeral: true
+    });
   }
 
-  // Delete announcement message if it exists
-  if (bounty.announcementChannelId && bounty.announcementMessageId) {
-    try {
-      const aChannel = interaction.guild.channels.cache.get(
-        bounty.announcementChannelId
-      );
-      if (aChannel) {
-        const aMsg = await aChannel.messages.fetch(bounty.announcementMessageId);
-        await aMsg.delete();
-      }
-    } catch (err) {
-      console.warn('Could not delete scheduled bounty announcement:', err.message);
-    }
-  }
+  const rarityKey = getHighestRarityForList(bounty.pokemons);
+  const rarityLabel = getRarityDisplayLabel(rarityKey);
+  const mention = getRarityRoleMention(rarityKey);
 
-  const { rarityKey, rarityLabel } = getRarityInfo(bounty);
-
-  // Fetch trainer's display name + avatar + rank
-  let displayName = 'Unknown Trainer';
-  let avatarUrl =
-    'https://cdn.discordapp.com/embed/avatars/0.png'; // fallback default
+  // Get trainer nickname + avatar + rank
+  let displayName = bounty.requesterName;
+  let avatarUrl = interaction.user.displayAvatarURL({ extension: 'png', size: 512 });
+  let rankName = 'Rookie Trainer';
 
   try {
     const member = await interaction.guild.members.fetch(bounty.requesterId);
     displayName = member.displayName || member.user.username;
-    avatarUrl = member.user.displayAvatarURL({
-      extension: 'png',
-      size: 512
-    });
-  } catch {
-    // ignore, keep fallbacks
-  }
+    avatarUrl = member.displayAvatarURL({ extension: 'png', size: 512 });
 
-  let rankName = 'Rookie Trainer';
-  try {
     const row = await db.getUserById(bounty.requesterId);
     const lifetime = row?.lifetime_points || 0;
     rankName = getRankName(lifetime);
   } catch {
-    // if DB fails, just leave default
+    // fall back to defaults
   }
 
-  const startLabel = bounty.startsNow
-    ? 'Starts Immediately'
-    : bounty.startTime.toLocaleString('en-GB');
-  const endLabel = bounty.endTime.toLocaleString('en-GB');
-  const durationLabel = `${bounty.durationHours} hour(s)`;
   const rewardLabel = `${bounty.reward.toLocaleString()} PKD`;
+  const startLabel = formatTimeLabel(bounty.startTime);
+  const endLabel = formatTimeLabel(bounty.endTime);
+  const durationLabel = `${bounty.durationHours} hour(s)`;
 
-  // Build the PNG card
-  const filePath = await createBountyCard({
-    bountyId: bounty.id,
-    username: displayName,
-    rankName,
-    rarityKey,
-    rarityLabel,
-    pokemons: bounty.pokemons,
-    startLabel,
-    endLabel,
-    durationLabel,
-    note: bounty.notes || 'Good luck!',
-    rewardLabel,
-    avatarUrl
+  // Announcement + scheduling logic
+  if (bounty.startsNow) {
+    // Start immediately: just post card + button
+    const buffer = await createBountyCard({
+      bountyId: bounty.id,
+      username: displayName,
+      rankName,
+      rarityKey,
+      rarityLabel,
+      pokemons: bounty.pokemons,
+      startLabel,
+      endLabel,
+      durationLabel,
+      note: bounty.notes,
+      rewardLabel,
+      avatarUrl
+    });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`claimbounty_${bounty.id}`)
+        .setLabel('Claim Bounty')
+        .setStyle(ButtonStyle.Success)
+    );
+
+    const msg = await bountyChannel.send({
+      content: mention || '',
+      files: [{ attachment: buffer, name: 'bounty-card.png' }],
+      components: [row]
+    });
+
+    // Track message info
+    bounty.messageId = msg.id;
+    bounty.channelId = msg.channel.id;
+    client.activeBounties.set(bounty.id, bounty);
+
+    await interaction.update({
+      content: '📢 **Bounty approved and started immediately.**',
+      embeds: [],
+      components: []
+    });
+
+    return;
+  }
+
+  // Scheduled bounty: create announcement embed now
+  const announceEmbed = new EmbedBuilder()
+    .setTitle('⏳ Upcoming Bounty')
+    .setDescription('A bounty has been approved and is scheduled to start soon.')
+    .addFields(
+      { name: 'Trainer', value: `<@${bounty.requesterId}>`, inline: true },
+      { name: 'Rarity', value: rarityLabel, inline: true },
+      {
+        name: 'Pokémon Targets',
+        value: bounty.pokemons.map(p => `• ${p}`).join('\n') || '—',
+        inline: false
+      },
+      { name: 'Reward', value: rewardLabel, inline: false },
+      { name: 'Starts', value: startLabel, inline: true },
+      { name: 'Ends', value: endLabel, inline: true },
+      { name: 'Duration', value: durationLabel, inline: true }
+    )
+    .setFooter({ text: `Bounty ID: ${bounty.id}` })
+    .setTimestamp();
+
+  const announceMsg = await bountyChannel.send({
+    content: mention || '',
+    embeds: [announceEmbed]
   });
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`claimbounty_${bounty.id}`)
-      .setLabel('Claim Bounty')
-      .setStyle(ButtonStyle.Success)
-  );
-
-  const pingText = getRarityPing(rarityKey);
-
-  const msg = await channel.send({
-    content: pingText || undefined,
-    files: [filePath],
-    components: [row]
-  });
-
-  // Store where the card lives (for future updates like marking "completed")
-  bounty.channelId = msg.channel.id;
-  bounty.messageId = msg.id;
-  bounty.cardPath = filePath;
+  bounty.announcementChannelId = announceMsg.channel.id;
+  bounty.announcementMessageId = announceMsg.id;
   client.activeBounties.set(bounty.id, bounty);
+
+  // Schedule activation
+  const now = Date.now();
+  const delay = Math.max(0, bounty.startTime.getTime() - now);
+
+  setTimeout(async () => {
+    try {
+      const guild = await client.guilds.fetch(interaction.guildId);
+      const channel = await guild.channels.fetch(bountyChannelId).catch(() => null);
+      if (!channel) return;
+
+      // Delete announcement if still there
+      if (bounty.announcementChannelId && bounty.announcementMessageId) {
+        try {
+          const annChannel = await guild.channels
+            .fetch(bounty.announcementChannelId)
+            .catch(() => null);
+          if (annChannel) {
+            const m = await annChannel.messages
+              .fetch(bounty.announcementMessageId)
+              .catch(() => null);
+            if (m) await m.delete().catch(() => {});
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Render and send card
+      const buffer = await createBountyCard({
+        bountyId: bounty.id,
+        username: displayName,
+        rankName,
+        rarityKey,
+        rarityLabel,
+        pokemons: bounty.pokemons,
+        startLabel,
+        endLabel,
+        durationLabel,
+        note: bounty.notes,
+        rewardLabel,
+        avatarUrl
+      });
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`claimbounty_${bounty.id}`)
+          .setLabel('Claim Bounty')
+          .setStyle(ButtonStyle.Success)
+      );
+
+      const msg = await channel.send({
+        content: mention || '',
+        files: [{ attachment: buffer, name: 'bounty-card.png' }],
+        components: [row]
+      });
+
+      bounty.messageId = msg.id;
+      bounty.channelId = msg.channel.id;
+      client.activeBounties.set(bounty.id, bounty);
+    } catch (err) {
+      console.error('Error auto-starting bounty:', err);
+    }
+  }, delay);
+
+  await interaction.update({
+    content: '📢 **Bounty approved and scheduled.**',
+    embeds: [],
+    components: []
+  });
+}
+
+// ─────────────────────────────────────────────
+// DENY BOUNTY
+// ─────────────────────────────────────────────
+async function handleDenyBounty(client, interaction) {
+  if (
+    !interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild) &&
+    !interaction.memberPermissions.has(PermissionFlagsBits.Administrator)
+  ) {
+    return interaction.reply({
+      content: '❌ You do not have permission to deny bounties.',
+      ephemeral: true
+    });
+  }
+
+  const bountyId = interaction.customId.replace('denybounty_', '');
+  if (!client.pendingBounties) client.pendingBounties = new Map();
+
+  const bounty = client.pendingBounties.get(bountyId);
+  if (!bounty) {
+    return interaction.reply({
+      content: '❌ Could not find that bounty.',
+      ephemeral: true
+    });
+  }
+
+  client.pendingBounties.delete(bountyId);
+
+  return interaction.update({
+    content: '❌ Bounty denied.',
+    embeds: [],
+    components: []
+  });
+}
+
+// ─────────────────────────────────────────────
+// CLAIM BOUNTY → OPEN MODAL
+// ─────────────────────────────────────────────
+async function handleClaimBounty(client, interaction) {
+  const bountyId = interaction.customId.replace('claimbounty_', '');
+  if (!client.activeBounties) client.activeBounties = new Map();
+
+  const bounty = client.activeBounties.get(bountyId);
+  if (!bounty) {
+    return interaction.reply({
+      content: '❌ This bounty is no longer active.',
+      ephemeral: true
+    });
+  }
+
+  const modal = new ModalBuilder()
+    .setCustomId(`bountyclaim_${bountyId}`)
+    .setTitle('Claim Bounty');
+
+  const proofInput = new TextInputBuilder()
+    .setCustomId('proof_id')
+    .setLabel('Pokémon ID / Proof')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true);
+
+  const noteInput = new TextInputBuilder()
+    .setCustomId('extra_note')
+    .setLabel('Additional notes (optional)')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(false);
+
+  const row1 = new ActionRowBuilder().addComponents(proofInput);
+  const row2 = new ActionRowBuilder().addComponents(noteInput);
+
+  modal.addComponents(row1, row2);
+
+  await interaction.showModal(modal);
 }
