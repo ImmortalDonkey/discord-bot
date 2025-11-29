@@ -1,4 +1,4 @@
-// cardRenderer.cjs
+// renderers/cardRenderer.cjs
 const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage } = require('canvas');
@@ -7,8 +7,10 @@ const CARD_WIDTH = 2200;
 const CARD_HEIGHT = 1300;
 const MARGIN = 40;
 
+// NOTE: card images saved here
 const CARDS_DIR = path.join(__dirname, 'card-images');
-const SPRITES_DIR = path.join(__dirname, 'sprites');
+// NOTE: sprites are in the root /sprites folder (one level up)
+const SPRITES_DIR = path.join(__dirname, '..', 'sprites');
 
 // Ensure output folder exists
 if (!fs.existsSync(CARDS_DIR)) {
@@ -145,11 +147,11 @@ async function drawSpriteBox(ctx, x, y, size, pokemonName) {
 /**
  * options:
  *  - bountyId
- *  - username
+ *  - username         // server nickname preferred
  *  - rankName
  *  - rarityKey
  *  - rarityLabel
- *  - pokemons[]      // up to 3 shown as sprites
+ *  - pokemons[]       // up to 3 shown as sprites
  *  - startLabel
  *  - endLabel
  *  - durationLabel
@@ -157,7 +159,7 @@ async function drawSpriteBox(ctx, x, y, size, pokemonName) {
  *  - rewardLabel
  *  - avatarUrl
  *
- * Returns: full file path
+ * Returns: Buffer (PNG) and also saves a copy into /renderers/card-images
  */
 async function createBountyCard(options) {
   const {
@@ -177,7 +179,6 @@ async function createBountyCard(options) {
 
   const style = getStyleForRarity(rarityKey);
 
-  // Canvas + base styling
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext('2d');
 
@@ -196,7 +197,7 @@ async function createBountyCard(options) {
   const totalInnerWidth = CARD_WIDTH - MARGIN * 3;
   const rightMaxWidth = totalInnerWidth * 0.4;
   const rightMaxHeight = CARD_HEIGHT - 2 * MARGIN;
-  const imageSize = Math.min(rightMaxWidth, rightMaxHeight); // avatar is square
+  const imageSize = Math.min(rightMaxWidth, rightMaxHeight);
 
   const rightX = CARD_WIDTH - MARGIN - imageSize;
   const rightY = MARGIN;
@@ -206,7 +207,7 @@ async function createBountyCard(options) {
   const leftWidth = rightX - leftX - MARGIN;
   const leftHeight = CARD_HEIGHT - 2 * MARGIN;
 
-  // Draw right square avatar
+  // Draw right avatar square
   ctx.save();
   try {
     const img = await loadImage(avatarUrl);
@@ -257,19 +258,18 @@ async function createBountyCard(options) {
 
   // Left column: info + note boxes (stacked)
   const boxGap = 40;
-  const FONT_SIZE = 55;              // <= back down from 58px
+  const FONT_SIZE = 55;
   const lineHeight = FONT_SIZE * 1.25;
   const groupSpacing = lineHeight * 0.7;
-  const labelColor = '#facc15'; // bright gold
+  const labelColor = '#facc15';
   const valueColor = '#f9fafb';
 
-  // Prepare the rows for the top info box
+  const pokemonList = Array.isArray(pokemons) && pokemons.length ? pokemons : ['None'];
+
   const infoRows = [];
   infoRows.push({ label: 'Trainer:', value: username });
   infoRows.push({ label: 'Rank:', value: rankName });
   infoRows.push({ spacer: true });
-
-  const pokemonList = Array.isArray(pokemons) && pokemons.length ? pokemons : ['None'];
 
   // First Pokémon line with label "Target:"
   infoRows.push({ label: 'Target:', value: pokemonList[0] });
@@ -291,26 +291,24 @@ async function createBountyCard(options) {
   const nonSpacerRows = infoRows.filter(r => !r.spacer).length;
   const spacerCount = infoRows.filter(r => r.spacer).length;
 
-  // Padding inside boxes
   const infoPaddingX = 50;
   const infoPaddingY = 50;
   const notePaddingX = 50;
   const notePaddingY = 40;
 
-  // NOTE: wrap note text first so we know how tall it is
+  // NOTE: wrap note text first
+  const noteText = note || 'Good luck!';
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
 
-  const noteText = note || 'Good luck!';
   const maxNoteTextWidth = leftWidth - notePaddingX * 2;
   const noteLines = wrapText(ctx, noteText, maxNoteTextWidth, lineHeight);
   const noteTextHeight = noteLines.length * lineHeight;
-  const noteMinHeight = notePaddingY * 2 + lineHeight * 2; // at least 2 lines
+  const noteMinHeight = notePaddingY * 2 + lineHeight * 2;
   const noteNeededHeight = notePaddingY * 2 + noteTextHeight;
   const noteBoxHeight = Math.max(noteMinHeight, noteNeededHeight);
 
-  // Compute top info box height dynamically
   const infoTextHeight =
     nonSpacerRows * lineHeight + spacerCount * groupSpacing;
   const infoNeededHeight = infoPaddingY * 2 + infoTextHeight;
@@ -331,7 +329,7 @@ async function createBountyCard(options) {
   const noteBoxW = leftWidth;
   const noteBoxH = leftHeight - infoBoxH - boxGap;
 
-  // Draw top info box background + border
+  // Draw top info box
   ctx.save();
   roundedRectPath(ctx, infoBoxX, infoBoxY, infoBoxW, infoBoxH, 40);
   ctx.fillStyle = style.boxColor;
@@ -341,7 +339,7 @@ async function createBountyCard(options) {
   ctx.stroke();
   ctx.restore();
 
-  // Compute label column width (based on widest label)
+  // Compute label column width
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
   const labelsToMeasure = infoRows
     .filter(r => !r.spacer && r.label)
@@ -352,36 +350,33 @@ async function createBountyCard(options) {
     if (w > maxLabelWidth) maxLabelWidth = w;
   }
 
-  const labelGap = 50; // fixed gap after longest header
+  const labelGap = 50;
   const labelX = infoBoxX + infoPaddingX;
   const valueX = labelX + maxLabelWidth + labelGap;
 
-  // Draw info rows
-// Vertically center text inside top info box
-const centeredStartY = infoBoxY + (infoBoxH - infoTextHeight) / 2;
-let currentY = centeredStartY;
+  // Vertically centre text inside top info box
+  const infoTextTotalHeight =
+    nonSpacerRows * lineHeight + spacerCount * groupSpacing;
+  const centeredStartY = infoBoxY + (infoBoxH - infoTextTotalHeight) / 2;
+  let currentY = centeredStartY;
 
-for (const row of infoRows) {
-  if (row.spacer) {
-    currentY += groupSpacing;
-    continue;
+  for (const row of infoRows) {
+    if (row.spacer) {
+      currentY += groupSpacing;
+      continue;
+    }
+
+    ctx.fillStyle = labelColor;
+    ctx.font = `bold ${FONT_SIZE}px sans-serif`;
+    ctx.fillText(row.label, labelX, currentY);
+
+    ctx.fillStyle = valueColor;
+    ctx.fillText(row.value || '', valueX, currentY);
+
+    currentY += lineHeight;
   }
 
-  // Label
-  ctx.fillStyle = labelColor;
-  ctx.font = `bold ${FONT_SIZE}px sans-serif`;
-  ctx.fillText(row.label, labelX, currentY);
-
-  // Value
-  ctx.fillStyle = valueColor;
-  ctx.font = `bold ${FONT_SIZE}px sans-serif`;
-  ctx.fillText(row.value || '', valueX, currentY);
-
-  currentY += lineHeight;
-}
-
-
-  // Draw note box background + border
+  // Draw note box
   ctx.save();
   roundedRectPath(ctx, noteBoxX, noteBoxY, noteBoxW, noteBoxH, 40);
   ctx.fillStyle = style.boxColor;
@@ -391,27 +386,24 @@ for (const row of infoRows) {
   ctx.stroke();
   ctx.restore();
 
-  // Draw note text (vertically centred within note box)
+  // Note text
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
   ctx.fillStyle = valueColor;
   ctx.textAlign = 'left';
 
   const totalNoteTextHeight = noteLines.length * lineHeight;
-  let noteStartY =
-    noteBoxY + (noteBoxH - totalNoteTextHeight) / 2;
+  let noteStartY = noteBoxY + (noteBoxH - totalNoteTextHeight) / 2;
 
   for (const line of noteLines) {
     ctx.fillText(line, noteBoxX + notePaddingX, noteStartY);
     noteStartY += lineHeight;
   }
 
-  // =========================
-  // SPRITES: bottom-right row
-  // =========================
-  const spritePokemon = pokemonList.slice(0, 3); // show up to 3
+  // Sprites bottom-right
+  const spritePokemon = pokemonList.slice(0, 3);
   if (spritePokemon.length > 0) {
     const maxSprites = 3;
-    const spriteRowWidth = imageSize; // align with avatar width
+    const spriteRowWidth = imageSize;
     const spriteGap = 30;
     const spriteSize =
       (spriteRowWidth - spriteGap * (maxSprites - 1)) / maxSprites;
@@ -421,17 +413,14 @@ for (const row of infoRows) {
     let spriteXs = [];
 
     if (spritePokemon.length === 1) {
-      // centre single sprite
       const totalWidth = spriteSize;
       const startX = rightX + (spriteRowWidth - totalWidth) / 2;
       spriteXs = [startX];
     } else if (spritePokemon.length === 2) {
-      // centre two sprites
       const totalWidth = spriteSize * 2 + spriteGap;
       const startX = rightX + (spriteRowWidth - totalWidth) / 2;
       spriteXs = [startX, startX + spriteSize + spriteGap];
     } else {
-      // three sprites: fill the row
       spriteXs = [
         rightX,
         rightX + spriteSize + spriteGap,
@@ -446,10 +435,11 @@ for (const row of infoRows) {
     }
   }
 
-  // Save image
+  const buffer = canvas.toBuffer('image/png');
   const filePath = path.join(CARDS_DIR, `bounty_${bountyId}.png`);
-  fs.writeFileSync(filePath, canvas.toBuffer('image/png'));
-  return filePath;
+  fs.writeFileSync(filePath, buffer);
+
+  return buffer;
 }
 
 module.exports = { createBountyCard };
