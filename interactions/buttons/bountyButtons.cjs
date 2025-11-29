@@ -1,31 +1,26 @@
 // interactions/buttons/bountyButtons.cjs
 const {
+  EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
   ModalBuilder,
   TextInputBuilder,
-  TextInputStyle,
+  TextInputStyle
 } = require("discord.js");
 
-// NOTE: whatever you currently use for rendering the bounty card,
-// keep the require the same. If your cardRenderer exports createBountyCard,
-// then do:
-//   const { createBountyCard } = require("../../renderers/cardRenderer.cjs");
-// If it exports a single function, do:
-const renderBountyCard = require("../../renderers/cardRenderer.cjs");
-// or adjust this line to match your existing working version.
+// Correct import — cardRenderer exports "createBountyCard"
+const { createBountyCard } = require("../../renderers/cardRenderer.cjs");
 
 module.exports = {
-  // These prefix IDs match the buttons created in bountyrequest.cjs
   ids: ["approvebounty_", "denybounty_", "claimbounty_"],
 
   async execute(client, interaction) {
     const id = interaction.customId;
 
-    // --------------------------------------------------------------------
+    // ================================================================
     // 1. APPROVE BOUNTY
-    // --------------------------------------------------------------------
+    // ================================================================
     if (id.startsWith("approvebounty_")) {
       const bountyId = id.replace("approvebounty_", "");
       const bounty = client.pendingBounties.get(bountyId);
@@ -37,12 +32,65 @@ module.exports = {
         });
       }
 
-      // Move from pending → active
+      // Move → active
       client.pendingBounties.delete(bountyId);
       client.activeBounties.set(bountyId, bounty);
 
-      // Render the bounty card image (uses your existing renderer)
-      const buffer = await renderBountyCard(bounty);
+      // ---------------------------
+      // Immediate start?
+      // ---------------------------
+      const now = Date.now();
+      const startsNow = bounty.startsNow || bounty.startTime <= now;
+
+      // Get channels
+      const bountyChannel = interaction.guild.channels.cache.get(process.env.BOUNTY_CHANNEL_ID);
+      const announceChannel = interaction.guild.channels.cache.get(process.env.BOUNTY_ANNOUNCE_CHANNEL_ID);
+
+      if (!bountyChannel) {
+        return interaction.reply({
+          content: "⚠ No bounty channel configured.",
+          ephemeral: true
+        });
+      }
+
+      // ---------------------------
+      // If scheduled → post announcement only
+      // ---------------------------
+      if (!startsNow) {
+
+        // Ping correct rarity group
+        const rarityKey = client.getHighestRarityForList(bounty.pokemons);
+        const pingRole = process.env[`ROLE_${rarityKey.toUpperCase()}`] || process.env.ROLE_BOUNTY_ALL || "";
+
+        const embed = new EmbedBuilder()
+          .setTitle("📢 Upcoming Bounty Scheduled")
+          .setDescription(`A bounty will begin soon once the scheduled start time arrives.`)
+          .addFields(
+            { name: "Trainer", value: `<@${bounty.requesterId}>`, inline: true },
+            { name: "Pokémon", value: bounty.pokemons.join("\n"), inline: false },
+            { name: "Rarity", value: client.getRarityDisplayLabel(rarityKey), inline: true },
+            { name: "Starts", value: `<t:${Math.floor(bounty.startTime / 1000)}:F>`, inline: true },
+            { name: "Reward", value: `${bounty.reward.toLocaleString()} PKD`, inline: false }
+          )
+          .setColor(0xffcc00);
+
+        await interaction.reply({ content: "📡 Bounty approved and scheduled.", ephemeral: true });
+
+        const msg = await announceChannel.send({
+          content: `<@&${pingRole}>`,
+          embeds: [embed]
+        });
+
+        // store announcement message so scheduler can delete it later
+        bounty.announcementMessageId = msg.id;
+
+        return;
+      }
+
+      // ---------------------------------
+      // If starts immediately → create card
+      // ---------------------------------
+      const buffer = await createBountyCard(bounty);
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -52,28 +100,25 @@ module.exports = {
       );
 
       await interaction.reply({
-        content: "📢 **Bounty Approved!**",
-        ephemeral: false,
+        content: "📢 **Bounty Approved & Activated!**",
+        ephemeral: true,
       });
 
-      // SEND TO BOUNTY CHANNEL
-      const channelId = process.env.BOUNTY_CHANNEL_ID;
-      const channel = interaction.guild.channels.cache.get(channelId);
+      const msg = await bountyChannel.send({
+        files: [{ attachment: buffer, name: "bounty-card.png" }],
+        components: [row],
+      });
 
-      if (channel) {
-        await channel.send({
-          content: bounty.pingText || "", // (optional, if you set this on the bounty)
-          files: [{ attachment: buffer, name: "bounty-card.png" }],
-          components: [row],
-        });
-      }
+      bounty.messageId = msg.id;
+      bounty.channelId = bountyChannel.id;
 
+      client.activeBounties.set(bountyId, bounty);
       return;
     }
 
-    // --------------------------------------------------------------------
+    // ================================================================
     // 2. DENY BOUNTY
-    // --------------------------------------------------------------------
+    // ================================================================
     if (id.startsWith("denybounty_")) {
       const bountyId = id.replace("denybounty_", "");
       const bounty = client.pendingBounties.get(bountyId);
@@ -89,13 +134,13 @@ module.exports = {
 
       return interaction.reply({
         content: "❌ Bounty denied.",
-        ephemeral: false,
+        ephemeral: true,
       });
     }
 
-    // --------------------------------------------------------------------
-    // 3. CLAIM BOUNTY  →  OPEN MODAL
-    // --------------------------------------------------------------------
+    // ================================================================
+    // 3. CLAIM BOUNTY → Modal + Claim Thread
+    // ================================================================
     if (id.startsWith("claimbounty_")) {
       const bountyId = id.replace("claimbounty_", "");
       const bounty = client.activeBounties.get(bountyId);
@@ -109,45 +154,44 @@ module.exports = {
 
       const userId = interaction.user.id;
 
-      // Prevent multiple claims from same user on same bounty
-      const claimKey = `${bountyId}_${userId}`;
-      if (!client.bountyClaims) client.bountyClaims = new Map();
+      if (!client.bountyClaims.has(bountyId)) {
+        client.bountyClaims.set(bountyId, new Set());
+      }
 
-      if (client.bountyClaims.has(claimKey)) {
+      const claimSet = client.bountyClaims.get(bountyId);
+
+      if (claimSet.has(userId)) {
         return interaction.reply({
-          content: "⚠ You have already submitted a claim for this bounty.",
+          content: "⚠ You have already claimed this bounty.",
           ephemeral: true,
         });
       }
 
-      // Build modal ID: bounty_claim_<bountyId>_<userId>
-      const modalCustomId = `bounty_claim_${bountyId}_${userId}`;
-
+      // ---------------------------
+      // Show claim modal
+      // ---------------------------
       const modal = new ModalBuilder()
-        .setCustomId(modalCustomId)
-        .setTitle("Bounty Claim");
+        .setCustomId(`claimmodal_${bountyId}`)
+        .setTitle("Submit Bounty Claim");
 
       const pokemonIdInput = new TextInputBuilder()
-        .setCustomId("pokemon_id")
-        .setLabel("Pokémon ID")
+        .setCustomId("pokemonId")
+        .setLabel("Pokémon ID (required)")
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder("Enter the Pokémon ID")
         .setRequired(true);
 
-      const proofInput = new TextInputBuilder()
-        .setCustomId("proof_optional")
-        .setLabel("Screenshot / Notes (optional)")
+      const screenshotInput = new TextInputBuilder()
+        .setCustomId("screenshot")
+        .setLabel("Screenshot URL (optional)")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(false);
 
-      const row1 = new ActionRowBuilder().addComponents(pokemonIdInput);
-      const row2 = new ActionRowBuilder().addComponents(proofInput);
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(pokemonIdInput),
+        new ActionRowBuilder().addComponents(screenshotInput)
+      );
 
-      modal.addComponents(row1, row2);
-
-      // Show the modal to the user
-      await interaction.showModal(modal);
-      return;
+      return interaction.showModal(modal);
     }
   },
 };
