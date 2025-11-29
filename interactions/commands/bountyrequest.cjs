@@ -88,9 +88,7 @@ module.exports = {
   async execute(client, interaction) {
     const member = interaction.member;
 
-    // ───────────────────────────────
-    // ROLE CHECK
-    // ───────────────────────────────
+    // Role check
     const bountyRoleId = process.env.ROLE_BOUNTY_HUNTER || null;
     let hasRole = false;
 
@@ -109,9 +107,7 @@ module.exports = {
       });
     }
 
-    // ───────────────────────────────
-    // Extract options
-    // ───────────────────────────────
+    // Options
     const p1 = interaction.options.getString('pokemon1');
     const p2 = interaction.options.getString('pokemon2');
     const p3 = interaction.options.getString('pokemon3');
@@ -125,9 +121,7 @@ module.exports = {
     const durationHours = clampHours(durationHoursRaw);
     const durationMs = durationHours * 3600000;
 
-    // ───────────────────────────────
-    // START / END TIME
-    // ───────────────────────────────
+    // Start/end time
     let startTime;
     if (startTimeStr === 'now') {
       startTime = new Date();
@@ -137,35 +131,7 @@ module.exports = {
     }
 
     const endTime = new Date(startTime.getTime() + durationMs);
-
     const bountyId = `${Date.now()}_${interaction.user.id}`;
-
-    // ───────────────────────────────
-    // Rarity + ping roles
-    // ───────────────────────────────
-    const rarityKey = getHighestRarityForList(pokemons);
-    const rarityLabel = getRarityDisplayLabel(rarityKey);
-
-    // Map rarity -> env var name
-    const rarityEnvMap = {
-      paradox: 'ROLE_PARADOX',
-      roamerMonth: 'ROLE_ROAMERMONTH',
-      legendary: 'ROLE_LEGENDARY',
-      rare: 'ROLE_RARE',
-      common: 'ROLE_COMMON'
-    };
-
-    const bountyAllRole = process.env.ROLE_BOUNTY_ALL || null;
-    const rarityEnvKey = rarityEnvMap[rarityKey];
-    const rarityRoleId = rarityEnvKey ? process.env[rarityEnvKey] : null;
-
-    const pingRoleIds = [bountyAllRole, rarityRoleId].filter(Boolean);
-
-    // ───────────────────────────────
-    // STORE NEW BOUNTY on client
-    // ───────────────────────────────
-    if (!client.pendingBounties) client.pendingBounties = new Map();
-    if (!client.activeBounties) client.activeBounties = new Map();
 
     const bounty = {
       id: bountyId,
@@ -178,19 +144,14 @@ module.exports = {
       durationHours,
       reward,
       createdAt: new Date(),
-      startsNow: startTimeStr === 'now',
-
-      // for later use (announcements / cards / pings)
-      rarityKey,
-      rarityLabel,
-      pingRoleIds
+      startsNow: startTimeStr === 'now'
     };
 
+    // Store in pending
+    if (!client.pendingBounties) client.pendingBounties = new Map();
     client.pendingBounties.set(bountyId, bounty);
 
-    // ───────────────────────────────
-    // CHANNEL RESOLUTION
-    // ───────────────────────────────
+    // Channel to send staff review embed
     const requestChannelId = process.env.BOUNTY_REQUEST_CHANNEL_ID;
     const requestChannel = requestChannelId
       ? await interaction.guild.channels.fetch(requestChannelId).catch(() => null)
@@ -212,19 +173,19 @@ module.exports = {
       .map(id => `<@&${id}>`)
       .join(' ');
 
-    const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n') || 'None';
+    // Rarity
+    const rarityKey = getHighestRarityForList(pokemons);
+    const rarityLabel = getRarityDisplayLabel(rarityKey);
 
+    const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n');
     const startUnix = Math.floor(startTime.getTime() / 1000);
     const endUnix = Math.floor(endTime.getTime() / 1000);
 
     const startFieldValue =
       startTimeStr === 'now'
-        ? `<t:${startUnix}:F> (Starts immediately on approval)`
+        ? `<t:${startUnix}:F> (Starts on approval)`
         : `<t:${startUnix}:F>`;
 
-    // ───────────────────────────────
-    // EMBED
-    // ───────────────────────────────
     const embed = new EmbedBuilder()
       .setTitle('📝 New Bounty Request')
       .setDescription('A new bounty has been requested and is awaiting staff approval.')
@@ -232,7 +193,7 @@ module.exports = {
         { name: 'Trainer', value: `<@${interaction.user.id}>`, inline: true },
         { name: 'Rarity', value: rarityLabel, inline: true },
         { name: 'Reward', value: `${reward.toLocaleString()} PKD`, inline: false },
-        { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
+        { name: 'Pokémon Targets', value: pokemonListLines || '—', inline: false },
         { name: 'Requested Start', value: startFieldValue, inline: false },
         { name: 'Requested End', value: `<t:${endUnix}:F>`, inline: false },
         { name: 'Duration', value: `${durationHours} hour(s)`, inline: true },
