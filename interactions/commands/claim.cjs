@@ -24,7 +24,7 @@ module.exports = {
     const user = interaction.user;
     const pointsRequested = interaction.options.getInteger('points');
 
-    // Fetch user points
+    // Fetch user data
     const row = await db.getUserById(user.id);
     const currentPoints = row?.points || 0;
 
@@ -54,21 +54,21 @@ module.exports = {
 
     if (!forum) {
       return interaction.reply({
-        content: '❌ Claims forum channel not found. Ask an admin to check `CLAIMS_FORUM_CHANNEL_ID`.',
+        content: '❌ Claims forum channel not found. Check `CLAIMS_FORUM_CHANNEL_ID`.',
         flags: 64
       });
     }
 
-    // Staff roles mention
+    // Staff mentions
     const staffRolesEnv = process.env.STAFF_ROLES || '';
     const staffMention = staffRolesEnv
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
       .map(id => `<@&${id}>`)
-      .join(' ') || '@Staff';
+      .join(' ');
 
-    // Create forum thread
+    // Create review thread
     const thread = await forum.threads.create({
       name: `Claim • ${user.username} • ${pointsRequested} pts`,
       message: {
@@ -76,28 +76,31 @@ module.exports = {
       }
     });
 
-    // Build embed
+    // Claim embed
     const embed = new EmbedBuilder()
       .setColor('Gold')
       .setTitle('💱 Point Claim Request')
       .addFields(
         { name: 'User', value: `<@${user.id}>`, inline: true },
         { name: 'Rank', value: rankName, inline: true },
-        { name: 'Points Requested', value: String(pointsRequested), inline: true },
+        { name: 'Points Requested', value: `${pointsRequested}`, inline: true },
         { name: 'PKD Value', value: `${pkdValue.toLocaleString()} pkd`, inline: true },
-        { name: 'Current Points', value: String(currentPoints), inline: true }
+        { name: 'Current Points', value: `${currentPoints}`, inline: true }
       )
       .setTimestamp();
 
-    // APPROVE button — FIXED PREFIX
+    // APPROVE button (correct ID!)
     const rowButtons = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`claim_approve_${user.id}_${pointsRequested}`)
+        .setCustomId(`claimapprove_${user.id}_${pointsRequested}`)
         .setLabel('Approve Claim')
         .setStyle(ButtonStyle.Success)
     );
 
-    await thread.send({ embeds: [embed], components: [rowButtons] });
+    await thread.send({
+      embeds: [embed],
+      components: [rowButtons]
+    });
 
     return interaction.reply({
       content: `🧾 Your claim request has been submitted: <#${thread.id}>`,
