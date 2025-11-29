@@ -4,27 +4,28 @@ const { EmbedBuilder } = require("discord.js");
 const ID_PREFIX = "bounty_claim_";
 
 module.exports = {
-  // modalHandler.cjs expects idPrefix + execute()
   idPrefix: ID_PREFIX,
 
-  /**
-   * Handles submission of the bounty claim modal.
-   *
-   * Custom ID format:
-   *   bounty_claim_<bountyId>_<userId>
-   */
   async execute(client, interaction) {
     const { customId } = interaction;
 
-    if (!customId.startsWith(ID_PREFIX)) {
-      return;
+    if (!customId.startsWith(ID_PREFIX)) return;
+
+    // Format: bounty_claim_<bountyId>_<userId>
+    const raw = customId.replace(ID_PREFIX, "");
+    const parts = raw.split("_");
+
+    const bountyId = parts[0];
+    const targetUserId = parts[1];
+
+    if (!bountyId || !targetUserId) {
+      return interaction.reply({
+        content: "❌ Invalid claim form (missing data).",
+        ephemeral: true,
+      });
     }
 
-    // Parse IDs from customId
-    const raw = customId.slice(ID_PREFIX.length); // "<bountyId>_<userId>"
-    const [bountyId, targetUserId] = raw.split("_");
-
-    // Safety: ensure only the original claimer can submit this modal
+    // Prevent other users submitting someone else's claim modal
     if (interaction.user.id !== targetUserId) {
       return interaction.reply({
         content: "❌ This claim form is not assigned to you.",
@@ -32,7 +33,6 @@ module.exports = {
       });
     }
 
-    // Look up the bounty from active bounties
     const bounty = client.activeBounties.get(bountyId);
     if (!bounty) {
       return interaction.reply({
@@ -41,37 +41,36 @@ module.exports = {
       });
     }
 
-    // Read form values
+    // Inputs
     const pokemonId = interaction.fields.getTextInputValue("pokemon_id");
     const proof =
       interaction.fields.getTextInputValue("proof_optional")?.trim() || "";
 
-    // Prevent duplicate claims (same bounty + user)
+    // Unique claim key
     const claimKey = `${bountyId}_${interaction.user.id}`;
-    if (!client.bountyClaims) client.bountyClaims = new Map();
 
+    if (!client.bountyClaims) client.bountyClaims = new Map();
     if (client.bountyClaims.has(claimKey)) {
       return interaction.reply({
-        content: "⚠ You already have an active claim for this bounty.",
+        content: "⚠ You already claimed this bounty.",
         ephemeral: true,
       });
     }
 
-    // Resolve claims forum
+    // Claims forum
     const forumId = process.env.CLAIMS_FORUM_CHANNEL_ID;
-    const forumChannel = forumId
-      ? await interaction.guild.channels.fetch(forumId).catch(() => null)
-      : null;
+    const forum = await interaction.guild.channels
+      .fetch(forumId)
+      .catch(() => null);
 
-    if (!forumChannel) {
+    if (!forum) {
       return interaction.reply({
-        content:
-          "❌ Claims forum is not configured correctly. Please tell an admin.",
+        content: "❌ Claims forum not configured.",
         ephemeral: true,
       });
     }
 
-    // Staff ping (re-use same STAFF_ROLES env as other systems)
+    // Staff ping
     const staffRolesEnv = process.env.STAFF_ROLES || "";
     const staffMention = staffRolesEnv
       .split(",")
@@ -80,60 +79,47 @@ module.exports = {
       .map((id) => `<@&${id}>`)
       .join(" ");
 
-    // Build embed for the thread
-    const pokemonListText = Array.isArray(bounty.pokemons)
-      ? bounty.pokemons.join("\n")
-      : String(bounty.pokemons || "Unknown");
+    // Thread title
+    const targetName = bounty.pokemons?.[0] || "Unknown Pokémon";
+    const threadTitle = `Claim • ${targetName} • ${interaction.member.displayName}`;
 
+    // Thread embed
     const embed = new EmbedBuilder()
       .setTitle("🔎 Bounty Claim")
-      .setDescription("A new bounty claim has been submitted and needs review.")
+      .setDescription("A new bounty claim has been submitted.")
       .addFields(
-        {
-          name: "Claimer",
-          value: `<@${interaction.user.id}>`,
-          inline: true,
-        },
+        { name: "Claimer", value: `<@${interaction.user.id}>`, inline: true },
         {
           name: "Bounty Targets",
-          value: pokemonListText,
+          value: bounty.pokemons?.join("\n") || "Unknown",
           inline: true,
         },
         {
           name: "Reward",
-          value: `${Number(bounty.reward || 0).toLocaleString()} PKD`,
+          value: `${Number(bounty.reward).toLocaleString()} PKD`,
           inline: true,
         },
-        {
-          name: "Pokémon ID",
-          value: pokemonId,
-          inline: false,
-        }
+        { name: "Pokémon ID", value: pokemonId }
       )
       .setTimestamp();
 
     if (proof) {
-      embed.addFields({
-        name: "Screenshot / Notes",
-        value: proof,
-        inline: false,
-      });
+      embed.addFields({ name: "Screenshot / Notes", value: proof });
     }
 
-    // Create thread in the claims forum
-    const thread = await forumChannel.threads.create({
-      name: `Bounty Claim – ${interaction.user.username}`,
+    // Create forum thread
+    const thread = await forum.threads.create({
+      name: threadTitle,
       message: {
         content: staffMention || "",
         embeds: [embed],
       },
     });
 
-    // Store claim in memory for future logic (approval, etc.)
+    // Save claim
     client.bountyClaims.set(claimKey, {
       bountyId,
       claimerId: interaction.user.id,
-      claimerTag: interaction.user.tag,
       pokemonId,
       proof,
       status: "pending",
@@ -141,9 +127,9 @@ module.exports = {
       createdAt: Date.now(),
     });
 
-    // Confirm to the user
-    await interaction.reply({
-      content: `📝 Your claim has been submitted: <#${thread.id}>`,
+    // User confirmation
+    return interaction.reply({
+      content: `📝 Claim submitted successfully: <#${thread.id}>`,
       ephemeral: true,
     });
   },
