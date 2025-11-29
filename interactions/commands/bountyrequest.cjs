@@ -2,21 +2,18 @@
 const {
   SlashCommandBuilder,
   EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle
 } = require('discord.js');
-
-const {
-  getHighestRarityForList,
-  getRarityDisplayLabel
-} = require('../../utils/rarity.cjs');
 
 const {
   clampHours,
   parseHourFromStartTimeString,
-  getNextOccurrenceOfHour
+  getNextOccurrenceOfHour,
 } = require('../../utils/timeUtils.cjs');
+
+const {
+  getHighestRarityForList,
+  getRarityDisplayLabel,
+} = require('../../utils/rarity.cjs');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -27,7 +24,7 @@ module.exports = {
       o.setName('pokemon1')
         .setDescription('Main Pokémon')
         .setAutocomplete(true)
-        .setRequired(true)
+        .setRequired(true),
     )
 
     .addStringOption(o =>
@@ -38,9 +35,9 @@ module.exports = {
           { name: 'Start Now', value: 'now' },
           ...Array.from({ length: 24 }, (_, h) => ({
             name: `${String(h).padStart(2, '0')}:00`,
-            value: `${String(h).padStart(2, '0')}:00`
-          }))
-        )
+            value: `${String(h).padStart(2, '0')}:00`,
+          })),
+        ),
     )
 
     .addIntegerOption(o =>
@@ -57,36 +54,35 @@ module.exports = {
           { name: '12 hours', value: 12 },
           { name: '24 hours', value: 24 },
           { name: '48 hours', value: 48 },
-          { name: '72 hours', value: 72 }
-        )
+          { name: '72 hours', value: 72 },
+        ),
     )
 
     .addIntegerOption(o =>
       o.setName('reward')
-        .setDescription('Reward amount (pkd)')
-        .setRequired(true)
+        .setDescription('Reward amount (PKD)')
+        .setRequired(true),
     )
 
     .addStringOption(o =>
       o.setName('notes')
         .setDescription('Required note/message')
-        .setRequired(true)
+        .setRequired(true),
     )
 
     .addStringOption(o =>
       o.setName('pokemon2')
         .setDescription('Optional second Pokémon')
-        .setAutocomplete(true)
+        .setAutocomplete(true),
     )
 
     .addStringOption(o =>
       o.setName('pokemon3')
         .setDescription('Optional third Pokémon')
-        .setAutocomplete(true)
+        .setAutocomplete(true),
     ),
 
   async execute(client, interaction) {
-    const pendingBounties = client.pendingBounties;
     const member = interaction.member;
 
     // ───────────────────────────────
@@ -99,19 +95,19 @@ module.exports = {
       hasRole = member.roles.cache.has(bountyRoleId);
     } else {
       hasRole = member.roles.cache.some(r =>
-        r.name === 'Bounty Hunter' || r.name === 'Roaming Bounty Hunter'
+        r.name === 'Bounty Hunter' || r.name === 'Roaming Bounty Hunter',
       );
     }
 
     if (!hasRole) {
       return interaction.reply({
         content: '🚫 You do not have permission to request bounties.',
-        ephemeral: true
+        ephemeral: true,
       });
     }
 
     // ───────────────────────────────
-    // Extract options
+    // OPTIONS
     // ───────────────────────────────
     const p1 = interaction.options.getString('pokemon1');
     const p2 = interaction.options.getString('pokemon2');
@@ -127,52 +123,53 @@ module.exports = {
     const durationMs = durationHours * 3600000;
 
     // ───────────────────────────────
-    // START + END (SERVER TIME = UK)
+    // SERVER-TIME START / END
     // ───────────────────────────────
     let startTime;
     if (startTimeStr === 'now') {
-      startTime = new Date();
+      startTime = new Date(); // server timezone (Pi)
     } else {
       const hour = parseHourFromStartTimeString(startTimeStr);
-      startTime = getNextOccurrenceOfHour(hour);
+      startTime = getNextOccurrenceOfHour(hour); // still server time
     }
 
     const endTime = new Date(startTime.getTime() + durationMs);
 
+    const startMs = startTime.getTime();
+    const endMs = endTime.getTime();
+
     const bountyId = `${Date.now()}_${interaction.user.id}`;
 
-    // Rarity
-    const rarityKey = getHighestRarityForList(pokemons);
-    const rarityLabel = getRarityDisplayLabel(rarityKey);
+    // ───────────────────────────────
+    // STORE IN MEMORY
+    // ───────────────────────────────
+    const displayName =
+      member?.nickname || interaction.user.username || interaction.user.tag;
 
-    // ───────────────────────────────
-    // STORE NEW BOUNTY (IN MEMORY)
-    // ───────────────────────────────
     const bounty = {
       id: bountyId,
-      guildId: interaction.guildId,
       requesterId: interaction.user.id,
-      requesterName: interaction.member?.nickname || interaction.user.username,
+      requesterName: displayName,
       pokemons,
       notes,
-      startTime: startTime.getTime(),   // timestamps (ms)
-      endTime: endTime.getTime(),
+      startTime: startMs,      // numbers (ms) so restart-safe-ish
+      endTime: endMs,
       durationHours,
       reward,
       createdAt: Date.now(),
       startsNow: startTimeStr === 'now',
-      rarityKey,
-      rarityLabel,
-      announcementMessageId: null,
-      announcementChannelId: null,
-      cardMessageId: null,
-      cardChannelId: null
+      approved: false,
+      hasStarted: false,
+      completed: false,
+      channelId: null,
+      messageId: null,
+      announcementId: null,
     };
 
-    pendingBounties.set(bountyId, bounty);
+    client.pendingBounties.set(bountyId, bounty);
 
     // ───────────────────────────────
-    // CHANNEL RESOLUTION
+    // SEND REQUEST EMBED TO STAFF
     // ───────────────────────────────
     const requestChannelId = process.env.BOUNTY_REQUEST_CHANNEL_ID;
     const requestChannel = requestChannelId
@@ -182,7 +179,7 @@ module.exports = {
     if (!requestChannel) {
       return interaction.reply({
         content: '❌ Bounty request channel not configured.',
-        ephemeral: true
+        ephemeral: true,
       });
     }
 
@@ -195,18 +192,19 @@ module.exports = {
       .map(id => `<@&${id}>`)
       .join(' ');
 
+    // Rarity
+    const rarityKey = getHighestRarityForList(pokemons);
+    const rarityLabel = getRarityDisplayLabel(rarityKey);
+
     const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n');
-    const startUnix = Math.floor(startTime.getTime() / 1000);
-    const endUnix = Math.floor(endTime.getTime() / 1000);
+    const startUnix = Math.floor(startMs / 1000);
+    const endUnix = Math.floor(endMs / 1000);
 
     const startFieldValue =
       startTimeStr === 'now'
         ? `<t:${startUnix}:F> (Start on approval / immediately)`
         : `<t:${startUnix}:F>`;
 
-    // ───────────────────────────────
-    // EMBED TO STAFF CHANNEL
-    // ───────────────────────────────
     const embed = new EmbedBuilder()
       .setTitle('📝 New Bounty Request')
       .setDescription('A new bounty has been requested and is awaiting staff approval.')
@@ -218,31 +216,47 @@ module.exports = {
         { name: 'Requested Start', value: startFieldValue, inline: false },
         { name: 'Requested End', value: `<t:${endUnix}:F>`, inline: false },
         { name: 'Duration', value: `${durationHours} hour(s)`, inline: true },
-        { name: 'Note', value: notes, inline: false }
+        { name: 'Note', value: notes, inline: false },
+        {
+          name: 'Bounty ID',
+          value: `${bountyId} | Today at <t:${Math.floor(
+            Date.now() / 1000,
+          )}:t>`,
+          inline: false,
+        },
       )
-      .setFooter({ text: `Bounty ID: ${bountyId}` })
       .setTimestamp();
 
-    const buttons = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`approvebounty_${bountyId}`)
-        .setLabel('Approve')
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`denybounty_${bountyId}`)
-        .setLabel('Deny')
-        .setStyle(ButtonStyle.Danger)
-    );
+    const approveId = `approvebounty_${bountyId}`;
+    const denyId = `denybounty_${bountyId}`;
+
+    const row = {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 3,
+          custom_id: approveId,
+          label: 'Approve',
+        },
+        {
+          type: 2,
+          style: 4,
+          custom_id: denyId,
+          label: 'Deny',
+        },
+      ],
+    };
 
     await requestChannel.send({
       content: staffMention || '',
       embeds: [embed],
-      components: [buttons]
+      components: [row],
     });
 
     return interaction.reply({
       content: '✅ Bounty request submitted. Staff have been notified.',
-      ephemeral: true
+      ephemeral: true,
     });
-  }
+  },
 };
