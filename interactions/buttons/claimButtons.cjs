@@ -16,21 +16,17 @@ module.exports = {
   async execute(client, interaction) {
     const id = interaction.customId;
 
-    // APPROVE CLAIM
     if (id.startsWith("claimapprove_")) {
       return approveClaim(client, interaction);
     }
 
-    // CLOSE THREAD
     if (id.startsWith("claim_close_")) {
       return closeClaimThread(client, interaction);
     }
   }
 };
 
-// ─────────────────────────────────────────────
-// APPROVE CLAIM BUTTON
-// ─────────────────────────────────────────────
+// APPROVE CLAIM
 async function approveClaim(client, interaction) {
   const parts = interaction.customId.split("_");
 
@@ -45,7 +41,7 @@ async function approveClaim(client, interaction) {
     });
   }
 
-  // Fetch user from DB
+  // Fetch user
   const row = await db.getUserById(userId);
   if (!row) {
     return interaction.reply({
@@ -54,7 +50,7 @@ async function approveClaim(client, interaction) {
     });
   }
 
-  const currentPoints = row.points || 0;
+  const currentPoints = row.points;
   const newPoints = Math.max(0, currentPoints - pointsRequested);
   const pkdValue = pointsRequested * 200000;
 
@@ -68,13 +64,13 @@ async function approveClaim(client, interaction) {
     .setFields(
       { name: "User", value: `<@${userId}>`, inline: true },
       { name: "Rank", value: getRankName(row.lifetime_points), inline: true },
-      { name: "Points Requested", value: String(pointsRequested), inline: true },
+      { name: "Points Requested", value: `${pointsRequested}`, inline: true },
       { name: "PKD Value", value: `${pkdValue.toLocaleString()} pkd`, inline: true },
-      { name: "Current Points (After Claim)", value: String(newPoints), inline: true },
-      { name: "Status", value: `✅ Approved by <@${interaction.user.id}>`, inline: false }
+      { name: "Current Points (After Claim)", value: `${newPoints}`, inline: true },
+      { name: "Status", value: `✅ Approved by <@${interaction.user.id}>` }
     );
 
-  // Add CLOSE CLAIM button
+  // Add CLOSE THREAD button
   const closeRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`claim_close_${interaction.channel.id}`)
@@ -82,7 +78,6 @@ async function approveClaim(client, interaction) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  // Update message
   await interaction.update({
     embeds: [updatedEmbed],
     components: [closeRow]
@@ -90,19 +85,17 @@ async function approveClaim(client, interaction) {
 
   // DM user
   try {
-    const target = await client.users.fetch(userId);
-    await target.send(
+    const targetUser = await client.users.fetch(userId);
+    await targetUser.send(
       `💱 Your claim of **${pointsRequested} points** has been approved!\n` +
       `You receive **${pkdValue.toLocaleString()} pkd**.`
     );
-  } catch (_) {}
+  } catch {}
 
   return;
 }
 
-// ─────────────────────────────────────────────
 // CLOSE THREAD
-// ─────────────────────────────────────────────
 async function closeClaimThread(client, interaction) {
   const threadId = interaction.customId.replace("claim_close_", "");
   const thread = interaction.guild.channels.cache.get(threadId);
@@ -120,7 +113,10 @@ async function closeClaimThread(client, interaction) {
   });
 
   setTimeout(async () => {
-    try { await thread.delete(); }
-    catch (err) { console.error("Failed to delete claim thread:", err); }
+    try {
+      await thread.delete();
+    } catch (err) {
+      console.error("Failed to delete claim thread:", err);
+    }
   }, 60000);
 }
