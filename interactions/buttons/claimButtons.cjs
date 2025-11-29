@@ -11,56 +11,52 @@ const db = require('../../database.cjs');
 const { getRankName } = require('../../utils/rankSystem.cjs');
 
 module.exports = {
-  ids: ["claim_approve_", "claim_close_"],
+  ids: ["claimapprove_", "claimclose_"],
 
   async execute(client, interaction) {
     const id = interaction.customId;
 
-    if (id.startsWith("claim_approve_")) {
+    if (id.startsWith("claimapprove_")) {
       return approveClaim(client, interaction);
     }
 
-    if (id.startsWith("claim_close_")) {
+    if (id.startsWith("claimclose_")) {
       return closeClaimThread(client, interaction);
     }
   }
 };
 
-
 // ─────────────────────────────────────────────
-// APPROVE CLAIM BUTTON
+// APPROVE CLAIM
 // ─────────────────────────────────────────────
 async function approveClaim(client, interaction) {
   const parts = interaction.customId.split("_");
-
-  // claim_approve_<userId>_<points>
-  const userId = parts[2];
-  const pointsRequested = parseInt(parts[3], 10);
+  // claimapprove_<userId>_<points>
+  const userId = parts[1];
+  const pointsRequested = parseInt(parts[2], 10);
 
   if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
     return interaction.reply({
       content: "❌ You do not have permission to approve claims.",
-      flags: 64
+      ephemeral: true
     });
   }
 
-  // Fetch user from DB
   const row = await db.getUserById(userId);
   if (!row) {
     return interaction.reply({
-      content: "❌ Could not find this user in the database.",
-      flags: 64
+      content: "❌ User not found in the system.",
+      ephemeral: true
     });
   }
 
-  const currentPoints = row.points || 0;
-  const newPoints = Math.max(0, currentPoints - pointsRequested);
+  const newPoints = Math.max(0, (row.points || 0) - pointsRequested);
   const pkdValue = pointsRequested * 200000;
 
   // Update DB
   await db.updateUserPoints(userId, newPoints);
 
-  // Update embed
+  // Build updated embed
   const oldEmbed = interaction.message.embeds[0];
   const updatedEmbed = EmbedBuilder.from(oldEmbed)
     .setColor("Green")
@@ -70,60 +66,57 @@ async function approveClaim(client, interaction) {
       { name: "Points Requested", value: String(pointsRequested), inline: true },
       { name: "PKD Value", value: `${pkdValue.toLocaleString()} pkd`, inline: true },
       { name: "Current Points (After Claim)", value: String(newPoints), inline: true },
-      { name: "Status", value: `✅ Approved by <@${interaction.user.id}>` }
+      { name: "Status", value: `✅ Approved by <@${interaction.user.id}>`, inline: false }
     );
 
-  // Add CLOSE CLAIM button
+  // Provide "Close Claim" button
   const closeRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`claim_close_${interaction.channel.id}`)
+      .setCustomId(`claimclose_${interaction.channel.id}`)
       .setLabel("Close Claim")
       .setStyle(ButtonStyle.Secondary)
   );
 
-  // Update message
   await interaction.update({
     embeds: [updatedEmbed],
     components: [closeRow]
   });
 
-  // DM the user
+  // Try DM the user
   try {
-    const targetUser = await client.users.fetch(userId);
-    await targetUser.send(
-      `💱 Your claim of **${pointsRequested} points** was approved.\n` +
-      `You receive **${pkdValue.toLocaleString()} pkd**.`
+    const u = await client.users.fetch(userId);
+    await u.send(
+      `💱 Your claim of **${pointsRequested} points** has been approved!\nYou receive **${pkdValue.toLocaleString()} pkd**.`
     );
-  } catch {}
+  } catch (e) {}
 
   return;
 }
 
-
 // ─────────────────────────────────────────────
-// CLOSE CLAIM THREAD BUTTON
+// CLOSE CLAIM THREAD
 // ─────────────────────────────────────────────
 async function closeClaimThread(client, interaction) {
-  const threadId = interaction.customId.replace("claim_close_", "");
+  const threadId = interaction.customId.replace("claimclose_", "");
   const thread = interaction.guild.channels.cache.get(threadId);
 
   if (!thread) {
     return interaction.reply({
-      content: "❌ Could not find this thread.",
-      flags: 64
+      content: "❌ Unable to find this thread.",
+      ephemeral: true
     });
   }
 
   await interaction.reply({
     content: "🕒 This claim thread will be deleted in **1 minute**.",
-    flags: 64
+    ephemeral: true
   });
 
   setTimeout(async () => {
     try {
       await thread.delete();
     } catch (err) {
-      console.error("Failed to delete claim thread:", err);
+      console.error("❌ Failed to delete claim thread:", err);
     }
   }, 60000);
 }
