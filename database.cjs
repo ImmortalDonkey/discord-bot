@@ -3,14 +3,17 @@ const path = require('path');
 const fs = require('fs');
 const sqlite3 = require('sqlite3');
 
+// Database path
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'bot.db');
 
+// Ensure /data exists
 function ensureDataDir() {
   const dir = path.dirname(DB_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 ensureDataDir();
 
+// Open DB
 const db = new sqlite3.Database(
   DB_PATH,
   sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE,
@@ -23,7 +26,7 @@ const db = new sqlite3.Database(
   }
 );
 
-// Promisify helpers
+// Promisified helpers
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
@@ -51,17 +54,17 @@ function all(sql, params = []) {
   });
 }
 
-// Helper: ensure a column exists on a table
+// Ensure columns exist
 async function ensureColumn(table, column, definition) {
   const info = await all(`PRAGMA table_info(${table})`);
-  const exists = info.some((col) => col.name === column);
+  const exists = info.some(col => col.name === column);
   if (!exists) {
     await run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     console.log(`📦 Added column ${column} to ${table}`);
   }
 }
 
-// Initialize schema
+// Initialise database
 async function init() {
   await run(`CREATE TABLE IF NOT EXISTS points (
     discord_id TEXT PRIMARY KEY,
@@ -79,22 +82,20 @@ async function init() {
     timestamp INTEGER
   )`);
 
-  // New columns for lifetime tracking + rank
   await ensureColumn('points', 'lifetime_points', 'INTEGER DEFAULT 0');
   await ensureColumn('points', 'rank_name', 'TEXT');
 }
 
-// Get by Discord ID
+// Fetch user by ID
 async function getUserById(discordId) {
   if (!discordId) return null;
-  const row = await get(
+  return await get(
     `SELECT * FROM points WHERE discord_id = ?`,
     [String(discordId)]
   );
-  return row;
 }
 
-// Get by username (case-insensitive)
+// Fetch user by username
 async function getUserByUsername(username) {
   if (!username) return null;
   const rows = await all(
@@ -104,124 +105,71 @@ async function getUserByUsername(username) {
   return rows[0] || null;
 }
 
-// Add points (prioritise discordId).
-// - delta > 0: affects BOTH points and lifetime_points
-// - delta < 0: affects ONLY points (for PKD claims etc.)
+// Add or subtract points
 async function addPoints(discordId, username, delta, reason = '') {
   const ts = Date.now();
   const positiveDelta = delta > 0 ? delta : 0;
 
-  // Utility to fetch the final row after changes
-  async function fetchResult(id) {
-    if (!id) return null;
-    const row = await getUserById(id);
-    return row;
-  }
+  let row = await getUserById(discordId);
 
-  if (!discordId) {
-    // fallback: try find user by username
-    const existing = await getUserByUsername(username);
-    if (existing) {
-      const newPoints = (existing.points || 0) + delta;
-      const newLifetime =
-        (existing.lifetime_points || 0) + positiveDelta;
-
-      await run(
-        `UPDATE points
-         SET points = ?, lifetime_points = ?, last_updated = ?
-         WHERE discord_id = ?`,
-        [newPoints, newLifetime, ts, existing.discord_id || '']
-      );
-
-      await run(
-        `INSERT INTO point_logs (discord_id, username, points, reason, timestamp)
-         VALUES (?, ?, ?, ?, ?)`,
-        [existing.discord_id || '', username, delta, reason, ts]
-      );
-
-      return fetchResult(existing.discord_id || '');
-    } else {
-      const newPoints = delta;
-      const newLifetime = positiveDelta;
-      const did = '';
-
-      await run(
-        `INSERT OR REPLACE INTO points
-         (discord_id, username, points, lifetime_points, last_updated)
-         VALUES (?, ?, ?, ?, ?)`,
-        [did, username || 'Unknown', newPoints, newLifetime, ts]
-      );
-
-      await run(
-        `INSERT INTO point_logs (discord_id, username, points, reason, timestamp)
-         VALUES (?, ?, ?, ?, ?)`,
-        [did, username || 'Unknown', delta, reason, ts]
-      );
-
-      return fetchResult(did);
-    }
+  if (!row) {
+    // Create user if missing
+    await run(
+      `INSERT INTO points (discord_id, username, points, lifetime_points, last_updated)
+       VALUES (?, ?, ?, ?, ?)`,
+      [discordId, username || 'Unknown', delta, positiveDelta, ts]
+    );
   } else {
-    const existing = await getUserById(discordId);
-    if (existing) {
-      const newPoints = (existing.points || 0) + delta;
-      const newLifetime =
-        (existing.lifetime_points || 0) + positiveDelta;
+    // Update existing user
+    const newPoints = (row.points || 0) + delta;
+    const newLifetime = (row.lifetime_points || 0) + positiveDelta;
 
-      await run(
-        `UPDATE points
-         SET points = ?, lifetime_points = ?, username = ?, last_updated = ?
-         WHERE discord_id = ?`,
-        [newPoints, newLifetime, username || existing.username, ts, discordId]
-      );
-
-      await run(
-        `INSERT INTO point_logs (discord_id, username, points, reason, timestamp)
-         VALUES (?, ?, ?, ?, ?)`,
-        [discordId, username || existing.username, delta, reason, ts]
-      );
-
-      return fetchResult(discordId);
-    } else {
-      const newPoints = delta;
-      const newLifetime = positiveDelta;
-
-      await run(
-        `INSERT INTO points
-         (discord_id, username, points, lifetime_points, last_updated)
-         VALUES (?, ?, ?, ?, ?)`,
-        [discordId, username || 'Unknown', newPoints, newLifetime, ts]
-      );
-
-      await run(
-        `INSERT INTO point_logs (discord_id, username, points, reason, timestamp)
-         VALUES (?, ?, ?, ?, ?)`,
-        [discordId, username || 'Unknown', delta, reason, ts]
-      );
-
-      return fetchResult(discordId);
-    }
+    await run(
+      `UPDATE points SET points = ?, lifetime_points = ?, username = ?, last_updated = ?
+       WHERE discord_id = ?`,
+      [newPoints, newLifetime, username || row.username, ts, discordId]
+    );
   }
+
+  // Log change
+  await run(
+    `INSERT INTO point_logs (discord_id, username, points, reason, timestamp)
+     VALUES (?, ?, ?, ?, ?)`,
+    [discordId, username, delta, reason, ts]
+  );
+
+  return getUserById(discordId);
 }
 
-// Get leaderboard (top N) by lifetime_points
+// NEW FUNCTION — required by claim buttons
+async function updateUserPoints(discordId, newPoints) {
+  const ts = Date.now();
+
+  await run(
+    `UPDATE points
+     SET points = ?, last_updated = ?
+     WHERE discord_id = ?`,
+    [newPoints, ts, discordId]
+  );
+
+  return getUserById(discordId);
+}
+
+// Leaderboard
 async function getLeaderboard(limit = 10) {
-  const rows = await all(
+  return await all(
     `SELECT discord_id, username, points, lifetime_points, rank_name
      FROM points
      ORDER BY lifetime_points DESC
      LIMIT ?`,
     [limit]
   );
-  return rows;
 }
 
 async function getAllUsers() {
-  const rows = await all(
-    `SELECT discord_id, username, points, lifetime_points, rank_name, last_updated
-     FROM points
-     ORDER BY username COLLATE NOCASE`
+  return await all(
+    `SELECT * FROM points ORDER BY username COLLATE NOCASE`
   );
-  return rows;
 }
 
 async function clearAllPoints() {
@@ -235,6 +183,7 @@ module.exports = {
   getUserById,
   getUserByUsername,
   addPoints,
+  updateUserPoints,  // ← REQUIRED EXPORT
   getLeaderboard,
   getAllUsers,
   clearAllPoints
