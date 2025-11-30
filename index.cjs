@@ -10,9 +10,6 @@ const {
 const db = require('./database.cjs');
 const { initGoogleSheet } = require('./utils/googleSheets.cjs');
 
-// Rarity utilities
-const { getRankName } = require('./utils/rankSystem.cjs');
-
 // Handlers
 const {
   initCommandHandlers,
@@ -31,12 +28,12 @@ const {
 
 const handleAutocompleteInteraction = require('./handlers/autocompleteHandler.cjs');
 
-// NEW scheduler
+// NEW — SQLite-based bounty scheduler
 const { startBountyScheduler } = require('./utils/bountyScheduler.cjs');
 
 
 // ──────────────────────────────────────
-// Discord client
+// DISCORD CLIENT
 // ──────────────────────────────────────
 const client = new Client({
   intents: [
@@ -46,16 +43,24 @@ const client = new Client({
   ]
 });
 
-// Shared memory stores
+// ──────────────────────────────────────
+// REMOVE OLD IN-MEMORY BOUNTY STORAGE
+// (these are now entirely SQLite-based)
+// ──────────────────────────────────────
 client.playerLocations = new Map();
 client.pendingReports = new Map();
-client.pendingBounties = new Map();
-client.activeBounties = new Map();
-client.bountyClaims = new Map();
+
+// ❌ REMOVED:
+// client.pendingBounties
+// client.activeBounties
+// client.bountyClaims
+//
+// No longer used. ALL bounty storage now lives in SQLite.
+// Scheduler + modal + button handlers read from database only.
 
 
 // ──────────────────────────────────────
-// Rarity helpers
+// RARITY HELPERS (unchanged)
 // ──────────────────────────────────────
 client.rarityGroups = {
   roamerMonth: [
@@ -115,6 +120,7 @@ client.getRarityDisplayLabel = function(key) {
 client.once('ready', async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 
+  // SQLite
   try {
     await db.init();
     console.log('✅ Database initialised');
@@ -122,13 +128,14 @@ client.once('ready', async () => {
     console.error('❌ DB init failed:', err);
   }
 
+  // Google Sheets (non-bounty)
   try {
     await initGoogleSheet();
   } catch (err) {
     console.error('⚠ Sheets init failed:', err);
   }
 
-  // Load handlers
+  // Load all handlers
   try {
     initCommandHandlers(client);
     initButtonHandlers(client);
@@ -138,7 +145,7 @@ client.once('ready', async () => {
     console.error('❌ Handler init failed:', err);
   }
 
-  // START NEW BOUNTY SCHEDULER
+  // Start the NEW SQLite scheduler
   try {
     startBountyScheduler(client);
     console.log('⏱️ Bounty scheduler online');
@@ -149,7 +156,7 @@ client.once('ready', async () => {
 
 
 // ──────────────────────────────────────
-// INTERACTIONS
+// INTERACTION HANDLING
 // ──────────────────────────────────────
 client.on('interactionCreate', async interaction => {
   try {
@@ -185,7 +192,7 @@ client.on('interactionCreate', async interaction => {
 
 
 // ──────────────────────────────────────
-// LOGIN + WEB SERVER
+// LOGIN + EXPRESS HEARTBEAT
 // ──────────────────────────────────────
 client.login(process.env.DISCORD_TOKEN);
 
