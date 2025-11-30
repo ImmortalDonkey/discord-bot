@@ -4,15 +4,14 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ChannelType,
-  PermissionFlagsBits
+  ChannelType
 } = require("discord.js");
 
 const db = require("../../database.cjs");
 const { getClaimsForumChannel } = require("../../utils/channelResolver.cjs");
 
 module.exports = {
-  ids: ["bounty_claim_"],
+  idPrefix: "bounty_claim_",
 
   async execute(client, interaction) {
     const customId = interaction.customId;
@@ -58,12 +57,11 @@ module.exports = {
     const proof = interaction.fields.getTextInputValue("proof_optional") || "";
 
     // ──────────────────────────────────────
-    // Check if user already has a claim on this bounty
+    // Check if user already has a pending claim
     // ──────────────────────────────────────
-    const existingClaim = await db.get(
-      `SELECT * FROM bounty_claims
-       WHERE bounty_id = ? AND hunter_id = ? AND status = 'pending'`,
-      [bountyId, claimerId]
+    const existingClaim = await db.getPendingClaimForBountyAndHunter(
+      bountyId,
+      claimerId
     );
 
     if (existingClaim) {
@@ -74,7 +72,7 @@ module.exports = {
     }
 
     // ──────────────────────────────────────
-    // Create CLAIM THREAD inside CLAIMS FORUM
+    // Create claim thread in Claims Forum
     // ──────────────────────────────────────
     const guild = interaction.guild;
     const forum = await getClaimsForumChannel(guild);
@@ -90,9 +88,7 @@ module.exports = {
 
     const thread = await forum.threads.create({
       name: threadTitle,
-      message: {
-        content: `🧵 **New Bounty Claim Opened**`,
-      },
+      message: { content: `🧵 **New Bounty Claim Opened**` },
       type: ChannelType.PrivateThread
     });
 
@@ -106,6 +102,8 @@ module.exports = {
       proof,
       status: "pending",
       createdAt: now,
+      resolvedAt: null,
+      resolverId: null,
       claimThreadId: thread.id,
       claimMessageId: null
     };
@@ -113,26 +111,31 @@ module.exports = {
     const claimId = await db.createBountyClaim(claimRecord);
 
     // ──────────────────────────────────────
-    // Build embed for claim
+    // Build staff review embed
     // ──────────────────────────────────────
     const embed = new EmbedBuilder()
       .setTitle("🔎 Bounty Claim Submitted")
       .addFields(
         { name: "Hunter", value: `<@${claimerId}>`, inline: true },
         { name: "Pokémon ID", value: pokemonId, inline: true },
-        { name: "Proof / Notes", value: proof || "*None provided*", inline: false },
+        {
+          name: "Proof / Notes",
+          value: proof || "*None provided*",
+          inline: false
+        },
         { name: "Claim ID", value: `${claimId}`, inline: false },
         { name: "Bounty ID", value: bountyId, inline: false }
       )
       .setColor("Yellow")
       .setTimestamp();
 
-    // Staff buttons
+    // Staff action buttons
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`approveclaim_${claimId}`)
         .setLabel("Approve Claim")
         .setStyle(ButtonStyle.Success),
+
       new ButtonBuilder()
         .setCustomId(`denyclaim_${claimId}`)
         .setLabel("Deny Claim")
@@ -144,7 +147,7 @@ module.exports = {
       components: [row]
     });
 
-    // Save claimMessageId to DB
+    // Update DB with claim message ID
     await db.updateBountyClaim(claimId, {
       claim_message_id: claimMessage.id
     });
