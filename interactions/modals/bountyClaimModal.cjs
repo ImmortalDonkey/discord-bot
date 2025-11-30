@@ -4,25 +4,24 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ChannelType
+  ChannelType,
+  PermissionFlagsBits
 } = require("discord.js");
 
 const db = require("../../database.cjs");
 const { getClaimsForumChannel } = require("../../utils/channelResolver.cjs");
 
 module.exports = {
-  idPrefix: "bounty_claim_",
+  idPrefix: "bounty_claim_",   // ✅ FIXED — required by modalHandler!
 
   async execute(client, interaction) {
     const customId = interaction.customId;
 
     // Format: bounty_claim_<bountyId>_<userId>
     const parts = customId.split("_");
-    // ["bounty", "claim", "<bountyId>", "<userId>"]
     const bountyId = parts[2];
     const claimerId = parts[3];
 
-    // User submitting must match claimerId
     if (interaction.user.id !== claimerId) {
       return interaction.reply({
         content: "❌ You cannot submit a claim for someone else.",
@@ -30,11 +29,8 @@ module.exports = {
       });
     }
 
-    // ──────────────────────────────────────
-    // Load bounty from DB
-    // ──────────────────────────────────────
+    // Load bounty
     const bounty = await db.getBountyById(bountyId);
-
     if (!bounty || bounty.status !== "open") {
       return interaction.reply({
         content: "❌ This bounty is no longer open.",
@@ -50,18 +46,17 @@ module.exports = {
       });
     }
 
-    // ──────────────────────────────────────
-    // Extract modal data
-    // ──────────────────────────────────────
+    // Modal values
     const pokemonId = interaction.fields.getTextInputValue("pokemon_id");
     const proof = interaction.fields.getTextInputValue("proof_optional") || "";
 
-    // ──────────────────────────────────────
-    // Check if user already has a pending claim
-    // ──────────────────────────────────────
-    const existingClaim = await db.getPendingClaimForBountyAndHunter(
-      bountyId,
-      claimerId
+    // Check for existing claim
+    const existingClaim = await db.get(
+      `SELECT * FROM bounty_claims
+       WHERE bounty_id = ?
+         AND hunter_id = ?
+         AND status = 'pending'`,
+      [bountyId, claimerId]
     );
 
     if (existingClaim) {
@@ -71,9 +66,7 @@ module.exports = {
       });
     }
 
-    // ──────────────────────────────────────
-    // Create claim thread in Claims Forum
-    // ──────────────────────────────────────
+    // Get Claims Forum
     const guild = interaction.guild;
     const forum = await getClaimsForumChannel(guild);
 
@@ -84,17 +77,18 @@ module.exports = {
       });
     }
 
+    // Create private thread
     const threadTitle = `Claim-${interaction.user.username}-${Date.now()}`;
-
     const thread = await forum.threads.create({
       name: threadTitle,
-      message: { content: `🧵 **New Bounty Claim Opened**` },
-      type: ChannelType.PrivateThread
+      type: ChannelType.PrivateThread,
+      invitable: false,
+      message: {
+        content: `🧵 **New Bounty Claim Opened**`
+      }
     });
 
-    // ──────────────────────────────────────
-    // Insert claim into DB
-    // ──────────────────────────────────────
+    // DB insert claim
     const claimRecord = {
       bountyId,
       hunterId: claimerId,
@@ -102,40 +96,30 @@ module.exports = {
       proof,
       status: "pending",
       createdAt: now,
-      resolvedAt: null,
-      resolverId: null,
       claimThreadId: thread.id,
       claimMessageId: null
     };
 
     const claimId = await db.createBountyClaim(claimRecord);
 
-    // ──────────────────────────────────────
-    // Build staff review embed
-    // ──────────────────────────────────────
+    // Staff embed
     const embed = new EmbedBuilder()
       .setTitle("🔎 Bounty Claim Submitted")
       .addFields(
         { name: "Hunter", value: `<@${claimerId}>`, inline: true },
         { name: "Pokémon ID", value: pokemonId, inline: true },
-        {
-          name: "Proof / Notes",
-          value: proof || "*None provided*",
-          inline: false
-        },
-        { name: "Claim ID", value: `${claimId}`, inline: false },
-        { name: "Bounty ID", value: bountyId, inline: false }
+        { name: "Proof / Notes", value: proof || "*None provided*" },
+        { name: "Claim ID", value: `${claimId}` },
+        { name: "Bounty ID", value: bountyId }
       )
       .setColor("Yellow")
       .setTimestamp();
 
-    // Staff action buttons
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`approveclaim_${claimId}`)
         .setLabel("Approve Claim")
         .setStyle(ButtonStyle.Success),
-
       new ButtonBuilder()
         .setCustomId(`denyclaim_${claimId}`)
         .setLabel("Deny Claim")
@@ -147,7 +131,6 @@ module.exports = {
       components: [row]
     });
 
-    // Update DB with claim message ID
     await db.updateBountyClaim(claimId, {
       claim_message_id: claimMessage.id
     });
