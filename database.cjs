@@ -26,7 +26,7 @@ const db = new sqlite3.Database(
   }
 );
 
-// Promisified helpers
+// Promisified helpers (internal)
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
@@ -373,6 +373,19 @@ async function updateBountyClaim(id, patch) {
   await run(`UPDATE bounty_claims SET ${setSql} WHERE id = ?`, values);
 }
 
+/**
+ * Helper: check if a hunter already has a pending claim on a bounty.
+ */
+async function getPendingClaimForBountyAndHunter(bountyId, hunterId) {
+  return await get(
+    `SELECT * FROM bounty_claims
+     WHERE bounty_id = ?
+       AND hunter_id = ?
+       AND status = 'pending'`,
+    [bountyId, hunterId]
+  );
+}
+
 // ───────────────────────────────────
 
 module.exports = {
@@ -407,5 +420,6 @@ module.exports = {
   // bounty claims
   createBountyClaim,
   getBountyClaimById,
-  updateBountyClaim
+  updateBountyClaim,
+  getPendingClaimForBountyAndHunter
 };
