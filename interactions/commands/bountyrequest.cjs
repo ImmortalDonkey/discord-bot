@@ -2,6 +2,7 @@
 const {
   SlashCommandBuilder,
   EmbedBuilder,
+  ChannelType
 } = require('discord.js');
 
 const {
@@ -14,6 +15,9 @@ const {
   getHighestRarityForList,
   getRarityDisplayLabel,
 } = require('../../utils/rarity.cjs');
+
+const db = require('../../database.cjs');
+const { getBountyRequestChannel } = require('../../utils/channelResolver.cjs');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -126,11 +130,12 @@ module.exports = {
     // SERVER-TIME START / END
     // ───────────────────────────────
     let startTime;
+    const now = new Date();
     if (startTimeStr === 'now') {
-      startTime = new Date(); // server timezone (Pi)
+      startTime = now;
     } else {
       const hour = parseHourFromStartTimeString(startTimeStr);
-      startTime = getNextOccurrenceOfHour(hour); // still server time
+      startTime = getNextOccurrenceOfHour(hour);
     }
 
     const endTime = new Date(startTime.getTime() + durationMs);
@@ -140,63 +145,33 @@ module.exports = {
 
     const bountyId = `${Date.now()}_${interaction.user.id}`;
 
-    // ───────────────────────────────
-    // STORE IN MEMORY
-    // ───────────────────────────────
     const displayName =
       member?.nickname || interaction.user.username || interaction.user.tag;
-
-    const bounty = {
-      id: bountyId,
-      requesterId: interaction.user.id,
-      requesterName: displayName,
-      pokemons,
-      notes,
-      startTime: startMs,      // numbers (ms) so restart-safe-ish
-      endTime: endMs,
-      durationHours,
-      reward,
-      createdAt: Date.now(),
-      startsNow: startTimeStr === 'now',
-      approved: false,
-      hasStarted: false,
-      completed: false,
-      channelId: null,
-      messageId: null,
-      announcementId: null,
-    };
-
-    client.pendingBounties.set(bountyId, bounty);
-
-    // ───────────────────────────────
-    // SEND REQUEST EMBED TO STAFF
-    // ───────────────────────────────
-    const requestChannelId = process.env.BOUNTY_REQUEST_CHANNEL_ID;
-    const requestChannel = requestChannelId
-      ? await interaction.guild.channels.fetch(requestChannelId).catch(() => null)
-      : null;
-
-    if (!requestChannel) {
-      return interaction.reply({
-        content: '❌ Bounty request channel not configured.',
-        ephemeral: true,
-      });
-    }
-
-    // Staff ping
-    const staffRolesEnv = process.env.STAFF_ROLES || '';
-    const staffMention = staffRolesEnv
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean)
-      .map(id => `<@&${id}>`)
-      .join(' ');
 
     // Rarity
     const rarityKey = getHighestRarityForList(pokemons);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
-    const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n');
+    // ───────────────────────────────
+    // FIND REQUEST CHANNEL & CREATE PRIVATE THREAD
+    // ───────────────────────────────
+    const guild = interaction.guild;
+    const requestChannel = await getBountyRequestChannel(guild);
+
+    if (!requestChannel || requestChannel.type !== ChannelType.GuildText) {
+      return interaction.reply({
+        content: '❌ Bounty request channel is not configured correctly.',
+        ephemeral: true,
+      });
+    }
+
+    const threadName = `bounty-${interaction.user.username}-${Date.now()}`;
+    const requestThread = await requestChannel.threads.create({
+      name: threadName,
+      type: ChannelType.PrivateThread,
+      invitable: false,
+    });
+
     const startUnix = Math.floor(startMs / 1000);
     const endUnix = Math.floor(endMs / 1000);
 
@@ -204,6 +179,8 @@ module.exports = {
       startTimeStr === 'now'
         ? `<t:${startUnix}:F> (Start on approval / immediately)`
         : `<t:${startUnix}:F>`;
+
+    const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n');
 
     const embed = new EmbedBuilder()
       .setTitle('📝 New Bounty Request')
@@ -248,14 +225,54 @@ module.exports = {
       ],
     };
 
-    await requestChannel.send({
+    const staffRolesEnv = process.env.STAFF_ROLES || '';
+    const staffMention = staffRolesEnv
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(id => `<@&${id}>`)
+      .join(' ');
+
+    const requestMessage = await requestThread.send({
       content: staffMention || '',
       embeds: [embed],
       components: [row],
     });
 
+    // ───────────────────────────────
+    // STORE IN SQLITE
+    // ───────────────────────────────
+    const bountyRecord = {
+      id: bountyId,
+      guildId: guild.id,
+      requesterId: interaction.user.id,
+      requesterName: displayName,
+      pokemons,
+      notes,
+      startTime: startMs,
+      endTime: endMs,
+      durationHours,
+      reward,
+      rarityKey,
+      rarityLabel,
+      startsImmediately: startTimeStr === 'now',
+      status: 'pending',
+      createdAt: Date.now(),
+      approvedAt: null,
+      requestThreadId: requestThread.id,
+      requestMessageId: requestMessage.id,
+      announcementChannelId: null,
+      announcementMessageId: null,
+      cardChannelId: null,
+      cardMessageId: null,
+      winnerId: null,
+      winnerClaimId: null
+    };
+
+    await db.createBounty(bountyRecord);
+
     return interaction.reply({
-      content: '✅ Bounty request submitted. Staff have been notified.',
+      content: '✅ Bounty request submitted. Staff have been notified in your private bounty thread.',
       ephemeral: true,
     });
   },
