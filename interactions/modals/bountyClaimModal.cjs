@@ -4,15 +4,15 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ChannelType,
-  PermissionFlagsBits
+  ChannelType
 } = require("discord.js");
 
 const db = require("../../database.cjs");
 const { getClaimsForumChannel } = require("../../utils/channelResolver.cjs");
 
 module.exports = {
-  idPrefix: "bounty_claim_",   // ✅ FIXED — required by modalHandler!
+  // REQUIRED by modalHandler.cjs
+  ids: ["bounty_claim_"],
 
   async execute(client, interaction) {
     const customId = interaction.customId;
@@ -21,6 +21,14 @@ module.exports = {
     const parts = customId.split("_");
     const bountyId = parts[2];
     const claimerId = parts[3];
+
+    // Safety: ignore if format is invalid
+    if (!bountyId || !claimerId) {
+      return interaction.reply({
+        content: "❌ Invalid claim format.",
+        ephemeral: true
+      });
+    }
 
     if (interaction.user.id !== claimerId) {
       return interaction.reply({
@@ -46,30 +54,25 @@ module.exports = {
       });
     }
 
-    // Modal values
     const pokemonId = interaction.fields.getTextInputValue("pokemon_id");
     const proof = interaction.fields.getTextInputValue("proof_optional") || "";
 
-    // Check for existing claim
-    const existingClaim = await db.get(
+    // Check for existing pending claim
+    const existing = await db.get(
       `SELECT * FROM bounty_claims
-       WHERE bounty_id = ?
-         AND hunter_id = ?
-         AND status = 'pending'`,
+       WHERE bounty_id = ? AND hunter_id = ? AND status = 'pending'`,
       [bountyId, claimerId]
     );
 
-    if (existingClaim) {
+    if (existing) {
       return interaction.reply({
         content: "❌ You already have a pending claim for this bounty.",
         ephemeral: true
       });
     }
 
-    // Get Claims Forum
-    const guild = interaction.guild;
-    const forum = await getClaimsForumChannel(guild);
-
+    // Find Claims Forum
+    const forum = await getClaimsForumChannel(interaction.guild);
     if (!forum) {
       return interaction.reply({
         content: "❌ Claims forum channel is not configured.",
@@ -78,9 +81,8 @@ module.exports = {
     }
 
     // Create private thread
-    const threadTitle = `Claim-${interaction.user.username}-${Date.now()}`;
     const thread = await forum.threads.create({
-      name: threadTitle,
+      name: `Claim-${interaction.user.username}-${Date.now()}`,
       type: ChannelType.PrivateThread,
       invitable: false,
       message: {
@@ -88,8 +90,8 @@ module.exports = {
       }
     });
 
-    // DB insert claim
-    const claimRecord = {
+    // Save to DB
+    const claimId = await db.createBountyClaim({
       bountyId,
       hunterId: claimerId,
       pokemonId,
@@ -98,11 +100,9 @@ module.exports = {
       createdAt: now,
       claimThreadId: thread.id,
       claimMessageId: null
-    };
+    });
 
-    const claimId = await db.createBountyClaim(claimRecord);
-
-    // Staff embed
+    // Staff review embed
     const embed = new EmbedBuilder()
       .setTitle("🔎 Bounty Claim Submitted")
       .addFields(
@@ -110,11 +110,12 @@ module.exports = {
         { name: "Pokémon ID", value: pokemonId, inline: true },
         { name: "Proof / Notes", value: proof || "*None provided*" },
         { name: "Claim ID", value: `${claimId}` },
-        { name: "Bounty ID", value: bountyId }
+        { name: "Bounty ID", value: `${bountyId}` },
       )
       .setColor("Yellow")
       .setTimestamp();
 
+    // Staff buttons
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`approveclaim_${claimId}`)
@@ -126,13 +127,13 @@ module.exports = {
         .setStyle(ButtonStyle.Danger)
     );
 
-    const claimMessage = await thread.send({
+    const msg = await thread.send({
       embeds: [embed],
       components: [row]
     });
 
     await db.updateBountyClaim(claimId, {
-      claim_message_id: claimMessage.id
+      claim_message_id: msg.id
     });
 
     return interaction.reply({
