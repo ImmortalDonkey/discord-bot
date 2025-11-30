@@ -8,7 +8,6 @@ const {
 
 const db = require("../../database.cjs");
 const { postBountyCard } = require("../../utils/bountyScheduler.cjs");
-const { createBountyCard } = require("../../renderers/cardRenderer.cjs");
 
 module.exports = {
   ids: ["approvebounty_", "denybounty_"],
@@ -16,9 +15,9 @@ module.exports = {
   async execute(client, interaction) {
     const id = interaction.customId;
 
-    // =======================================================================
+    // ============================================================
     // 🟢 APPROVE BOUNTY
-    // =======================================================================
+    // ============================================================
     if (id.startsWith("approvebounty_")) {
       const bountyId = id.replace("approvebounty_", "");
 
@@ -31,15 +30,14 @@ module.exports = {
         });
       }
 
-      // Mark approved
+      // Update status → open
       await db.updateBounty(bountyId, {
         status: "open",
         approved_at: Date.now()
       });
 
       const guild = interaction.guild;
-      const channelId = bounty.request_thread_id;
-      const requestThread = guild.channels.cache.get(channelId);
+      const requestThread = guild.channels.cache.get(bounty.request_thread_id);
 
       if (requestThread) {
         try {
@@ -47,14 +45,14 @@ module.exports = {
         } catch {}
       }
 
-      // START TIME LOGIC
       const now = Date.now();
       const startsNow = bounty.starts_immediately === 1;
 
-      // If it starts immediately → render card right now
+      // ============================================================
+      // STARTS IMMEDIATELY → SEND CARD NOW
+      // ============================================================
       if (startsNow || now >= bounty.start_time) {
-        // Fully render the card + send to bounty channel
-        const msg = await postBountyCard(client, bountyId);
+        const msg = await postBountyCard(client, bounty);
 
         if (msg) {
           await db.updateBounty(bountyId, {
@@ -64,16 +62,18 @@ module.exports = {
         }
 
         return interaction.reply({
-          content: "📢 **Bounty Approved!** The bounty has started immediately.",
+          content: "📢 **Bounty Approved!** It has started immediately.",
           ephemeral: true
         });
       }
 
-      // FUTURE START → Post a scheduled announcement
-      const bountyChannelId = process.env.BOUNTY_CHANNEL_ID;
-      const bountyChannel = guild.channels.cache.get(bountyChannelId);
+      // ============================================================
+      // FUTURE START → SEND SCHEDULED ANNOUNCEMENT
+      // ============================================================
+      const announceChannelId = process.env.BOUNTY_CHANNEL_ID;
+      const announceChannel = guild.channels.cache.get(announceChannelId);
 
-      if (!bountyChannel) {
+      if (!announceChannel) {
         return interaction.reply({
           content: "❌ BOUNTY_CHANNEL_ID is not configured correctly.",
           ephemeral: true
@@ -89,7 +89,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setTitle("⏳ Scheduled Bounty Approved")
-        .setDescription("This bounty will begin automatically when the start time arrives.")
+        .setDescription("This bounty will automatically start at the scheduled time.")
         .addFields(
           { name: "Trainer", value: `<@${bounty.requester_id}>`, inline: true },
           { name: "Reward", value: `${bounty.reward.toLocaleString()} PKD`, inline: true },
@@ -99,22 +99,22 @@ module.exports = {
         )
         .setColor("Yellow");
 
-      const announcement = await bountyChannel.send({ embeds: [embed] });
+      const announcement = await announceChannel.send({ embeds: [embed] });
 
       await db.updateBounty(bountyId, {
-        announcement_channel_id: bountyChannel.id,
+        announcement_channel_id: announceChannel.id,
         announcement_message_id: announcement.id
       });
 
       return interaction.reply({
-        content: "⏱️ **Bounty Approved!** It will begin at the scheduled start time.",
+        content: "⏱️ **Bounty Approved!** It will start at the scheduled time.",
         ephemeral: true
       });
     }
 
-    // =======================================================================
+    // ============================================================
     // 🔴 DENY BOUNTY
-    // =======================================================================
+    // ============================================================
     if (id.startsWith("denybounty_")) {
       const bountyId = id.replace("denybounty_", "");
 
@@ -131,8 +131,7 @@ module.exports = {
       });
 
       const guild = interaction.guild;
-      const channelId = bounty.request_thread_id;
-      const requestThread = guild.channels.cache.get(channelId);
+      const requestThread = guild.channels.cache.get(bounty.request_thread_id);
 
       if (requestThread) {
         try {
