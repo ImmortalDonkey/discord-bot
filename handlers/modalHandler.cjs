@@ -6,8 +6,8 @@ const modalHandlers = [];
 
 /**
  * Load all modal handlers from interactions/modals.
- * Each should export:
- *   - idPrefix: string (e.g. "bountyclaim_")
+ * Each module must export:
+ *   - ids: array of strings (exact or prefix, e.g. ["bounty_claim_"])
  *   - execute(client, interaction)
  */
 function initModalHandlers(client) {
@@ -24,8 +24,10 @@ function initModalHandlers(client) {
     const fullPath = path.join(modalsDir, file);
     try {
       const mod = require(fullPath);
-      if (!mod || !mod.idPrefix || typeof mod.execute !== 'function') {
-        console.warn(`⚠ Skipping modal file "${file}" – missing idPrefix or execute().`);
+
+      // Validate signature
+      if (!mod || !Array.isArray(mod.ids) || typeof mod.execute !== 'function') {
+        console.warn(`⚠ Skipping modal file "${file}" – missing ids[] or execute().`);
         continue;
       }
 
@@ -37,9 +39,20 @@ function initModalHandlers(client) {
   }
 }
 
+/**
+ * Route modal submissions using:
+ *   - exact match
+ *   - prefix match if id ends with "_"
+ */
 async function handleModalInteraction(client, interaction) {
   const id = interaction.customId;
-  const handler = modalHandlers.find(m => id.startsWith(m.idPrefix));
+
+  const handler = modalHandlers.find(mod =>
+    mod.ids.some(prefix =>
+      id === prefix ||
+      (prefix.endsWith("_") && id.startsWith(prefix))
+    )
+  );
 
   if (!handler) {
     console.warn(`⚠ No modal handler for "${id}".`);
