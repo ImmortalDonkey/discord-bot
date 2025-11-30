@@ -68,7 +68,8 @@ async function postBountyCard(client, bountyRow) {
   const endLabel = endDate.toLocaleString('en-GB');
   const durationLabel = `${bountyRow.duration_hours} hour(s)`;
 
-  const cardPath = await createBountyCard({
+  // ⚠ IMPORTANT FIX: createBountyCard returns a BUFFER (not file path)
+  const cardBuffer = await createBountyCard({
     bountyId: bountyRow.id,
     username,
     rankName,
@@ -99,9 +100,13 @@ async function postBountyCard(client, bountyRow) {
       .setStyle(ButtonStyle.Success),
   );
 
+  // ⭐ FIXED: Send Buffer with a manual filename
   const msg = await channel.send({
     content: pingText.trim(),
-    files: [{ attachment: cardPath, name: path.basename(cardPath) }],
+    files: [{
+      attachment: cardBuffer,
+      name: `bounty_${bountyRow.id}.png`
+    }],
     components: [row],
   });
 
