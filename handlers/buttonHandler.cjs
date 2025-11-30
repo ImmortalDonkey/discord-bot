@@ -6,9 +6,6 @@ const buttonHandlers = [];
 
 /**
  * Load all button handlers from interactions/buttons.
- * Each module should export:
- *   - ids: array of strings (exact IDs or prefixes like "approvebounty_")
- *   - execute(client, interaction)
  */
 function initButtonHandlers(client) {
   const buttonsDir = path.join(__dirname, '..', 'interactions', 'buttons');
@@ -24,6 +21,7 @@ function initButtonHandlers(client) {
     const fullPath = path.join(buttonsDir, file);
     try {
       const mod = require(fullPath);
+
       if (!mod || !Array.isArray(mod.ids) || typeof mod.execute !== 'function') {
         console.warn(`⚠ Skipping button file "${file}" – missing ids[] or execute().`);
         continue;
@@ -38,18 +36,17 @@ function initButtonHandlers(client) {
 }
 
 /**
- * Route button presses to the correct module.
- * Supports:
- *   - exact match: id === customId
- *   - prefix match: id + "*" pattern (we treat any id ending with "_" as prefix)
+ * Route button presses using:
+ *  - exact match
+ *  - PREFIX MATCH if the handler ID ends with "_"
  */
 async function handleButtonInteraction(client, interaction) {
   const id = interaction.customId;
 
-  // try exact match first, then prefix match
   const handler = buttonHandlers.find(mod =>
     mod.ids.some(btnId =>
-      id === btnId || id.startsWith(btnId)
+      id === btnId ||
+      (btnId.endsWith("_") && id.startsWith(btnId))
     )
   );
 
