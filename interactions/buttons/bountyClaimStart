@@ -12,7 +12,6 @@ module.exports = {
   async execute(client, interaction) {
     const bountyId = interaction.customId.replace("claimbounty_", "");
 
-    // Build modal
     const modal = new ModalBuilder()
       .setCustomId(`bounty_claim_${bountyId}_${interaction.user.id}`)
       .setTitle("Submit Bounty Claim");
