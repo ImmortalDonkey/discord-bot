@@ -16,6 +16,7 @@ const {
   getRarityDisplayLabel,
 } = require('../../utils/rarity.cjs');
 
+// now using in-memory functions (same names, just memory-based)
 const db = require('../../database.cjs');
 const { getBountyRequestChannel } = require('../../utils/channelResolver.cjs');
 
@@ -153,7 +154,7 @@ module.exports = {
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
     // ───────────────────────────────
-    // FIND REQUEST CHANNEL & CREATE PRIVATE THREAD
+    // CREATE PRIVATE REQUEST THREAD
     // ───────────────────────────────
     const guild = interaction.guild;
     const requestChannel = await getBountyRequestChannel(guild);
@@ -238,7 +239,7 @@ module.exports = {
     });
 
     // ───────────────────────────────
-    // FIXED: STORE IN SQLITE WITH CORRECT FIELD NAMES
+    // STORE IN MEMORY (ONLY CHANGE)
     // ───────────────────────────────
     const bountyRecord = {
       id: bountyId,
@@ -267,7 +268,7 @@ module.exports = {
       winnerClaimId: null
     };
 
-    await db.createBounty(bountyRecord);
+    await db.createBounty(bountyRecord); // now memory-based
 
     return interaction.reply({
       content: '✅ Bounty request submitted. Staff have been notified in your private bounty thread.',
