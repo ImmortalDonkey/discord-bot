@@ -10,37 +10,40 @@ const db = require("../../database.cjs");
 const { getClaimsForumChannel } = require("../../utils/channelResolver.cjs");
 
 module.exports = {
-  // modalHandler.cjs expects ids: []
+  // Required by modalHandler.cjs
   ids: ["bounty_claim_"],
 
   /**
-   * Handles submissions of the bounty claim modal.
-   * Custom ID format: bounty_claim_<bountyId>_<userId>
+   * Custom ID format:
+   *   bounty_claim_<bountyId>_<userId>
    */
   async execute(client, interaction) {
     const customId = interaction.customId;
     const parts = customId.split("_");
+
     const bountyId = parts[2];
     const claimerId = parts[3];
 
-    // Safety: only the original user may submit
+    // Prevent submitting for someone else
     if (interaction.user.id !== claimerId) {
       return interaction.reply({
         content: "❌ You cannot submit a claim for someone else.",
-        flags: 64 // ephemeral
+        flags: 64
       });
     }
 
     // Load bounty
     const bounty = await db.getBountyById(bountyId);
-    if (!bounty || bounty.status !== "open") {
+    if (!bounty) {
       return interaction.reply({
-        content: "❌ This bounty is no longer open.",
+        content: "❌ Could not find this bounty.",
         flags: 64
       });
     }
 
     const now = Date.now();
+
+    // ✔ Correct: Only enforce time window (start/end)
     if (now < bounty.start_time || now > bounty.end_time) {
       return interaction.reply({
         content: "❌ This bounty is not active right now.",
@@ -48,16 +51,15 @@ module.exports = {
       });
     }
 
-    // Modal inputs
-    const pokemonId = interaction.fields.getTextInputValue("pokemon_id");
+    // Get modal inputs
+    const pokemonId =
+      interaction.fields.getTextInputValue("pokemon_id");
     const proof =
       interaction.fields.getTextInputValue("proof_optional") || "";
 
-    // Check for existing pending claim from this hunter on this bounty
-    const existingClaim = await db.getPendingClaimForBountyAndHunter(
-      bountyId,
-      claimerId
-    );
+    // Check for existing pending claim
+    const existingClaim =
+      await db.getPendingClaimForBountyAndHunter(bountyId, claimerId);
 
     if (existingClaim) {
       return interaction.reply({
@@ -66,25 +68,24 @@ module.exports = {
       });
     }
 
-    // Resolve the claims forum channel
+    // Get forum channel
     const forum = await getClaimsForumChannel(interaction.guild);
-
-    if (!forum || !forum.threads) {
+    if (!forum) {
       return interaction.reply({
-        content: "❌ Claims forum channel is not configured correctly.",
+        content: "❌ Claims forum channel is not configured.",
         flags: 64
       });
     }
 
-    // Create a new thread for this claim
+    // Create a new discussion thread in the forum
     const thread = await forum.threads.create({
       name: `Claim-${interaction.user.username}-${Date.now()}`,
-      // For forum channels, "message" is the starting post
-      message: { content: `🧵 **New Bounty Claim Opened** by <@${claimerId}>` }
-      // No explicit "type" here; forum threads are created appropriately by Discord
+      message: {
+        content: `🧵 **New bounty claim submitted by <@${claimerId}>**`
+      }
     });
 
-    // Build claim record in the shape expected by createBountyClaim()
+    // Build correct record for DB insert
     const claimRecord = {
       bountyId,
       hunterId: claimerId,
@@ -100,7 +101,7 @@ module.exports = {
 
     const claimId = await db.createBountyClaim(claimRecord);
 
-    // Build staff review embed
+    // Staff review embed
     const embed = new EmbedBuilder()
       .setTitle("🔎 Bounty Claim Submitted")
       .addFields(
@@ -116,6 +117,7 @@ module.exports = {
       .setColor("Yellow")
       .setTimestamp();
 
+    // Buttons for staff review
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`approveclaim_${claimId}`)
@@ -132,11 +134,12 @@ module.exports = {
       components: [row]
     });
 
-    // Save the claim message ID
+    // Update DB record with message ID
     await db.updateBountyClaim(claimId, {
       claim_message_id: claimMessage.id
     });
 
+    // Notify the claimer
     return interaction.reply({
       content: "✅ Your claim has been submitted for staff review.",
       flags: 64
