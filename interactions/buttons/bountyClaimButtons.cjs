@@ -5,6 +5,8 @@ const {
 } = require("discord.js");
 
 const db = require("../../database.cjs");
+const { createBountyCardEnd } = require("../../renderers/bountyCardEnd.cjs");
+const { getRankName } = require("../../utils/rankSystem.cjs");
 
 module.exports = {
   ids: ["approveclaim_", "denyclaim_"],
@@ -82,14 +84,13 @@ module.exports = {
     // ======================================================================
     // ✔ APPROVE CLAIM
     // ======================================================================
-
     await db.updateBountyClaim(claimId, {
       status: "approved",
       resolvedAt: Date.now(),
       resolverId: interaction.user.id
     });
 
-    // complete bounty
+    // Mark bounty completed
     await db.updateBounty(bounty.id, {
       status: "completed",
       winnerId: claim.hunterId,
@@ -106,30 +107,66 @@ module.exports = {
       components: []
     });
 
-    // Remove button from bounty card
+    // ======================================================================
+    // REMOVE ORIGINAL BOUNTY CARD AND POST COMPLETED END CARD (NO PINGS)
+    // ======================================================================
     try {
-      if (bounty.cardChannelId && bounty.cardMessageId) {
-        const channel = await client.channels.fetch(bounty.cardChannelId);
-        const msg = await channel.messages.fetch(bounty.cardMessageId);
-        await msg.edit({ components: [] });
-      }
+      const guild = interaction.guild;
+      const channel = await guild.channels.fetch(bounty.cardChannelId);
+      const original = await channel.messages.fetch(bounty.cardMessageId).catch(() => null);
+
+      // Delete the current bounty card
+      if (original) await original.delete().catch(() => {});
+
+      // Build the new completed card
+      const member = await guild.members.fetch(claim.hunterId).catch(() => null);
+
+      const username =
+        member?.nickname ||
+        member?.user?.username ||
+        "Trainer";
+
+      const avatarUrl =
+        member?.displayAvatarURL({ extension: "png", size: 512 }) ||
+        guild.iconURL({ extension: "png", size: 512 });
+
+      // Rank
+      let rankName = "Rookie Trainer";
+      try {
+        const dbUser = await db.getUserById(claim.hunterId);
+        const lifetime = dbUser?.lifetime_points ?? dbUser?.points ?? 0;
+        rankName = getRankName(lifetime);
+      } catch {}
+
+      const rewardLabel = `${Number(bounty.reward || 0).toLocaleString()} PKD`;
+      const pokemons = bounty.pokemons || [];
+
+      // Generate end-card buffer
+      const cardBuffer = await createBountyCardEnd({
+        bountyId: bounty.id,
+        username,
+        rankName,
+        pokemons,
+        rewardLabel,
+        avatarUrl,
+        mode: "completed"
+      });
+
+      // Post WITHOUT ANY PINGS, NO CONTENT
+      await channel.send({
+        files: [{
+          attachment: cardBuffer,
+          name: `bountyEnd_${bounty.id}.png`
+        }]
+      });
+
     } catch (err) {
-      console.warn("⚠ Could not update bounty card:", err.message);
+      console.warn("⚠ Could not generate completed bounty card:", err.message);
     }
 
-    // DM user
-    try {
-      const hunter = await client.users.fetch(claim.hunterId);
-      const firstTarget = (bounty.pokemons && bounty.pokemons[0]) || "your target";
-
-      await hunter.send(
-        `🎉 Your **bounty claim** for **${firstTarget}** has been approved!\n` +
-        `🏆 Reward: **${Number(bounty.reward).toLocaleString()} PKD**\n` +
-        `🆔 Claim ID: ${claimId}`
-      );
-    } catch {}
-
-    // Notify in thread + DELETE after 1 minute
+    // ======================================================================
+    // NOTIFY + DELETE THREAD
+    // ======================================================================
     try {
       const thread = await client.channels.fetch(claim.claimThreadId);
 
@@ -138,13 +175,8 @@ module.exports = {
         `🕒 This thread will be deleted in **1 minute**.`
       );
 
-      // AUTO DELETE
       setTimeout(async () => {
-        try {
-          await thread.delete();
-        } catch (err) {
-          console.warn("⚠ Failed to delete claim thread:", err.message);
-        }
+        await thread.delete().catch(() => {});
       }, 60000);
 
     } catch (err) {
