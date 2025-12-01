@@ -15,18 +15,19 @@ module.exports = {
   async execute(client, interaction) {
     const id = interaction.customId;
 
+    // SAFETY: Always defer immediately to avoid "Unknown interaction" (10062)
+    await interaction.deferReply({ flags: 64 }); // ephemeral
+
     // ============================================================
     // 🟢 APPROVE BOUNTY
     // ============================================================
     if (id.startsWith("approvebounty_")) {
       const bountyId = id.replace("approvebounty_", "");
 
-      // Load from DB
       const bounty = await db.getBountyById(bountyId);
       if (!bounty || bounty.status !== "pending") {
-        return interaction.reply({
-          content: "❌ This bounty is no longer pending.",
-          ephemeral: true
+        return interaction.editReply({
+          content: "❌ This bounty is no longer pending."
         });
       }
 
@@ -61,9 +62,8 @@ module.exports = {
           });
         }
 
-        return interaction.reply({
-          content: "📢 **Bounty Approved!** It has started immediately.",
-          ephemeral: true
+        return interaction.editReply({
+          content: "📢 **Bounty Approved!** It has started immediately."
         });
       }
 
@@ -74,9 +74,8 @@ module.exports = {
       const announceChannel = guild.channels.cache.get(announceChannelId);
 
       if (!announceChannel) {
-        return interaction.reply({
-          content: "❌ BOUNTY_CHANNEL_ID is not configured correctly.",
-          ephemeral: true
+        return interaction.editReply({
+          content: "❌ BOUNTY_CHANNEL_ID is not configured correctly."
         });
       }
 
@@ -106,9 +105,8 @@ module.exports = {
         announcement_message_id: announcement.id
       });
 
-      return interaction.reply({
-        content: "⏱️ **Bounty Approved!** It will start at the scheduled time.",
-        ephemeral: true
+      return interaction.editReply({
+        content: "⏱️ **Bounty Approved!** It will start at the scheduled time."
       });
     }
 
@@ -120,9 +118,8 @@ module.exports = {
 
       const bounty = await db.getBountyById(bountyId);
       if (!bounty || bounty.status !== "pending") {
-        return interaction.reply({
-          content: "❌ This bounty is no longer pending.",
-          ephemeral: true
+        return interaction.editReply({
+          content: "❌ This bounty is no longer pending."
         });
       }
 
@@ -139,9 +136,8 @@ module.exports = {
         } catch {}
       }
 
-      return interaction.reply({
-        content: "❌ Bounty has been denied.",
-        ephemeral: true
+      return interaction.editReply({
+        content: "❌ Bounty has been denied."
       });
     }
   }
