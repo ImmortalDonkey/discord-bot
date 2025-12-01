@@ -6,8 +6,8 @@ module.exports = {
 
   async execute(client, interaction) {
     const id = interaction.customId;
+    // format: bountyclaim|<bountyId>|<hunterId>
     const parts = id.split("|");
-
     const bountyId = parts[1];
     const hunterId = parts[2];
 
@@ -29,8 +29,9 @@ module.exports = {
       });
     }
 
-    // Create claim
+    // create claim (in-memory)
     const claimId = `${Date.now()}_${hunterId}`;
+
     await db.createBountyClaim({
       id: claimId,
       bountyId,
@@ -42,9 +43,9 @@ module.exports = {
       claimThreadId: null
     });
 
-    // FIXED HERE — correct .env variable
-    const forumId = process.env.CLAIMS_FORUM_CHANNEL_ID;
-    const forum = interaction.guild.channels.cache.get(forumId);
+    // Create staff thread in the CLAIMS forum
+    const guild = interaction.guild;
+    const forum = guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL_ID);
 
     if (!forum) {
       return interaction.reply({
@@ -53,9 +54,12 @@ module.exports = {
       });
     }
 
-    // Create claim thread
+    // ✔ FIX: discord requires initial message
     const thread = await forum.threads.create({
-      name: `claim-${interaction.user.username}-${pokemonId}`
+      name: `claim-${interaction.user.username}-${pokemonId}`,
+      message: {
+        content: `📨 New bounty claim submitted by <@${hunterId}>`
+      }
     });
 
     await db.updateBountyClaim(claimId, {
@@ -63,15 +67,17 @@ module.exports = {
     });
 
     await thread.send({
-      embeds: [{
-        title: "New Bounty Claim",
-        fields: [
-          { name: "Bounty ID", value: bountyId },
-          { name: "Claimer", value: `<@${hunterId}>` },
-          { name: "Pokémon ID", value: pokemonId },
-          { name: "Notes", value: proof || "None" }
-        ]
-      }]
+      embeds: [
+        {
+          title: "New Bounty Claim",
+          fields: [
+            { name: "Bounty ID", value: bountyId },
+            { name: "Claimer", value: `<@${hunterId}>` },
+            { name: "Pokémon ID", value: pokemonId },
+            { name: "Notes", value: proof || "None" }
+          ]
+        }
+      ]
     });
 
     return interaction.reply({
