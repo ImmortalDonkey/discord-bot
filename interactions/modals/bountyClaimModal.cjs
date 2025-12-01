@@ -1,10 +1,13 @@
 // interactions/modals/bountyClaimModal.cjs
+const db = require("../../database.cjs");
 
 module.exports = {
-  ids: ["bountyclaim|"],  // MUST MATCH PREFIX EXACTLY
+  ids: ["bountyclaim|"],
 
   async execute(client, interaction) {
-    const parts = interaction.customId.split("|");
+    const id = interaction.customId;
+    const parts = id.split("|");
+
     const bountyId = parts[1];
     const hunterId = parts[2];
 
@@ -14,8 +17,6 @@ module.exports = {
         flags: 64
       });
     }
-
-    const db = require("../../database.cjs");
 
     const pokemonId = interaction.fields.getTextInputValue("pokemon_id");
     const proof = interaction.fields.getTextInputValue("proof_optional") || "";
@@ -30,7 +31,6 @@ module.exports = {
 
     // Create claim
     const claimId = `${Date.now()}_${hunterId}`;
-
     await db.createBountyClaim({
       id: claimId,
       bountyId,
@@ -42,8 +42,9 @@ module.exports = {
       claimThreadId: null
     });
 
-    const guild = interaction.guild;
-    const forum = guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL);
+    // FIXED HERE — correct .env variable
+    const forumId = process.env.CLAIMS_FORUM_CHANNEL_ID;
+    const forum = interaction.guild.channels.cache.get(forumId);
 
     if (!forum) {
       return interaction.reply({
@@ -52,6 +53,7 @@ module.exports = {
       });
     }
 
+    // Create claim thread
     const thread = await forum.threads.create({
       name: `claim-${interaction.user.username}-${pokemonId}`
     });
@@ -61,7 +63,6 @@ module.exports = {
     });
 
     await thread.send({
-      content: `<@&${process.env.STAFF_ROLE}>`,
       embeds: [{
         title: "New Bounty Claim",
         fields: [
