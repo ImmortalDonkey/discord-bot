@@ -1,4 +1,11 @@
 // interactions/modals/bountyClaimModal.cjs
+const {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} = require("discord.js");
+
 const db = require("../../database.cjs");
 
 module.exports = {
@@ -6,8 +13,8 @@ module.exports = {
 
   async execute(client, interaction) {
     const id = interaction.customId;
-    // format: bountyclaim|<bountyId>|<hunterId>
     const parts = id.split("|");
+
     const bountyId = parts[1];
     const hunterId = parts[2];
 
@@ -29,7 +36,7 @@ module.exports = {
       });
     }
 
-    // create claim (in-memory)
+    // Create claim ID
     const claimId = `${Date.now()}_${hunterId}`;
 
     await db.createBountyClaim({
@@ -43,10 +50,8 @@ module.exports = {
       claimThreadId: null
     });
 
-    // Create staff thread in the CLAIMS forum
-    const guild = interaction.guild;
-    const forum = guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL_ID);
-
+    // Create thread
+    const forum = interaction.guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL_ID);
     if (!forum) {
       return interaction.reply({
         content: "❌ Claim forum channel not found.",
@@ -54,30 +59,45 @@ module.exports = {
       });
     }
 
-    // ✔ FIX: discord requires initial message
     const thread = await forum.threads.create({
       name: `claim-${interaction.user.username}-${pokemonId}`,
       message: {
-        content: `📨 New bounty claim submitted by <@${hunterId}>`
+        content: `📬 New bounty claim submitted by <@${hunterId}>`
       }
     });
 
+    // Save thread ID
     await db.updateBountyClaim(claimId, {
       claimThreadId: thread.id
     });
 
+    // Build embed
+    const embed = new EmbedBuilder()
+      .setTitle("New Bounty Claim")
+      .addFields(
+        { name: "Bounty ID", value: bountyId },
+        { name: "Claimer", value: `<@${hunterId}>` },
+        { name: "Pokémon ID", value: pokemonId },
+        { name: "Notes", value: proof || "None" }
+      )
+      .setColor("Yellow");
+
+    // ADD BUTTONS HERE 👇
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`approveclaim_${claimId}`)
+        .setLabel("Approve Claim")
+        .setStyle(ButtonStyle.Success),
+
+      new ButtonBuilder()
+        .setCustomId(`denyclaim_${claimId}`)
+        .setLabel("Deny Claim")
+        .setStyle(ButtonStyle.Danger)
+    );
+
     await thread.send({
-      embeds: [
-        {
-          title: "New Bounty Claim",
-          fields: [
-            { name: "Bounty ID", value: bountyId },
-            { name: "Claimer", value: `<@${hunterId}>` },
-            { name: "Pokémon ID", value: pokemonId },
-            { name: "Notes", value: proof || "None" }
-          ]
-        }
-      ]
+      embeds: [embed],
+      components: [row]
     });
 
     return interaction.reply({
