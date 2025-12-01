@@ -1,14 +1,12 @@
 // interactions/modals/bountyClaimModal.cjs
 
 module.exports = {
-  // MUST MATCH THE CUSTOM ID PREFIX
-  ids: ["bountyclaim|"],
+  ids: ["bountyclaim|"], // REQUIRED by your loader
 
   async execute(client, interaction) {
-    const id = interaction.customId;
-    // bountyclaim|<bountyId>|<claimerId>
+    // ID format: bountyclaim|<bountyId>|<claimerId>
+    const parts = interaction.customId.split("|");
 
-    const parts = id.split("|");
     const bountyId = parts[1];
     const claimerId = parts[2];
 
@@ -32,7 +30,7 @@ module.exports = {
       });
     }
 
-    // Create claim record
+    // Create claim
     const claimId = `${Date.now()}_${claimerId}`;
 
     await db.createBountyClaim({
@@ -46,9 +44,8 @@ module.exports = {
       claimThreadId: null
     });
 
-    // Create claim thread
-    const guild = interaction.guild;
-    const forum = guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL);
+    // Create thread
+    const forum = interaction.guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL);
 
     const thread = await forum.threads.create({
       name: `claim-${interaction.user.username}-${pokemonId}`
