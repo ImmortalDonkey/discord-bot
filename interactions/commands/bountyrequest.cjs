@@ -16,7 +16,6 @@ const {
   getRarityDisplayLabel,
 } = require('../../utils/rarity.cjs');
 
-// now using in-memory functions (same names, just memory-based)
 const db = require('../../database.cjs');
 const { getBountyRequestChannel } = require('../../utils/channelResolver.cjs');
 
@@ -90,9 +89,7 @@ module.exports = {
   async execute(client, interaction) {
     const member = interaction.member;
 
-    // ───────────────────────────────
     // ROLE CHECK
-    // ───────────────────────────────
     const bountyRoleId = process.env.ROLE_BOUNTY_HUNTER || null;
     let hasRole = false;
 
@@ -111,9 +108,7 @@ module.exports = {
       });
     }
 
-    // ───────────────────────────────
     // OPTIONS
-    // ───────────────────────────────
     const p1 = interaction.options.getString('pokemon1');
     const p2 = interaction.options.getString('pokemon2');
     const p3 = interaction.options.getString('pokemon3');
@@ -127,9 +122,7 @@ module.exports = {
     const durationHours = clampHours(durationHoursRaw);
     const durationMs = durationHours * 3600000;
 
-    // ───────────────────────────────
-    // SERVER-TIME START / END
-    // ───────────────────────────────
+    // SERVER TIME
     let startTime;
     const now = new Date();
     if (startTimeStr === 'now') {
@@ -145,7 +138,6 @@ module.exports = {
     const endMs = endTime.getTime();
 
     const bountyId = `${Date.now()}_${interaction.user.id}`;
-
     const displayName =
       member?.nickname || interaction.user.username || interaction.user.tag;
 
@@ -153,9 +145,7 @@ module.exports = {
     const rarityKey = getHighestRarityForList(pokemons);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
-    // ───────────────────────────────
-    // CREATE PRIVATE REQUEST THREAD
-    // ───────────────────────────────
+    // THREAD
     const guild = interaction.guild;
     const requestChannel = await getBountyRequestChannel(guild);
 
@@ -209,18 +199,8 @@ module.exports = {
     const row = {
       type: 1,
       components: [
-        {
-          type: 2,
-          style: 3,
-          custom_id: approveId,
-          label: 'Approve',
-        },
-        {
-          type: 2,
-          style: 4,
-          custom_id: denyId,
-          label: 'Deny',
-        },
+        { type: 2, style: 3, custom_id: approveId, label: 'Approve' },
+        { type: 2, style: 4, custom_id: denyId, label: 'Deny' },
       ],
     };
 
@@ -238,9 +218,7 @@ module.exports = {
       components: [row],
     });
 
-    // ───────────────────────────────
-    // STORE IN MEMORY (ONLY CHANGE)
-    // ───────────────────────────────
+    // MEMORY STORAGE — FINAL OBJECT
     const bountyRecord = {
       id: bountyId,
       guildId: guild.id,
@@ -268,7 +246,7 @@ module.exports = {
       winnerClaimId: null
     };
 
-    await db.createBounty(bountyRecord); // now memory-based
+    await db.createBounty(bountyRecord);
 
     return interaction.reply({
       content: '✅ Bounty request submitted. Staff have been notified in your private bounty thread.',
