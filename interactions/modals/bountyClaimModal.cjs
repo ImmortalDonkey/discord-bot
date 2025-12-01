@@ -2,19 +2,14 @@
 const db = require("../../database.cjs");
 
 module.exports = {
-  // MUST MATCH THE LOADER → array of IDs or prefixes
-  ids: ["bountyclaim|"],
+  ids: ["bountyclaim|"],   // <-- REQUIRED AND MUST MATCH PREFIX EXACTLY
 
   async execute(client, interaction) {
-    const id = interaction.customId;
-    // Format: bountyclaim|<bountyId>|<hunterId>
-    const parts = id.split("|");
-    const bountyId = parts[1];
-    const hunterId = parts[2];
+    const [prefix, bountyId, hunterId] = interaction.customId.split("|");
 
     if (!bountyId || !hunterId) {
       return interaction.reply({
-        content: "❌ Invalid claim data.",
+        content: "❌ Invalid claim format.",
         flags: 64
       });
     }
@@ -23,17 +18,15 @@ module.exports = {
     const proof = interaction.fields.getTextInputValue("proof_optional") || "";
 
     const bounty = await db.getBountyById(bountyId);
-
     if (!bounty) {
       return interaction.reply({
-        content: "❌ Could not find this bounty.",
+        content: "❌ Bounty not found.",
         flags: 64
       });
     }
 
-    // Create claim (in-memory)
+    // Create claim
     const claimId = `${Date.now()}_${hunterId}`;
-
     await db.createBountyClaim({
       id: claimId,
       bountyId,
@@ -45,17 +38,20 @@ module.exports = {
       claimThreadId: null
     });
 
-    // Create staff thread
-    const guild = interaction.guild;
-    const forum = guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL);
+    // Thread
+    const forum = interaction.guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL);
+    if (!forum) {
+      return interaction.reply({
+        content: "❌ Claim forum channel missing.",
+        flags: 64
+      });
+    }
 
     const thread = await forum.threads.create({
       name: `claim-${interaction.user.username}-${pokemonId}`
     });
 
-    await db.updateBountyClaim(claimId, {
-      claimThreadId: thread.id
-    });
+    await db.updateBountyClaim(claimId, { claimThreadId: thread.id });
 
     await thread.send({
       content: `<@&${process.env.STAFF_ROLE}>`,
