@@ -7,14 +7,13 @@ const {
 } = require("discord.js");
 
 module.exports = {
-  // Button IDs this handler responds to
   ids: ["claimbounty_"],
 
   async execute(client, interaction) {
     const bountyId = interaction.customId.replace("claimbounty_", "");
     const userId = interaction.user.id;
 
-    // NEW: Safe format for modal ID
+    // IMPORTANT: NEW SAFE ID FORMAT (pipes, not underscores)
     const modalCustomId = `bountyclaim|${bountyId}|${userId}`;
 
     const modal = new ModalBuilder()
