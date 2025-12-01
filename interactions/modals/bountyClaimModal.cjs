@@ -1,17 +1,18 @@
 // interactions/modals/bountyClaimModal.cjs
+const db = require("../../database.cjs");
 
 module.exports = {
   // MUST MATCH THE LOADER → array of IDs or prefixes
   ids: ["bountyclaim|"],
 
   async execute(client, interaction) {
-    const id = interaction.customId; 
-    // Format: bountyclaim|<bountyId>|<claimerId>
+    const id = interaction.customId;
+    // Format: bountyclaim|<bountyId>|<hunterId>
     const parts = id.split("|");
     const bountyId = parts[1];
-    const claimerId = parts[2];
+    const hunterId = parts[2];
 
-    if (!bountyId || !claimerId) {
+    if (!bountyId || !hunterId) {
       return interaction.reply({
         content: "❌ Invalid claim data.",
         flags: 64
@@ -21,7 +22,6 @@ module.exports = {
     const pokemonId = interaction.fields.getTextInputValue("pokemon_id");
     const proof = interaction.fields.getTextInputValue("proof_optional") || "";
 
-    const db = require("../../database.cjs");
     const bounty = await db.getBountyById(bountyId);
 
     if (!bounty) {
@@ -31,13 +31,13 @@ module.exports = {
       });
     }
 
-    // Create claim
-    const claimId = `${Date.now()}_${claimerId}`;
+    // Create claim (in-memory)
+    const claimId = `${Date.now()}_${hunterId}`;
 
     await db.createBountyClaim({
       id: claimId,
       bountyId,
-      claimerId,
+      hunterId,
       pokemonId,
       proof,
       status: "pending",
@@ -63,7 +63,7 @@ module.exports = {
         title: "New Bounty Claim",
         fields: [
           { name: "Bounty ID", value: bountyId },
-          { name: "Claimer", value: `<@${claimerId}>` },
+          { name: "Claimer", value: `<@${hunterId}>` },
           { name: "Pokémon ID", value: pokemonId },
           { name: "Notes", value: proof || "None" }
         ]
