@@ -1,8 +1,5 @@
 // interactions/buttons/bountyButtons.cjs
 const {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   EmbedBuilder
 } = require("discord.js");
 
@@ -15,8 +12,8 @@ module.exports = {
   async execute(client, interaction) {
     const id = interaction.customId;
 
-    // SAFETY: Always defer immediately to avoid "Unknown interaction" (10062)
-    await interaction.deferReply({ flags: 64 }); // ephemeral
+    // SAFETY: defer to avoid "Unknown interaction"
+    await interaction.deferReply({ flags: 64 }); // ephemeral reply
 
     // ============================================================
     // 🟢 APPROVE BOUNTY
@@ -34,11 +31,11 @@ module.exports = {
       // Update status → open
       await db.updateBounty(bountyId, {
         status: "open",
-        approved_at: Date.now()
+        approvedAt: Date.now()
       });
 
       const guild = interaction.guild;
-      const requestThread = guild.channels.cache.get(bounty.request_thread_id);
+      const requestThread = guild.channels.cache.get(bounty.requestThreadId);
 
       if (requestThread) {
         try {
@@ -47,18 +44,18 @@ module.exports = {
       }
 
       const now = Date.now();
-      const startsNow = bounty.starts_immediately === 1;
+      const startsNow = !!bounty.startsImmediately;
 
       // ============================================================
       // STARTS IMMEDIATELY → SEND CARD NOW
       // ============================================================
-      if (startsNow || now >= bounty.start_time) {
+      if (startsNow || now >= bounty.startTime) {
         const msg = await postBountyCard(client, bounty);
 
         if (msg) {
           await db.updateBounty(bountyId, {
-            card_channel_id: msg.channel.id,
-            card_message_id: msg.id
+            cardChannelId: msg.channel.id,
+            cardMessageId: msg.id
           });
         }
 
@@ -79,10 +76,10 @@ module.exports = {
         });
       }
 
-      const startUnix = Math.floor(bounty.start_time / 1000);
-      const endUnix = Math.floor(bounty.end_time / 1000);
+      const startUnix = Math.floor(bounty.startTime / 1000);
+      const endUnix = Math.floor(bounty.endTime / 1000);
 
-      const pokemonList = JSON.parse(bounty.pokemons || "[]")
+      const pokemonList = (bounty.pokemons || [])
         .map(p => `• ${p}`)
         .join("\n");
 
@@ -90,9 +87,9 @@ module.exports = {
         .setTitle("⏳ Scheduled Bounty Approved")
         .setDescription("This bounty will automatically start at the scheduled time.")
         .addFields(
-          { name: "Trainer", value: `<@${bounty.requester_id}>`, inline: true },
-          { name: "Reward", value: `${bounty.reward.toLocaleString()} PKD`, inline: true },
-          { name: "Pokémon", value: pokemonList, inline: false },
+          { name: "Trainer", value: `<@${bounty.requesterId}>`, inline: true },
+          { name: "Reward", value: `${Number(bounty.reward).toLocaleString()} PKD`, inline: true },
+          { name: "Pokémon", value: pokemonList || "None", inline: false },
           { name: "Starts", value: `<t:${startUnix}:F>`, inline: true },
           { name: "Ends", value: `<t:${endUnix}:F>`, inline: true }
         )
@@ -101,8 +98,8 @@ module.exports = {
       const announcement = await announceChannel.send({ embeds: [embed] });
 
       await db.updateBounty(bountyId, {
-        announcement_channel_id: announceChannel.id,
-        announcement_message_id: announcement.id
+        announcementChannelId: announceChannel.id,
+        announcementMessageId: announcement.id
       });
 
       return interaction.editReply({
@@ -128,7 +125,7 @@ module.exports = {
       });
 
       const guild = interaction.guild;
-      const requestThread = guild.channels.cache.get(bounty.request_thread_id);
+      const requestThread = guild.channels.cache.get(bounty.requestThreadId);
 
       if (requestThread) {
         try {
