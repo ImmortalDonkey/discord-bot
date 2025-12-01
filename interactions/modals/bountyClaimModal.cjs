@@ -3,28 +3,32 @@ const {
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  ChannelType
 } = require("discord.js");
 
 const db = require("../../database.cjs");
 const { getClaimsForumChannel } = require("../../utils/channelResolver.cjs");
 
 module.exports = {
-  // Required by modalHandler.cjs
-  ids: ["bounty_claim_"],
+  // NEW: use consistent ID prefix
+  ids: ["bountyclaim|"],
 
-  /**
-   * Custom ID format:
-   *   bounty_claim_<bountyId>_<userId>
-   */
   async execute(client, interaction) {
+    // Example ID: bountyclaim|<bountyId>|<userId>
     const customId = interaction.customId;
-    const parts = customId.split("_");
+    const parts = customId.split("|");
 
-    const bountyId = parts[2];
-    const claimerId = parts[3];
+    const bountyId = parts[1];
+    const claimerId = parts[2];
 
-    // Prevent submitting for someone else
+    if (!bountyId || !claimerId) {
+      return interaction.reply({
+        content: "❌ Invalid claim ID format.",
+        flags: 64
+      });
+    }
+
     if (interaction.user.id !== claimerId) {
       return interaction.reply({
         content: "❌ You cannot submit a claim for someone else.",
@@ -32,7 +36,6 @@ module.exports = {
       });
     }
 
-    // Load bounty
     const bounty = await db.getBountyById(bountyId);
     if (!bounty) {
       return interaction.reply({
@@ -41,25 +44,29 @@ module.exports = {
       });
     }
 
-    const now = Date.now();
-
-    // ✔ Correct: Only enforce time window (start/end)
-    if (now < bounty.start_time || now > bounty.end_time) {
+    if (bounty.status !== "open") {
       return interaction.reply({
-        content: "❌ This bounty is not active right now.",
+        content: "❌ This bounty is no longer open.",
         flags: 64
       });
     }
 
-    // Get modal inputs
-    const pokemonId =
-      interaction.fields.getTextInputValue("pokemon_id");
-    const proof =
-      interaction.fields.getTextInputValue("proof_optional") || "";
+    const now = Date.now();
+    if (now < bounty.start_time || now > bounty.end_time) {
+      return interaction.reply({
+        content: "❌ This bounty is not currently active.",
+        flags: 64
+      });
+    }
 
-    // Check for existing pending claim
-    const existingClaim =
-      await db.getPendingClaimForBountyAndHunter(bountyId, claimerId);
+    const pokemonId = interaction.fields.getTextInputValue("pokemon_id");
+    const proof = interaction.fields.getTextInputValue("proof_optional") || "";
+
+    // Prevent duplicate pending claims
+    const existingClaim = await db.getPendingClaimForBountyAndHunter(
+      bountyId,
+      claimerId
+    );
 
     if (existingClaim) {
       return interaction.reply({
@@ -68,7 +75,6 @@ module.exports = {
       });
     }
 
-    // Get forum channel
     const forum = await getClaimsForumChannel(interaction.guild);
     if (!forum) {
       return interaction.reply({
@@ -77,47 +83,37 @@ module.exports = {
       });
     }
 
-    // Create a new discussion thread in the forum
     const thread = await forum.threads.create({
       name: `Claim-${interaction.user.username}-${Date.now()}`,
-      message: {
-        content: `🧵 **New bounty claim submitted by <@${claimerId}>**`
-      }
+      type: ChannelType.PrivateThread,
+      invitable: false
     });
 
-    // Build correct record for DB insert
-    const claimRecord = {
+    // Insert into DB
+    const claimId = await db.createBountyClaim({
       bountyId,
       hunterId: claimerId,
       pokemonId,
       proof,
       status: "pending",
       createdAt: now,
-      resolvedAt: null,
-      resolverId: null,
       claimThreadId: thread.id,
       claimMessageId: null
-    };
+    });
 
-    const claimId = await db.createBountyClaim(claimRecord);
-
-    // Staff review embed
+    // Build embed
     const embed = new EmbedBuilder()
       .setTitle("🔎 Bounty Claim Submitted")
       .addFields(
         { name: "Hunter", value: `<@${claimerId}>`, inline: true },
         { name: "Pokémon ID", value: pokemonId, inline: true },
-        {
-          name: "Proof / Notes",
-          value: proof || "*None provided*"
-        },
+        { name: "Proof", value: proof || "*None provided*" },
         { name: "Claim ID", value: `${claimId}` },
         { name: "Bounty ID", value: bountyId }
       )
       .setColor("Yellow")
       .setTimestamp();
 
-    // Buttons for staff review
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`approveclaim_${claimId}`)
@@ -134,14 +130,10 @@ module.exports = {
       components: [row]
     });
 
-    // Update DB record with message ID
-    await db.updateBountyClaim(claimId, {
-      claim_message_id: claimMessage.id
-    });
+    await db.updateBountyClaim(claimId, { claim_message_id: claimMessage.id });
 
-    // Notify the claimer
     return interaction.reply({
-      content: "✅ Your claim has been submitted for staff review.",
+      content: "✅ Your claim has been submitted and is now awaiting staff review.",
       flags: 64
     });
   }
