@@ -15,8 +15,11 @@ module.exports = {
     const isApprove = id.startsWith("approveclaim_");
     const claimId = id.replace(isApprove ? "approveclaim_" : "denyclaim_", "");
 
-    // Load claim
+    // -------------------------------------------------------
+    // LOAD CLAIM (memory-based: uses claim.id, not claim_id)
+    // -------------------------------------------------------
     const claim = await db.getBountyClaimById(claimId);
+
     if (!claim) {
       return interaction.reply({
         content: "❌ Claim could not be found.",
@@ -24,8 +27,11 @@ module.exports = {
       });
     }
 
-    // Load bounty
-    const bounty = await db.getBountyById(claim.bounty_id);
+    // -------------------------------------------------------
+    // LOAD BOUNTY (memory-based: uses bounty.id)
+    // -------------------------------------------------------
+    const bounty = await db.getBountyById(claim.bountyId);
+
     if (!bounty) {
       return interaction.reply({
         content: "❌ Bounty could not be found.",
@@ -57,8 +63,8 @@ module.exports = {
     if (!isApprove) {
       await db.updateBountyClaim(claimId, {
         status: "denied",
-        resolved_at: Date.now(),
-        resolver_id: interaction.user.id
+        resolvedAt: Date.now(),
+        resolverId: interaction.user.id
       });
 
       const deniedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
@@ -72,7 +78,7 @@ module.exports = {
 
       // notify in thread
       try {
-        const thread = await client.channels.fetch(claim.claim_thread_id);
+        const thread = await client.channels.fetch(claim.claimThreadId);
         await thread.send(`❌ **Claim denied by <@${interaction.user.id}>**`);
       } catch {}
 
@@ -83,21 +89,18 @@ module.exports = {
     // ✔ APPROVE CLAIM
     // ======================================================================
 
-    // Mark claim as approved
     await db.updateBountyClaim(claimId, {
       status: "approved",
-      resolved_at: Date.now(),
-      resolver_id: interaction.user.id
+      resolvedAt: Date.now(),
+      resolverId: interaction.user.id
     });
 
-    // Mark bounty as completed
     await db.updateBounty(bounty.id, {
       status: "completed",
-      winner_id: claim.hunter_id,
-      winner_claim_id: claimId
+      winnerId: claim.hunterId,
+      winnerClaimId: claimId
     });
 
-    // Update embed
     const approvedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
       .setColor("Green")
       .setTitle("✔ Claim Approved");
@@ -107,10 +110,10 @@ module.exports = {
       components: []
     });
 
-    // Remove "Claim Bounty" button from the bounty card
+    // Remove buttons from card
     try {
-      const cardChannel = await client.channels.fetch(bounty.card_channel_id);
-      const cardMsg = await cardChannel.messages.fetch(bounty.card_message_id);
+      const cardChannel = await client.channels.fetch(bounty.cardChannelId);
+      const cardMsg = await cardChannel.messages.fetch(bounty.cardMessageId);
       await cardMsg.edit({ components: [] });
     } catch (err) {
       console.warn("⚠ Could not update bounty card:", err.message);
@@ -118,17 +121,17 @@ module.exports = {
 
     // DM hunter
     try {
-      const hunter = await client.users.fetch(claim.hunter_id);
+      const hunter = await client.users.fetch(claim.hunterId);
       await hunter.send(
-        `🎉 Your **bounty claim** for **${JSON.parse(bounty.pokemons)[0]}** has been approved!\n` +
+        `🎉 Your **bounty claim** for **${bounty.pokemons[0]}** has been approved!\n` +
         `🏆 Reward: **${Number(bounty.reward).toLocaleString()} PKD**\n` +
         `🆔 Claim ID: ${claimId}`
       );
     } catch {}
 
-    // Post update to the claim thread
+    // Notify claim thread
     try {
-      const thread = await client.channels.fetch(claim.claim_thread_id);
+      const thread = await client.channels.fetch(claim.claimThreadId);
       await thread.send(`✔ **Claim approved by <@${interaction.user.id}>**`);
     } catch {}
   }
