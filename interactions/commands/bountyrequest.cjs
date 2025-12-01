@@ -196,9 +196,7 @@ module.exports = {
         { name: 'Note', value: notes, inline: false },
         {
           name: 'Bounty ID',
-          value: `${bountyId} | Today at <t:${Math.floor(
-            Date.now() / 1000,
-          )}:t>`,
+          value: `${bountyId} | Today at <t:${Math.floor(Date.now() / 1000)}:t>`,
           inline: false,
         },
       )
@@ -240,7 +238,7 @@ module.exports = {
     });
 
     // ───────────────────────────────
-    // STORE IN SQLITE
+    // FIXED: STORE IN SQLITE WITH CORRECT FIELD NAMES
     // ───────────────────────────────
     const bountyRecord = {
       id: bountyId,
