@@ -1,5 +1,4 @@
 // utils/bountyScheduler.cjs
-const path = require('path');
 const {
   ActionRowBuilder,
   ButtonBuilder,
@@ -12,11 +11,11 @@ const { createBountyCard } = require('../renderers/cardRenderer.cjs');
 const { getHighestRarityForList, getRarityDisplayLabel } = require('./rarity.cjs');
 
 /**
- * Build + send the bounty card and claim button for a given bounty row.
- * Also updates the DB with card_channel_id and card_message_id.
+ * Build + send the bounty card and claim button for a given bounty object.
+ * Also updates the bounty with cardChannelId and cardMessageId.
  */
-async function postBountyCard(client, bountyRow) {
-  const guildId = bountyRow.guild_id || process.env.GUILD_ID;
+async function postBountyCard(client, bounty) {
+  const guildId = bounty.guildId || process.env.GUILD_ID;
   const channelId = process.env.BOUNTY_CHANNEL_ID;
 
   const guild = client.guilds.cache.get(guildId);
@@ -31,14 +30,14 @@ async function postBountyCard(client, bountyRow) {
     return null;
   }
 
-  const pokemons = JSON.parse(bountyRow.pokemons || '[]');
+  const pokemons = bounty.pokemons || [];
 
   // Member → name + avatar
-  const member = await guild.members.fetch(bountyRow.requester_id).catch(() => null);
+  const member = await guild.members.fetch(bounty.requesterId).catch(() => null);
   const username =
     member?.nickname ||
     member?.user?.username ||
-    bountyRow.requester_name ||
+    bounty.requesterName ||
     'Trainer';
 
   const avatarUrl =
@@ -47,30 +46,29 @@ async function postBountyCard(client, bountyRow) {
     guild.iconURL({ extension: 'png', size: 512 }) ||
     null;
 
-  // Rank from DB
+  // Rank from DB (points are still in SQLite)
   let rankName = 'Rookie Trainer';
   try {
-    const dbUser = await db.getUserById(bountyRow.requester_id);
+    const dbUser = await db.getUserById(bounty.requesterId);
     const lifetime = dbUser?.lifetime_points ?? dbUser?.points ?? 0;
     rankName = getRankName(lifetime);
   } catch (err) {
     console.warn('⚠ Could not load rank for bounty card:', err.message);
   }
 
-  const rarityKey = bountyRow.rarity_key || getHighestRarityForList(pokemons);
-  const rarityLabel = bountyRow.rarity_label || getRarityDisplayLabel(rarityKey);
-  const rewardLabel = `${Number(bountyRow.reward || 0).toLocaleString()} PKD`;
+  const rarityKey = bounty.rarityKey || getHighestRarityForList(pokemons);
+  const rarityLabel = bounty.rarityLabel || getRarityDisplayLabel(rarityKey);
+  const rewardLabel = `${Number(bounty.reward || 0).toLocaleString()} PKD`;
 
-  const startDate = new Date(bountyRow.start_time);
-  const endDate = new Date(bountyRow.end_time);
+  const startDate = new Date(bounty.startTime);
+  const endDate = new Date(bounty.endTime);
 
   const startLabel = startDate.toLocaleString('en-GB');
   const endLabel = endDate.toLocaleString('en-GB');
-  const durationLabel = `${bountyRow.duration_hours} hour(s)`;
+  const durationLabel = `${bounty.durationHours} hour(s)`;
 
-  // ⚠ IMPORTANT FIX: createBountyCard returns a BUFFER (not file path)
   const cardBuffer = await createBountyCard({
-    bountyId: bountyRow.id,
+    bountyId: bounty.id,
     username,
     rankName,
     rarityKey,
@@ -79,7 +77,7 @@ async function postBountyCard(client, bountyRow) {
     startLabel,
     endLabel,
     durationLabel,
-    note: bountyRow.notes || 'Good luck!',
+    note: bounty.notes || 'Good luck!',
     rewardLabel,
     avatarUrl,
   });
@@ -95,31 +93,30 @@ async function postBountyCard(client, bountyRow) {
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`claimbounty_${bountyRow.id}`)
+      .setCustomId(`claimbounty_${bounty.id}`)
       .setLabel('Claim Bounty')
       .setStyle(ButtonStyle.Success),
   );
 
-  // ⭐ FIXED: Send Buffer with a manual filename
   const msg = await channel.send({
     content: pingText.trim(),
     files: [{
       attachment: cardBuffer,
-      name: `bounty_${bountyRow.id}.png`
+      name: `bounty_${bounty.id}.png`
     }],
     components: [row],
   });
 
-  await db.updateBounty(bountyRow.id, {
-    card_channel_id: channel.id,
-    card_message_id: msg.id
+  await db.updateBounty(bounty.id, {
+    cardChannelId: channel.id,
+    cardMessageId: msg.id
   });
 
   return msg;
 }
 
 /**
- * Periodically checks DB for bounties that need to start or expire.
+ * Periodically checks for bounties that need to start or expire.
  */
 function startBountyScheduler(client) {
   const INTERVAL = 60 * 1000; // 1 minute
@@ -128,19 +125,19 @@ function startBountyScheduler(client) {
     const now = Date.now();
 
     try {
-      // Bounties that need to start (no card yet, start_time <= now)
+      // Bounties that need to start (no card yet, startTime <= now)
       const toStart = await db.getBountiesToStart(now);
 
       for (const bounty of toStart) {
         try {
-          // Delete announcement if it exists
-          if (bounty.announcement_channel_id && bounty.announcement_message_id) {
-            const guildId = bounty.guild_id || process.env.GUILD_ID;
+          // Delete scheduled announcement if it exists
+          if (bounty.announcementChannelId && bounty.announcementMessageId) {
+            const guildId = bounty.guildId || process.env.GUILD_ID;
             const guild = client.guilds.cache.get(guildId);
-            const channel = guild?.channels.cache.get(bounty.announcement_channel_id);
+            const channel = guild?.channels.cache.get(bounty.announcementChannelId);
             if (channel) {
               const msg = await channel.messages
-                .fetch(bounty.announcement_message_id)
+                .fetch(bounty.announcementMessageId)
                 .catch(() => null);
               if (msg) await msg.delete().catch(() => {});
             }
@@ -152,18 +149,18 @@ function startBountyScheduler(client) {
         }
       }
 
-      // Bounties that need to expire (card exists, end_time <= now)
+      // Bounties that need to expire (card exists, endTime <= now)
       const toExpire = await db.getBountiesToExpire(now);
 
       for (const bounty of toExpire) {
         try {
-          const guildId = bounty.guild_id || process.env.GUILD_ID;
+          const guildId = bounty.guildId || process.env.GUILD_ID;
           const guild = client.guilds.cache.get(guildId);
-          const channel = guild?.channels.cache.get(bounty.card_channel_id);
+          const channel = guild?.channels.cache.get(bounty.cardChannelId);
 
-          if (channel && bounty.card_message_id) {
+          if (channel && bounty.cardMessageId) {
             const msg = await channel.messages
-              .fetch(bounty.card_message_id)
+              .fetch(bounty.cardMessageId)
               .catch(() => null);
             if (msg) {
               await msg.edit({ components: [] }).catch(() => {});
