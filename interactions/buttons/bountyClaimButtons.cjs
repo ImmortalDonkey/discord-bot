@@ -15,11 +15,8 @@ module.exports = {
     const isApprove = id.startsWith("approveclaim_");
     const claimId = id.replace(isApprove ? "approveclaim_" : "denyclaim_", "");
 
-    // -------------------------------------------------------
-    // LOAD CLAIM (memory-based: uses claim.id, not claim_id)
-    // -------------------------------------------------------
+    // Load claim (in-memory)
     const claim = await db.getBountyClaimById(claimId);
-
     if (!claim) {
       return interaction.reply({
         content: "❌ Claim could not be found.",
@@ -27,11 +24,8 @@ module.exports = {
       });
     }
 
-    // -------------------------------------------------------
-    // LOAD BOUNTY (memory-based: uses bounty.id)
-    // -------------------------------------------------------
+    // Load bounty (in-memory)
     const bounty = await db.getBountyById(claim.bountyId);
-
     if (!bounty) {
       return interaction.reply({
         content: "❌ Bounty could not be found.",
@@ -89,18 +83,21 @@ module.exports = {
     // ✔ APPROVE CLAIM
     // ======================================================================
 
+    // Mark claim as approved
     await db.updateBountyClaim(claimId, {
       status: "approved",
       resolvedAt: Date.now(),
       resolverId: interaction.user.id
     });
 
+    // Mark bounty as completed
     await db.updateBounty(bounty.id, {
       status: "completed",
       winnerId: claim.hunterId,
       winnerClaimId: claimId
     });
 
+    // Update embed
     const approvedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
       .setColor("Green")
       .setTitle("✔ Claim Approved");
@@ -110,11 +107,13 @@ module.exports = {
       components: []
     });
 
-    // Remove buttons from card
+    // Remove "Claim Bounty" button from the bounty card
     try {
-      const cardChannel = await client.channels.fetch(bounty.cardChannelId);
-      const cardMsg = await cardChannel.messages.fetch(bounty.cardMessageId);
-      await cardMsg.edit({ components: [] });
+      if (bounty.cardChannelId && bounty.cardMessageId) {
+        const cardChannel = await client.channels.fetch(bounty.cardChannelId);
+        const cardMsg = await cardChannel.messages.fetch(bounty.cardMessageId);
+        await cardMsg.edit({ components: [] });
+      }
     } catch (err) {
       console.warn("⚠ Could not update bounty card:", err.message);
     }
@@ -122,14 +121,16 @@ module.exports = {
     // DM hunter
     try {
       const hunter = await client.users.fetch(claim.hunterId);
+      const firstTarget = (bounty.pokemons && bounty.pokemons[0]) || "your target";
+
       await hunter.send(
-        `🎉 Your **bounty claim** for **${bounty.pokemons[0]}** has been approved!\n` +
+        `🎉 Your **bounty claim** for **${firstTarget}** has been approved!\n` +
         `🏆 Reward: **${Number(bounty.reward).toLocaleString()} PKD**\n` +
         `🆔 Claim ID: ${claimId}`
       );
     } catch {}
 
-    // Notify claim thread
+    // Post update to the claim thread
     try {
       const thread = await client.channels.fetch(claim.claimThreadId);
       await thread.send(`✔ **Claim approved by <@${interaction.user.id}>**`);
