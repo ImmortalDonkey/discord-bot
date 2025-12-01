@@ -15,7 +15,7 @@ module.exports = {
     const isApprove = id.startsWith("approveclaim_");
     const claimId = id.replace(isApprove ? "approveclaim_" : "denyclaim_", "");
 
-    // Load claim (in-memory)
+    // Load claim
     const claim = await db.getBountyClaimById(claimId);
     if (!claim) {
       return interaction.reply({
@@ -24,7 +24,7 @@ module.exports = {
       });
     }
 
-    // Load bounty (in-memory)
+    // Load bounty
     const bounty = await db.getBountyById(claim.bountyId);
     if (!bounty) {
       return interaction.reply({
@@ -83,14 +83,13 @@ module.exports = {
     // ✔ APPROVE CLAIM
     // ======================================================================
 
-    // Mark claim as approved
     await db.updateBountyClaim(claimId, {
       status: "approved",
       resolvedAt: Date.now(),
       resolverId: interaction.user.id
     });
 
-    // Mark bounty as completed
+    // complete bounty
     await db.updateBounty(bounty.id, {
       status: "completed",
       winnerId: claim.hunterId,
@@ -107,18 +106,18 @@ module.exports = {
       components: []
     });
 
-    // Remove "Claim Bounty" button from the bounty card
+    // Remove button from bounty card
     try {
       if (bounty.cardChannelId && bounty.cardMessageId) {
-        const cardChannel = await client.channels.fetch(bounty.cardChannelId);
-        const cardMsg = await cardChannel.messages.fetch(bounty.cardMessageId);
-        await cardMsg.edit({ components: [] });
+        const channel = await client.channels.fetch(bounty.cardChannelId);
+        const msg = await channel.messages.fetch(bounty.cardMessageId);
+        await msg.edit({ components: [] });
       }
     } catch (err) {
       console.warn("⚠ Could not update bounty card:", err.message);
     }
 
-    // DM hunter
+    // DM user
     try {
       const hunter = await client.users.fetch(claim.hunterId);
       const firstTarget = (bounty.pokemons && bounty.pokemons[0]) || "your target";
@@ -130,10 +129,26 @@ module.exports = {
       );
     } catch {}
 
-    // Post update to the claim thread
+    // Notify in thread + DELETE after 1 minute
     try {
       const thread = await client.channels.fetch(claim.claimThreadId);
-      await thread.send(`✔ **Claim approved by <@${interaction.user.id}>**`);
-    } catch {}
+
+      await thread.send(
+        `✔ **Claim approved by <@${interaction.user.id}>**\n` +
+        `🕒 This thread will be deleted in **1 minute**.`
+      );
+
+      // AUTO DELETE
+      setTimeout(async () => {
+        try {
+          await thread.delete();
+        } catch (err) {
+          console.warn("⚠ Failed to delete claim thread:", err.message);
+        }
+      }, 60000);
+
+    } catch (err) {
+      console.warn("⚠ Could not update claim thread:", err.message);
+    }
   }
 };
