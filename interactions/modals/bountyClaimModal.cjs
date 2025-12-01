@@ -1,18 +1,21 @@
 // interactions/modals/bountyClaimModal.cjs
-const db = require("../../database.cjs");
 
 module.exports = {
-  ids: ["bountyclaim|"],   // <-- REQUIRED AND MUST MATCH PREFIX EXACTLY
+  ids: ["bountyclaim|"],  // MUST MATCH PREFIX EXACTLY
 
   async execute(client, interaction) {
-    const [prefix, bountyId, hunterId] = interaction.customId.split("|");
+    const parts = interaction.customId.split("|");
+    const bountyId = parts[1];
+    const hunterId = parts[2];
 
     if (!bountyId || !hunterId) {
       return interaction.reply({
-        content: "❌ Invalid claim format.",
+        content: "❌ Invalid claim data.",
         flags: 64
       });
     }
+
+    const db = require("../../database.cjs");
 
     const pokemonId = interaction.fields.getTextInputValue("pokemon_id");
     const proof = interaction.fields.getTextInputValue("proof_optional") || "";
@@ -20,13 +23,14 @@ module.exports = {
     const bounty = await db.getBountyById(bountyId);
     if (!bounty) {
       return interaction.reply({
-        content: "❌ Bounty not found.",
+        content: "❌ Could not find this bounty.",
         flags: 64
       });
     }
 
     // Create claim
     const claimId = `${Date.now()}_${hunterId}`;
+
     await db.createBountyClaim({
       id: claimId,
       bountyId,
@@ -38,11 +42,12 @@ module.exports = {
       claimThreadId: null
     });
 
-    // Thread
-    const forum = interaction.guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL);
+    const guild = interaction.guild;
+    const forum = guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL);
+
     if (!forum) {
       return interaction.reply({
-        content: "❌ Claim forum channel missing.",
+        content: "❌ Claim forum channel not found.",
         flags: 64
       });
     }
@@ -51,7 +56,9 @@ module.exports = {
       name: `claim-${interaction.user.username}-${pokemonId}`
     });
 
-    await db.updateBountyClaim(claimId, { claimThreadId: thread.id });
+    await db.updateBountyClaim(claimId, {
+      claimThreadId: thread.id
+    });
 
     await thread.send({
       content: `<@&${process.env.STAFF_ROLE}>`,
