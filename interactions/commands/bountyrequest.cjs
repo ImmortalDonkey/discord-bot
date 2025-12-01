@@ -16,6 +16,7 @@ const {
   getRarityDisplayLabel,
 } = require('../../utils/rarity.cjs');
 
+// in-memory DB wrapper (points in SQLite, bounties in RAM)
 const db = require('../../database.cjs');
 const { getBountyRequestChannel } = require('../../utils/channelResolver.cjs');
 
@@ -89,7 +90,9 @@ module.exports = {
   async execute(client, interaction) {
     const member = interaction.member;
 
+    // ───────────────────────────────
     // ROLE CHECK
+    // ───────────────────────────────
     const bountyRoleId = process.env.ROLE_BOUNTY_HUNTER || null;
     let hasRole = false;
 
@@ -108,7 +111,9 @@ module.exports = {
       });
     }
 
+    // ───────────────────────────────
     // OPTIONS
+    // ───────────────────────────────
     const p1 = interaction.options.getString('pokemon1');
     const p2 = interaction.options.getString('pokemon2');
     const p3 = interaction.options.getString('pokemon3');
@@ -122,7 +127,9 @@ module.exports = {
     const durationHours = clampHours(durationHoursRaw);
     const durationMs = durationHours * 3600000;
 
-    // SERVER TIME
+    // ───────────────────────────────
+    // SERVER-TIME START / END
+    // ───────────────────────────────
     let startTime;
     const now = new Date();
     if (startTimeStr === 'now') {
@@ -138,6 +145,7 @@ module.exports = {
     const endMs = endTime.getTime();
 
     const bountyId = `${Date.now()}_${interaction.user.id}`;
+
     const displayName =
       member?.nickname || interaction.user.username || interaction.user.tag;
 
@@ -145,7 +153,9 @@ module.exports = {
     const rarityKey = getHighestRarityForList(pokemons);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
-    // THREAD
+    // ───────────────────────────────
+    // CREATE PRIVATE REQUEST THREAD
+    // ───────────────────────────────
     const guild = interaction.guild;
     const requestChannel = await getBountyRequestChannel(guild);
 
@@ -199,8 +209,18 @@ module.exports = {
     const row = {
       type: 1,
       components: [
-        { type: 2, style: 3, custom_id: approveId, label: 'Approve' },
-        { type: 2, style: 4, custom_id: denyId, label: 'Deny' },
+        {
+          type: 2,
+          style: 3,
+          custom_id: approveId,
+          label: 'Approve',
+        },
+        {
+          type: 2,
+          style: 4,
+          custom_id: denyId,
+          label: 'Deny',
+        },
       ],
     };
 
@@ -218,7 +238,9 @@ module.exports = {
       components: [row],
     });
 
-    // MEMORY STORAGE — FINAL OBJECT
+    // ───────────────────────────────
+    // STORE IN MEMORY
+    // ───────────────────────────────
     const bountyRecord = {
       id: bountyId,
       guildId: guild.id,
