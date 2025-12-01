@@ -7,7 +7,7 @@ const modalHandlers = [];
 /**
  * Load all modal handlers from interactions/modals.
  * Each module must export:
- *   - ids: array of strings (exact or prefix, e.g. ["bounty_claim_"])
+ *   - ids: array of strings (prefix or exact)
  *   - execute(client, interaction)
  */
 function initModalHandlers(client) {
@@ -25,7 +25,6 @@ function initModalHandlers(client) {
     try {
       const mod = require(fullPath);
 
-      // Validate signature
       if (!mod || !Array.isArray(mod.ids) || typeof mod.execute !== 'function') {
         console.warn(`⚠ Skipping modal file "${file}" – missing ids[] or execute().`);
         continue;
@@ -42,16 +41,24 @@ function initModalHandlers(client) {
 /**
  * Route modal submissions using:
  *   - exact match
- *   - prefix match if id ends with "_"
+ *   - prefix match (supports "_" and "|" prefix styles)
  */
 async function handleModalInteraction(client, interaction) {
   const id = interaction.customId;
 
   const handler = modalHandlers.find(mod =>
-    mod.ids.some(prefix =>
-      id === prefix ||
-      (prefix.endsWith("_") && id.startsWith(prefix))
-    )
+    mod.ids.some(prefix => {
+      // exact match
+      if (id === prefix) return true;
+
+      // underscore-based prefixes (old system)
+      if (prefix.endsWith("_") && id.startsWith(prefix)) return true;
+
+      // pipe-based prefixes (new safe system)
+      if (prefix.endsWith("|") && id.startsWith(prefix)) return true;
+
+      return false;
+    })
   );
 
   if (!handler) {
@@ -67,7 +74,7 @@ async function handleModalInteraction(client, interaction) {
     if (!interaction.deferred && !interaction.replied) {
       await interaction.reply({
         content: '❌ Error while processing this form.',
-        ephemeral: true
+        flags: 64
       }).catch(() => {});
     }
   }
