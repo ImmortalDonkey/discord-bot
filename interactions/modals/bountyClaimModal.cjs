@@ -1,18 +1,19 @@
 // interactions/modals/bountyClaimModal.cjs
 
 module.exports = {
-  ids: ["bountyclaim|"], // REQUIRED by your loader
+  // MUST MATCH THE LOADER → array of IDs or prefixes
+  ids: ["bountyclaim|"],
 
   async execute(client, interaction) {
-    // ID format: bountyclaim|<bountyId>|<claimerId>
-    const parts = interaction.customId.split("|");
-
+    const id = interaction.customId; 
+    // Format: bountyclaim|<bountyId>|<claimerId>
+    const parts = id.split("|");
     const bountyId = parts[1];
     const claimerId = parts[2];
 
     if (!bountyId || !claimerId) {
       return interaction.reply({
-        content: "❌ Invalid claim modal data.",
+        content: "❌ Invalid claim data.",
         flags: 64
       });
     }
@@ -44,8 +45,9 @@ module.exports = {
       claimThreadId: null
     });
 
-    // Create thread
-    const forum = interaction.guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL);
+    // Create staff thread
+    const guild = interaction.guild;
+    const forum = guild.channels.cache.get(process.env.CLAIMS_FORUM_CHANNEL);
 
     const thread = await forum.threads.create({
       name: `claim-${interaction.user.username}-${pokemonId}`
@@ -69,7 +71,7 @@ module.exports = {
     });
 
     return interaction.reply({
-      content: "✅ Your claim has been submitted! Staff will review it shortly.",
+      content: "✅ Your claim has been submitted!",
       flags: 64
     });
   }
