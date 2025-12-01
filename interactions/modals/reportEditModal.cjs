@@ -8,11 +8,15 @@
  */
 
 module.exports = {
-  idStartsWith: "reportedit_",
+  // Must be an array for modalHandler.cjs
+  ids: ["reportedit_"],
 
   async execute(client, interaction) {
     const customId = interaction.customId;
-    const reportId = customId.substring("reportedit_".length);
+    const prefix = "reportedit_";
+    const reportId = customId.startsWith(prefix)
+      ? customId.substring(prefix.length)
+      : customId;
 
     const newPokemon =
       interaction.fields.getTextInputValue("pokemon") || null;
@@ -27,8 +31,7 @@ module.exports = {
         `• Pokémon: **${newPokemon || "unchanged"}**\n` +
         `• Route: **${newRoute || "unchanged"}**\n\n` +
         "_❗ Editing reports is not yet implemented — this is only a placeholder._",
-      ephemeral: true
+      flags: 64 // ephemeral
     });
   }
 };
-
