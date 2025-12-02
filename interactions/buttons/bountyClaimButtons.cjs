@@ -106,8 +106,7 @@ module.exports = {
     });
 
     // ───────────────────────────────────────
-    // REMOVE OLD CARD + PIN BEFORE DELETE
-    // POST COMPLETED CARD
+    // REMOVE OLD CARD (PIN FIRST) + POST COMPLETED CARD
     // ───────────────────────────────────────
     try {
       const guild = interaction.guild;
@@ -121,12 +120,11 @@ module.exports = {
             .catch(() => null)
         : null;
 
-      // ── NEW: pin active card before deletion
+      // 👉 Pin the ORIGINAL bounty card, then delete it
       if (original) {
         try {
           await original.pin().catch(() => {});
         } catch {}
-
         await original.delete().catch(() => {});
       }
 
@@ -179,16 +177,15 @@ module.exports = {
         ]
       });
 
-      // ── NEW: Pin success card
-      try {
-        await completedMsg.pin().catch(() => {});
-      } catch {}
+      // ❌ No pin on completed card (per your latest message)
 
-      // ── NEW: DM the user
+      // DM the user about their reward
       try {
-        await winnerMember.send({
-          content: `🎉 **Your bounty claim has been approved!**\nYou earned **${rewardLabel}**.\n\nGreat work, ${username}!`
-        });
+        if (winnerMember) {
+          await winnerMember.send({
+            content: `🎉 **Your bounty claim has been approved!**\nYou earned **${rewardLabel}**.\n\nGreat work, ${username}!`
+          });
+        }
       } catch {
         console.warn("⚠ Could not DM user (DMs closed).");
       }
