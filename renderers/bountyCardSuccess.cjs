@@ -86,7 +86,7 @@ async function drawSprite(ctx, x, y, size, name) {
 async function createBountySuccessCard(options) {
   const {
     bountyId,
-    username,           // Trainer name (currently using username)
+    username,
     rankName,
     pokemons,
     rewardLabel,
@@ -106,7 +106,7 @@ async function createBountySuccessCard(options) {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // RIGHT PROFILE IMAGE (same layout ratio as active card)
+  // RIGHT PROFILE IMAGE
   const totalInnerWidth = CARD_WIDTH - MARGIN * 3;
   const rightMaxWidth = totalInnerWidth * 0.4;
   const rightMaxHeight = CARD_HEIGHT - 2 * MARGIN;
@@ -118,8 +118,8 @@ async function createBountySuccessCard(options) {
   ctx.save();
   try {
     const img = await loadImage(avatarUrl);
-
     const aspect = img.width / img.height;
+
     let w = imageSize;
     let h = imageSize;
 
@@ -143,6 +143,7 @@ async function createBountySuccessCard(options) {
     ctx.lineWidth = 10;
     ctx.strokeStyle = "rgba(248,250,252,0.9)";
     ctx.stroke();
+
   } catch {
     ctx.restore();
     ctx.save();
@@ -158,14 +159,13 @@ async function createBountySuccessCard(options) {
   }
   ctx.restore();
 
-  // LEFT COLUMN
+  // LEFT COLUMN AREA
   const leftX = MARGIN;
   const leftY = MARGIN;
-
   const leftWidth = rightX - leftX - MARGIN;
   const leftHeight = CARD_HEIGHT - MARGIN * 2;
 
-  // Top info box (same proportion as active card)
+  // INFO BOX
   const infoBoxHeight = leftHeight * 0.62;
   const infoBoxY = leftY;
 
@@ -176,23 +176,26 @@ async function createBountySuccessCard(options) {
   ctx.strokeStyle = "#f9fafb";
   ctx.stroke();
 
+  // TEXT SETTINGS
   const LABEL_FONT = 60;
   const LINE_GAP = 75;
   const padX = 60;
 
   ctx.font = `bold ${LABEL_FONT}px sans-serif`;
 
-  // Figure out label column width
+  // Prepare labels
   const labels = ["Trainer:", "Rank:", "Target:", "Rarity:", "Reward:"];
   let maxLabelWidth = 0;
+
   for (const lab of labels) {
     const w = ctx.measureText(lab).width;
     if (w > maxLabelWidth) maxLabelWidth = w;
   }
+
   const labelX = leftX + padX;
   const valueX = labelX + maxLabelWidth + 40;
 
-  // Build line sequence for vertical centering
+  // Build lines (with accurate count)
   const lines = [];
 
   lines.push({ type: "row", label: "Trainer:", value: username });
@@ -204,28 +207,19 @@ async function createBountySuccessCard(options) {
     lines.push({ type: "row", label: "", value: pokemonList[i] });
   }
 
-  lines.push({
-    type: "row",
-    label: "Rarity:",
-    value: rarityLabel || "Unknown"
-  });
-
+  lines.push({ type: "row", label: "Rarity:", value: rarityLabel || "Unknown" });
   lines.push({ type: "spacer" });
 
-  lines.push({
-    type: "row",
-    label: "Reward:",
-    value: rewardLabel
-  });
+  lines.push({ type: "row", label: "Reward:", value: rewardLabel });
 
-  const effectiveLines = lines.reduce(
-    (acc, line) => acc + (line.type === "spacer" ? 1 : 1),
-    0
-  );
-  const blockHeight = effectiveLines * LINE_GAP;
+  // COUNT LINES CORRECTLY (every entry is one line)
+  const totalLines = lines.length;
+  const blockHeight = totalLines * LINE_GAP;
 
-  let cy = infoBoxY + (infoBoxHeight - blockHeight) / 2 + LINE_GAP * 0.2;
+  // TRUE centered start point
+  let cy = infoBoxY + (infoBoxHeight - blockHeight) / 2 + LINE_GAP;
 
+  // DRAW LINES
   for (const line of lines) {
     if (line.type === "spacer") {
       cy += LINE_GAP;
@@ -241,7 +235,7 @@ async function createBountySuccessCard(options) {
     cy += LINE_GAP;
   }
 
-  // Bottom COMPLETED box
+  // BOTTOM COMPLETED BOX
   const bottomBoxY = infoBoxY + infoBoxHeight + 40;
   const bottomBoxHeight = CARD_HEIGHT - bottomBoxY - MARGIN;
 
@@ -254,15 +248,17 @@ async function createBountySuccessCard(options) {
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 120px sans-serif";
+
   const txt = "COMPLETED";
   const tw = ctx.measureText(txt).width;
+
   ctx.fillText(
     txt,
     leftX + (leftWidth - tw) / 2,
     bottomBoxY + bottomBoxHeight / 2 + 40
   );
 
-  // Bottom-right sprite (same spacing idea as active card)
+  // SPRITE
   const spriteSize = imageSize / 3;
   const spriteX = rightX + imageSize / 2 - spriteSize / 2;
   const spriteY = CARD_HEIGHT - MARGIN - spriteSize;
