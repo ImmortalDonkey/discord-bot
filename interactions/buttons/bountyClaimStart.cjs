@@ -12,82 +12,83 @@ module.exports = {
   ids: ["claimbounty_"],
 
   async execute(client, interaction) {
-    const bountyId = interaction.customId.replace("claimbounty_", "");
-    const userId = interaction.user.id;
+    try {
+      const customId = interaction.customId;          // e.g. "claimbounty_<bountyId>"
+      const bountyId = customId.replace("claimbounty_", "");
+      const userId = interaction.user.id;
 
-    // ----------------------------------------------------------
-    // 1️⃣ Validate bounty exists + is open
-    // ----------------------------------------------------------
-    const bounty = await db.getBountyById(bountyId);
+      // ----------------------------------------------------------
+      // 1️⃣ Load bounty from DB (via our API)
+      // ----------------------------------------------------------
+      const bounty = await db.getBountyById(bountyId);
 
-    if (!bounty) {
-      return interaction.reply({
-        content: "❌ This bounty does not exist.",
-        ephemeral: true
-      });
+      if (!bounty) {
+        return interaction.reply({
+          content: "❌ This bounty no longer exists.",
+          ephemeral: true
+        });
+      }
+
+      if (bounty.status !== "open") {
+        return interaction.reply({
+          content: "❌ This bounty is not accepting claims.",
+          ephemeral: true
+        });
+      }
+
+      // ----------------------------------------------------------
+      // 2️⃣ Prevent multiple active claims by same user
+      // ----------------------------------------------------------
+      const existingClaim = await db.getPendingClaimForBountyAndHunter(
+        bountyId,
+        userId
+      );
+
+      if (existingClaim) {
+        return interaction.reply({
+          content: "⚠ You already have a **pending claim** for this bounty.",
+          ephemeral: true
+        });
+      }
+
+      // ----------------------------------------------------------
+      // 3️⃣ Build the modal (safe customId format)
+      // ----------------------------------------------------------
+      const modalCustomId = `bountyclaim|${bountyId}|${userId}`;
+
+      const modal = new ModalBuilder()
+        .setCustomId(modalCustomId)
+        .setTitle("Submit Bounty Claim");
+
+      const pokemonIdInput = new TextInputBuilder()
+        .setCustomId("pokemon_id")
+        .setLabel("Pokémon ID")
+        .setRequired(true)
+        .setStyle(TextInputStyle.Short);
+
+      const proofInput = new TextInputBuilder()
+        .setCustomId("proof_optional")
+        .setLabel("Proof / Notes (optional)")
+        .setRequired(false)
+        .setStyle(TextInputStyle.Paragraph);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(pokemonIdInput),
+        new ActionRowBuilder().addComponents(proofInput)
+      );
+
+      await interaction.showModal(modal);
+    } catch (err) {
+      console.error(
+        `❌  Button handler error (claimbounty_${interaction.customId}):`,
+        err
+      );
+      if (!interaction.replied && !interaction.deferred) {
+        return interaction.reply({
+          content: "❌ An error occurred while opening the claim modal.",
+          ephemeral: true
+        });
+      }
     }
-
-    if (bounty.status !== "open") {
-      return interaction.reply({
-        content: "❌ This bounty is not accepting claims.",
-        ephemeral: true
-      });
-    }
-
-    // ----------------------------------------------------------
-    // 2️⃣ Prevent multiple active claims by same user
-    //    Search BOTH: in-memory + SQLite (failsafe on reboot)
-    // ----------------------------------------------------------
-    let existingClaim = await db.getPendingClaimForBountyAndHunter(
-      bountyId,
-      userId
-    );
-
-    // Fallback check → database table
-    if (!existingClaim) {
-      const row = await db.db.get(
-        `SELECT id FROM bounty_claims
-         WHERE bounty_id=? AND hunter_id=? AND status='pending'
-         LIMIT 1`,
-        [bountyId, userId]
-      ).catch(() => null);
-
-      if (row) existingClaim = row;
-    }
-
-    if (existingClaim) {
-      return interaction.reply({
-        content: "⚠ You already have a **pending claim** for this bounty.",
-        ephemeral: true
-      });
-    }
-
-    // ----------------------------------------------------------
-    // 3️⃣ Build modal (safe custom ID format)
-    // ----------------------------------------------------------
-    const modalCustomId = `bountyclaim|${bountyId}|${userId}`;
-
-    const modal = new ModalBuilder()
-      .setCustomId(modalCustomId)
-      .setTitle("Submit Bounty Claim");
-
-    const pokemonId = new TextInputBuilder()
-      .setCustomId("pokemon_id")
-      .setLabel("Pokémon ID")
-      .setRequired(true)
-      .setStyle(TextInputStyle.Short);
-
-    const proof = new TextInputBuilder()
-      .setCustomId("proof_optional")
-      .setLabel("Proof / Notes (optional)")
-      .setRequired(false)
-      .setStyle(TextInputStyle.Paragraph);
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(pokemonId),
-      new ActionRowBuilder().addComponents(proof)
-    );
-
-    await interaction.showModal(modal);
   }
 };
