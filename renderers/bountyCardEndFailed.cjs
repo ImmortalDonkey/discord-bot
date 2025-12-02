@@ -15,9 +15,9 @@ if (!fs.existsSync(CARDS_DIR)) {
 }
 
 const style = {
-  gradientFrom: "#ef4444",   // bright red
-  gradientTo: "#b91c1c",     // dark red
-  boxColor: "rgba(127, 29, 29, 0.95)", // deep red glass
+  gradientFrom: "#dc2626",
+  gradientTo: "#7f1d1d",
+  boxColor: "rgba(80, 0, 0, 0.75)",
   gold: "#fbbf24"
 };
 
@@ -41,10 +41,10 @@ function getSpritePath(name) {
   return path.join(SPRITES_DIR, `${name}.png`);
 }
 
-async function drawSprite(ctx, x, y, size, name) {
+async function drawSpriteBox(ctx, x, y, size, name) {
   ctx.save();
   roundedRect(ctx, x, y, size, size, 40);
-  ctx.fillStyle = "rgba(15, 23, 42, 0.98)";
+  ctx.fillStyle = "rgba(15,23,42,0.98)";
   ctx.fill();
   ctx.lineWidth = 6;
   ctx.strokeStyle = "#f9fafb";
@@ -99,17 +99,21 @@ async function createBountyFailedCard(options) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // Background gradient
+  //
+  // BACKGROUND
+  //
   const g = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
   g.addColorStop(0, style.gradientFrom);
   g.addColorStop(1, style.gradientTo);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // RIGHT PROFILE IMAGE (same as success)
+  //
+  // RIGHT AVATAR IMAGE
+  //
   const totalInnerWidth = CARD_WIDTH - MARGIN * 3;
-  const rightMaxWidth = totalInnerWidth * 0.4;
-  const rightMaxHeight = CARD_HEIGHT - 2 * MARGIN;
+  const rightMaxWidth = totalInnerWidth * 0.40;
+  const rightMaxHeight = CARD_HEIGHT - MARGIN * 2;
   const imageSize = Math.min(rightMaxWidth, rightMaxHeight);
 
   const rightX = CARD_WIDTH - MARGIN - imageSize;
@@ -122,13 +126,11 @@ async function createBountyFailedCard(options) {
 
     let w = imageSize;
     let h = imageSize;
-
     if (aspect > 1) h = imageSize / aspect;
     else w = imageSize * aspect;
 
     roundedRect(ctx, rightX, rightY, imageSize, imageSize, 40);
     ctx.clip();
-
     ctx.drawImage(
       img,
       rightX + (imageSize - w) / 2,
@@ -159,16 +161,23 @@ async function createBountyFailedCard(options) {
   }
   ctx.restore();
 
+  //
   // LEFT COLUMN
+  //
   const leftX = MARGIN;
   const leftY = MARGIN;
   const leftWidth = rightX - leftX - MARGIN;
   const leftHeight = CARD_HEIGHT - MARGIN * 2;
 
-  // TOP INFO BOX
-  const infoBoxHeight = leftHeight * 0.62;
-  const infoBoxY = leftY;
+  const infoBoxHeight = leftHeight * 0.70;
+  const bottomBoxHeight = leftHeight - infoBoxHeight - 40;
 
+  const infoBoxY = leftY;
+  const bottomBoxY = infoBoxY + infoBoxHeight + 40;
+
+  //
+  // TOP INFO BOX
+  //
   roundedRect(ctx, leftX, infoBoxY, leftWidth, infoBoxHeight, 40);
   ctx.fillStyle = style.boxColor;
   ctx.fill();
@@ -176,65 +185,62 @@ async function createBountyFailedCard(options) {
   ctx.strokeStyle = "#f9fafb";
   ctx.stroke();
 
-  // TEXT SETTINGS
+  //
+  // INFO TEXT
+  //
   const LABEL_FONT = 60;
   const LINE_GAP = 75;
   const padX = 60;
 
   ctx.font = `bold ${LABEL_FONT}px sans-serif`;
 
-  const labels = ["Trainer:", "Rank:", "Target:", "Rarity:", "Reward:"];
+  const lines = [];
+  lines.push({ label: "Trainer:", value: username });
+  lines.push({ label: "Rank:", value: rankName });
+  lines.push({ spacer: true });
+
+  lines.push({ label: "Target:", value: pokemonList[0] });
+  for (let i = 1; i < pokemonList.length; i++) {
+    lines.push({ label: "", value: pokemonList[i] });
+  }
+
+  lines.push({ label: "Rarity:", value: rarityLabel || "Unknown" });
+  lines.push({ spacer: true });
+
+  lines.push({ label: "Reward:", value: rewardLabel });
 
   let maxLabelWidth = 0;
-  for (const lab of labels) {
-    const w = ctx.measureText(lab).width;
-    if (w > maxLabelWidth) maxLabelWidth = w;
+  for (const row of lines) {
+    if (row.label) {
+      const w = ctx.measureText(row.label).width;
+      if (w > maxLabelWidth) maxLabelWidth = w;
+    }
   }
 
   const labelX = leftX + padX;
   const valueX = labelX + maxLabelWidth + 40;
 
-  // Build lines (same as success)
-  const lines = [];
-
-  lines.push({ type: "row", label: "Trainer:", value: username });
-  lines.push({ type: "row", label: "Rank:", value: rankName });
-  lines.push({ type: "spacer" });
-
-  lines.push({ type: "row", label: "Target:", value: pokemonList[0] });
-  for (let i = 1; i < pokemonList.length; i++) {
-    lines.push({ type: "row", label: "", value: pokemonList[i] });
-  }
-
-  lines.push({ type: "row", label: "Rarity:", value: rarityLabel || "Unknown" });
-  lines.push({ type: "spacer" });
-
-  lines.push({ type: "row", label: "Reward:", value: rewardLabel });
-
   const totalLines = lines.length;
   const blockHeight = totalLines * LINE_GAP;
-
   let cy = infoBoxY + (infoBoxHeight - blockHeight) / 2 + LINE_GAP;
 
-  for (const line of lines) {
-    if (line.type === "spacer") {
+  for (const row of lines) {
+    if (row.spacer) {
       cy += LINE_GAP;
       continue;
     }
-
     ctx.fillStyle = style.gold;
-    ctx.fillText(line.label, labelX, cy);
+    ctx.fillText(row.label, labelX, cy);
 
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(line.value || "", valueX, cy);
+    ctx.fillText(row.value || "", valueX, cy);
 
     cy += LINE_GAP;
   }
 
-  // BOTTOM FAILED BOX
-  const bottomBoxY = infoBoxY + infoBoxHeight + 40;
-  const bottomBoxHeight = CARD_HEIGHT - bottomBoxY - MARGIN;
-
+  //
+  // EXPIRED BOX
+  //
   roundedRect(ctx, leftX, bottomBoxY, leftWidth, bottomBoxHeight, 40);
   ctx.fillStyle = style.boxColor;
   ctx.fill();
@@ -242,28 +248,55 @@ async function createBountyFailedCard(options) {
   ctx.strokeStyle = "#f9fafb";
   ctx.stroke();
 
+  ctx.font = "bold 140px sans-serif";
   ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 120px sans-serif";
-
   const txt = "EXPIRED";
   const tw = ctx.measureText(txt).width;
-
   ctx.fillText(
     txt,
     leftX + (leftWidth - tw) / 2,
-    bottomBoxY + bottomBoxHeight / 2 + 40
+    bottomBoxY + bottomBoxHeight / 2 + 45
   );
 
-  // SPRITE (same as success)
-  const spriteSize = imageSize / 3;
-  const spriteX = rightX + imageSize / 2 - spriteSize / 2;
+  //
+  // SPRITES (same logic as success card)
+  //
+  const spriteRowWidth = imageSize;
+  const spriteGap = 30;
+  const spriteCount = Math.min(3, pokemonList.length);
+  const spriteNames = pokemonList.slice(0, 3);
+
+  const spriteSize =
+    (spriteRowWidth - spriteGap * (spriteCount - 1)) / spriteCount;
+
   const spriteY = CARD_HEIGHT - MARGIN - spriteSize;
 
-  await drawSprite(ctx, spriteX, spriteY, spriteSize, pokemonList[0]);
+  let spriteXs = [];
+
+  if (spriteCount === 1) {
+    spriteXs = [rightX + (spriteRowWidth - spriteSize) / 2];
+  } else if (spriteCount === 2) {
+    const totalW = spriteSize * 2 + spriteGap;
+    const startX = rightX + (spriteRowWidth - totalW) / 2;
+    spriteXs = [startX, startX + spriteSize + spriteGap];
+  } else {
+    spriteXs = [
+      rightX,
+      rightX + spriteSize + spriteGap,
+      rightX + (spriteSize + spriteGap) * 2
+    ];
+  }
+
+  for (let i = 0; i < spriteCount; i++) {
+    await drawSpriteBox(ctx, spriteXs[i], spriteY, spriteSize, spriteNames[i]);
+  }
 
   const buffer = canvas.toBuffer("image/png");
-  const filePath = path.join(CARDS_DIR, `bountyEnd_${bountyId}_failed.png`);
-  fs.writeFileSync(filePath, buffer);
+
+  fs.writeFileSync(
+    path.join(CARDS_DIR, `bountyEnd_${bountyId}_failed.png`),
+    buffer
+  );
 
   return buffer;
 }
