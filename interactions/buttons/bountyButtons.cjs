@@ -40,6 +40,17 @@ module.exports = {
         try {
           await requestThread.send(`✔ **Approved by <@${interaction.user.id}>**`);
         } catch {}
+
+        // ---------------------------------------------------------
+        // 🆕 AUTO-DELETE BOUNTY REQUEST THREAD AFTER 1 MINUTE
+        // ---------------------------------------------------------
+        setTimeout(async () => {
+          try {
+            await requestThread.delete();
+          } catch {
+            console.warn("⚠ Could not delete bounty request thread.");
+          }
+        }, 60000);
       }
 
       const now = Date.now();
@@ -65,7 +76,6 @@ module.exports = {
 
       // ============================================================
       // SCHEDULED START → post announcement embed
-      // BUT ONLY IF NOT "START NOW"
       // ============================================================
       const announceChannelId = process.env.BOUNTY_CHANNEL_ID;
       const announceChannel = guild.channels.cache.get(announceChannelId);
