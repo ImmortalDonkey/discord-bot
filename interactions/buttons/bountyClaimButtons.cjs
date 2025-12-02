@@ -106,7 +106,8 @@ module.exports = {
     });
 
     // ───────────────────────────────────────
-    // REMOVE OLD CARD + POST COMPLETED CARD
+    // REMOVE OLD CARD + PIN BEFORE DELETE
+    // POST COMPLETED CARD
     // ───────────────────────────────────────
     try {
       const guild = interaction.guild;
@@ -120,11 +121,12 @@ module.exports = {
             .catch(() => null)
         : null;
 
-      // ── NEW: unpin before deleting
+      // ── NEW: pin active card before deletion
       if (original) {
         try {
-          await original.unpin().catch(() => {});
+          await original.pin().catch(() => {});
         } catch {}
+
         await original.delete().catch(() => {});
       }
 
@@ -132,7 +134,6 @@ module.exports = {
       const winnerId = claim.hunter_id || claim.hunterId;
       const winnerMember = await guild.members.fetch(winnerId).catch(() => null);
 
-      // ✔ NEW: nickname → displayName → username fallback
       const username =
         winnerMember?.nickname ||
         winnerMember?.displayName ||
@@ -178,7 +179,7 @@ module.exports = {
         ]
       });
 
-      // ── NEW: Pin the completed card
+      // ── NEW: Pin success card
       try {
         await completedMsg.pin().catch(() => {});
       } catch {}
