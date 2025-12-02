@@ -25,7 +25,7 @@ module.exports = {
       if (!bounty) {
         return interaction.reply({
           content: "❌ This bounty no longer exists.",
-          ephemeral: true
+          flags: 64
         });
       }
 
@@ -35,19 +35,15 @@ module.exports = {
       if (bounty.status !== "open") {
         return interaction.reply({
           content: "❌ This bounty is not accepting claims.",
-          ephemeral: true
+          flags: 64
         });
       }
 
       // ----------------------------------------------------------
-      // 3️⃣ Prevent owner claiming their own bounty
+      // 3️⃣ (REMOVED) — Users ARE ALLOWED to claim their own bounty
       // ----------------------------------------------------------
-      if (bounty.requester_id == userId || bounty.requesterId == userId) {
-        return interaction.reply({
-          content: "❌ You cannot claim your **own** bounty.",
-          ephemeral: true
-        });
-      }
+      // ❌ You requested this logic to be removed.
+      // (No check here anymore.)
 
       // ----------------------------------------------------------
       // 4️⃣ Prevent multiple active claims by same user
@@ -60,7 +56,7 @@ module.exports = {
       if (existingClaim) {
         return interaction.reply({
           content: "⚠ You already have a **pending claim** for this bounty.",
-          ephemeral: true
+          flags: 64
         });
       }
 
@@ -72,7 +68,10 @@ module.exports = {
 
       try {
         const member = await guild.members.fetch(userId);
-        nickname = member?.nickname || member?.displayName || member?.user?.username;
+        nickname =
+          member?.nickname ||
+          member?.displayName ||
+          member?.user?.username;
       } catch {
         nickname = interaction.user.username; // fallback
       }
@@ -117,7 +116,7 @@ module.exports = {
       if (!interaction.replied && !interaction.deferred) {
         return interaction.reply({
           content: "❌ An error occurred while opening the claim modal.",
-          ephemeral: true
+          flags: 64
         });
       }
     }
