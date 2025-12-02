@@ -8,8 +8,9 @@ const {
 const db = require('../database.cjs');
 const { getRankName } = require('./rankSystem.cjs');
 const { createBountyCard } = require('../renderers/cardRenderer.cjs');
+const { getHighestRarityForList, getRarityDisplayLabel } = require('./rarity.cjs');
 
-// These will be used once you send the file:
+// Optional final-card modules (loaded only if they exist)
 let createBountySuccessCard = null;
 let createBountyFailedCard = null;
 
@@ -18,24 +19,18 @@ try {
   createBountyFailedCard = require('../renderers/bountyCardEndFailed.cjs').createBountyFailedCard;
 } catch {}
 
-// rarity helpers
-const { getHighestRarityForList, getRarityDisplayLabel } = require('./rarity.cjs');
-
 /**
  * Build & send the LIVE bounty card.
- * Saves cardChannelId and cardMessageId into DB + memory.
+ * Saves cardChannelId + cardMessageId into SQLite.
  */
 async function postBountyCard(client, bounty) {
-  const guildId = bounty.guildId || process.env.GUILD_ID;
-  const channelId = process.env.BOUNTY_CHANNEL_ID;
-
-  const guild = client.guilds.cache.get(guildId);
+  const guild = client.guilds.cache.get(bounty.guildId);
   if (!guild) {
-    console.error('❌ postBountyCard: guild not found.');
+    console.error("❌ postBountyCard: Guild not found:", bounty.guildId);
     return null;
   }
 
-  const channel = guild.channels.cache.get(channelId);
+  const channel = guild.channels.cache.get(process.env.BOUNTY_CHANNEL_ID);
   if (!channel) {
     console.error('❌ postBountyCard: BOUNTY_CHANNEL_ID not found.');
     return null;
@@ -43,7 +38,7 @@ async function postBountyCard(client, bounty) {
 
   const pokemons = bounty.pokemons || [];
 
-  // Member identity
+  // Member info
   const member = await guild.members.fetch(bounty.requesterId).catch(() => null);
   const username =
     member?.nickname ||
@@ -53,34 +48,30 @@ async function postBountyCard(client, bounty) {
 
   const avatarUrl =
     member?.displayAvatarURL({ extension: 'png', size: 512 }) ||
-    member?.user?.displayAvatarURL({ extension: 'png', size: 512 }) ||
-    guild.iconURL({ extension: 'png', size: 512 }) ||
-    null;
+    guild.iconURL({ extension: 'png', size: 512 });
 
-  // Rank (points are still in SQLite)
-  let rankName = 'Rookie Trainer';
+  // Rank from SQLite
+  let rankName = "Rookie Trainer";
   try {
-    const dbUser = await db.getUserById(bounty.requesterId);
-    const lifetime = dbUser?.lifetime_points ?? dbUser?.points ?? 0;
+    const u = await db.getUserById(bounty.requesterId);
+    const lifetime = u?.lifetime_points ?? u?.points ?? 0;
     rankName = getRankName(lifetime);
-  } catch (err) {
-    console.warn('⚠ Rank lookup failed:', err.message);
-  }
+  } catch {}
 
-  const rarityKey = bounty.rarityKey || getHighestRarityForList(pokemons);
-  const rarityLabel = bounty.rarityLabel || getRarityDisplayLabel(rarityKey);
+  const rarityKey = bounty.rarity_key || getHighestRarityForList(pokemons);
+  const rarityLabel = bounty.rarity_label || getRarityDisplayLabel(rarityKey);
   const rewardLabel = `${Number(bounty.reward).toLocaleString()} PKD`;
 
-  // Times
+  // Time labels
   const startLabel =
-    bounty.startsImmediately === 1 || bounty.startsImmediately === true
-      ? 'Starts Immediately'
-      : new Date(bounty.startTime).toLocaleString('en-GB');
+    bounty.starts_immediately === 1
+      ? "Starts Immediately"
+      : new Date(bounty.start_time).toLocaleString("en-GB");
 
-  const endLabel = new Date(bounty.endTime).toLocaleString('en-GB');
-  const durationLabel = `${bounty.durationHours} hour(s)`;
+  const endLabel = new Date(bounty.end_time).toLocaleString("en-GB");
+  const durationLabel = `${bounty.duration_hours} hour(s)`;
 
-  // Generate card image
+  // Generate image buffer
   const cardBuffer = await createBountyCard({
     bountyId: bounty.id,
     username,
@@ -91,40 +82,35 @@ async function postBountyCard(client, bounty) {
     startLabel,
     endLabel,
     durationLabel,
-    note: bounty.notes || 'Good luck!',
+    note: bounty.notes || "Good luck!",
     rewardLabel,
     avatarUrl
   });
 
-  // Buttons
+  // Buttons (no pings)
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`claimbounty_${bounty.id}`)
-      .setLabel('Claim Bounty')
+      .setLabel("Claim Bounty")
       .setStyle(ButtonStyle.Success)
   );
 
-  // SEND (⚠ no pings)
   const msg = await channel.send({
-    files: [
-      {
-        attachment: cardBuffer,
-        name: `bounty_${bounty.id}.png`
-      }
-    ],
+    files: [{ attachment: cardBuffer, name: `bounty_${bounty.id}.png` }],
     components: [row]
   });
 
+  // Save into SQLite
   await db.updateBounty(bounty.id, {
-    cardChannelId: channel.id,
-    cardMessageId: msg.id
+    card_channel_id: channel.id,
+    card_message_id: msg.id
   });
 
   return msg;
 }
 
 /**
- * Post a "success" final card after claim approval.
+ * Post COMPLETED bounty card (no content, no ping).
  */
 async function postCompletedCard(client, bounty, winnerId) {
   if (!createBountySuccessCard) return;
@@ -135,10 +121,11 @@ async function postCompletedCard(client, bounty, winnerId) {
   const channel = guild.channels.cache.get(process.env.BOUNTY_CHANNEL_ID);
   if (!channel) return;
 
+  // Generate final card
   const buffer = await createBountySuccessCard({
     bountyId: bounty.id,
     username: `<@${winnerId}>`,
-    rankName: bounty.rankName || 'Trainer',
+    rankName: bounty.rank_name || "Trainer",
     pokemons: bounty.pokemons,
     reward: bounty.reward
   });
@@ -149,7 +136,7 @@ async function postCompletedCard(client, bounty, winnerId) {
 }
 
 /**
- * Post a "failed/expired" final card.
+ * Post FAILED/EXPIRED bounty card (no pings).
  */
 async function postFailedCard(client, bounty) {
   if (!createBountyFailedCard) return;
@@ -162,7 +149,7 @@ async function postFailedCard(client, bounty) {
 
   const buffer = await createBountyFailedCard({
     bountyId: bounty.id,
-    username: `<@${bounty.requesterId}>`,
+    username: `<@${bounty.requester_id}>`,
     pokemons: bounty.pokemons,
     reward: bounty.reward
   });
@@ -173,68 +160,76 @@ async function postFailedCard(client, bounty) {
 }
 
 /**
- * Scheduler tick – runs every minute.
- * Starts scheduled bounties and expires finished ones.
+ * Scheduler – runs every minute.
+ * Starts scheduled bounties; expires finished ones.
  */
 function startBountyScheduler(client) {
-  const INTERVAL = 60 * 1000;
+  const INTERVAL = 60000;
 
   setInterval(async () => {
     const now = Date.now();
 
     try {
-      // --------------------------------------
-      // Bounties that should START
-      // --------------------------------------
+      // -----------------------------------------
+      // START BOUNTIES (start_time <= now)
+      // -----------------------------------------
       const toStart = await db.getBountiesToStart(now);
 
       for (const bounty of toStart) {
         try {
-          // Delete announcement embed if it exists
-          if (bounty.announcementChannelId && bounty.announcementMessageId) {
+          // delete future announcement
+          if (bounty.announcement_channel_id && bounty.announcement_message_id) {
             const guild = client.guilds.cache.get(bounty.guildId);
-            const ch = guild?.channels.cache.get(bounty.announcementChannelId);
+            const ch = guild?.channels.cache.get(bounty.announcement_channel_id);
+
             if (ch) {
-              const m = await ch.messages.fetch(bounty.announcementMessageId).catch(() => null);
-              if (m) await m.delete().catch(() => {});
+              const msg = await ch.messages
+                .fetch(bounty.announcement_message_id)
+                .catch(() => null);
+
+              if (msg) await msg.delete().catch(() => {});
             }
           }
 
+          // post live card immediately
           await postBountyCard(client, bounty);
 
-          await db.updateBounty(bounty.id, { status: 'open' });
+          // mark as open
+          await db.updateBounty(bounty.id, { status: "open" });
         } catch (err) {
-          console.error('❌ Error starting bounty:', err);
+          console.error("❌ Error starting bounty:", err);
         }
       }
 
-      // --------------------------------------
-      // Bounties that should EXPIRE
-      // --------------------------------------
+      // -----------------------------------------
+      // EXPIRE BOUNTIES (end_time <= now)
+      // -----------------------------------------
       const toExpire = await db.getBountiesToExpire(now);
 
       for (const bounty of toExpire) {
         try {
           const guild = client.guilds.cache.get(bounty.guildId);
-          const ch = guild?.channels.cache.get(bounty.cardChannelId);
 
-          // Remove claim button
-          if (ch && bounty.cardMessageId) {
-            const m = await ch.messages.fetch(bounty.cardMessageId).catch(() => null);
-            if (m) await m.edit({ components: [] }).catch(() => {});
+          // remove claim button from live card
+          if (bounty.card_message_id) {
+            const ch = guild.channels.cache.get(bounty.card_channel_id);
+            if (ch) {
+              const msg = await ch.messages.fetch(bounty.card_message_id).catch(() => null);
+              if (msg) await msg.edit({ components: [] }).catch(() => {});
+            }
           }
 
-          // Update DB
-          await db.updateBounty(bounty.id, { status: 'expired' });
+          // update database
+          await db.updateBounty(bounty.id, { status: "expired" });
 
-          // Post failed card
+          // post failed card
           await postFailedCard(client, bounty);
         } catch (err) {
-          console.error('❌ Error expiring bounty:', err);
+          console.error("❌ Error expiring bounty:", err);
         }
       }
     } catch (err) {
-      console.error('❌ Scheduler tick failed:', err);
+      console.error("❌ Scheduler tick failed:", err);
     }
   }, INTERVAL);
 }
