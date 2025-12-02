@@ -14,6 +14,13 @@ if (!fs.existsSync(CARDS_DIR)) {
   fs.mkdirSync(CARDS_DIR, { recursive: true });
 }
 
+// COMPLETED style (bright green)
+const style = {
+  gradientFrom: "#22c55e",
+  gradientTo: "#16a34a",
+  boxColor: "rgba(5, 46, 22, 0.95)"
+};
+
 function roundedRect(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -78,15 +85,12 @@ async function drawSprite(ctx, x, y, size, name) {
 }
 
 /**
- * Completed bounty card (bright green background)
- *
  * options:
  *  - bountyId
- *  - username      (plain nickname, NOT a mention)
+ *  - username   (server nickname / username, plain text)
  *  - rankName
- *  - pokemons[]    (up to 3)
- *  - rewardLabel   (string, e.g. "1,000,000 PKD") OR reward (number)
- *  - reward        (optional numeric fallback)
+ *  - pokemons[]
+ *  - rewardLabel (e.g. "1,000,000 PKD")
  *  - avatarUrl
  */
 async function createBountySuccessCard(options) {
@@ -96,29 +100,27 @@ async function createBountySuccessCard(options) {
     rankName,
     pokemons,
     rewardLabel,
-    reward,
     avatarUrl
   } = options;
 
-  const pokemonList = pokemons?.length ? pokemons : ["None"];
-  const rewardText =
-    rewardLabel ||
-    `${Number(reward || 0).toLocaleString()} PKD`;
+  const pokemonList = Array.isArray(pokemons) && pokemons.length
+    ? pokemons
+    : ["None"];
 
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // Bright green background
+  // Background
   const g = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
-  g.addColorStop(0, "#22c55e");
-  g.addColorStop(1, "#16a34a");
+  g.addColorStop(0, style.gradientFrom);
+  g.addColorStop(1, style.gradientTo);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
   ctx.fillStyle = "rgba(0,0,0,0.2)";
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // Right avatar box
+  // Right image box
   const rightW = (CARD_WIDTH - MARGIN * 3) * 0.4;
   const rightH = CARD_HEIGHT - MARGIN * 2;
   const imageSize = Math.min(rightW, rightH);
@@ -135,8 +137,11 @@ async function createBountySuccessCard(options) {
     let h = imageSize;
     const aspect = img.width / img.height;
 
-    if (aspect > 1) h = imageSize / aspect;
-    else w = imageSize * aspect;
+    if (aspect > 1) {
+      h = imageSize / aspect;
+    } else {
+      w = imageSize * aspect;
+    }
 
     ctx.drawImage(
       img,
@@ -162,9 +167,9 @@ async function createBountySuccessCard(options) {
   const infoBoxHeight = leftHeight * 0.65;
   const noteBoxHeight = leftHeight - infoBoxHeight - boxGap;
 
-  // Top info box
+  // Info box
   roundedRect(ctx, leftX, leftY, leftWidth, infoBoxHeight, 40);
-  ctx.fillStyle = "rgba(5, 46, 22, 0.95)"; // same as completed style
+  ctx.fillStyle = style.boxColor;
   ctx.fill();
   ctx.lineWidth = 8;
   ctx.strokeStyle = "#f9fafb";
@@ -172,20 +177,21 @@ async function createBountySuccessCard(options) {
 
   const FONT = 55;
   const lh = FONT * 1.25;
+
   ctx.font = `bold ${FONT}px sans-serif`;
   ctx.fillStyle = "#f9fafb";
 
   let lineY = leftY + 80;
 
-  ctx.fillText(`Trainer:`, leftX + 60, lineY);
+  ctx.fillText("Trainer:", leftX + 60, lineY);
   ctx.fillText(username, leftX + 400, lineY);
   lineY += lh;
 
-  ctx.fillText(`Rank:`, leftX + 60, lineY);
+  ctx.fillText("Rank:", leftX + 60, lineY);
   ctx.fillText(rankName, leftX + 400, lineY);
   lineY += lh * 1.2;
 
-  ctx.fillText(`Target:`, leftX + 60, lineY);
+  ctx.fillText("Target:", leftX + 60, lineY);
   ctx.fillText(pokemonList[0], leftX + 400, lineY);
   lineY += lh;
 
@@ -196,21 +202,21 @@ async function createBountySuccessCard(options) {
 
   lineY += lh * 0.6;
 
-  ctx.fillText(`Reward:`, leftX + 60, lineY);
-  ctx.fillText(rewardText, leftX + 400, lineY);
+  ctx.fillText("Reward:", leftX + 60, lineY);
+  ctx.fillText(rewardLabel, leftX + 400, lineY);
   lineY += lh * 1.4;
 
-  // This line is the “completion” text:
+  // Completion line
   ctx.fillText(
     `${username} has successfully completed the bounty`,
     leftX + 60,
     lineY
   );
 
-  // Bottom note/status box
+  // Note box
   const noteY = leftY + infoBoxHeight + boxGap;
   roundedRect(ctx, leftX, noteY, leftWidth, noteBoxHeight, 40);
-  ctx.fillStyle = "rgba(5, 46, 22, 0.95)";
+  ctx.fillStyle = style.boxColor;
   ctx.fill();
   ctx.lineWidth = 8;
   ctx.strokeStyle = "#f9fafb";
@@ -221,7 +227,7 @@ async function createBountySuccessCard(options) {
 
   ctx.fillText("Completed", leftX + 60, noteY + noteBoxHeight / 2 - FONT / 2);
 
-  // Sprites along bottom-right
+  // Sprites
   const spriteSize = imageSize / 3 - 20;
   const spriteY = CARD_HEIGHT - MARGIN - spriteSize - 20;
   let spriteX = imageX;
@@ -232,7 +238,7 @@ async function createBountySuccessCard(options) {
   }
 
   const buffer = canvas.toBuffer("image/png");
-  const filePath = path.join(CARDS_DIR, `bountyEnd_${bountyId}.png`);
+  const filePath = path.join(CARDS_DIR, `bountyEnd_${bountyId}_success.png`);
   fs.writeFileSync(filePath, buffer);
 
   return buffer;
