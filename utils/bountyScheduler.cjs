@@ -9,10 +9,14 @@ const db = require("../database.cjs");
 const { getRankName } = require("./rankSystem.cjs");
 const { createBountyCard } = require("../renderers/cardRenderer.cjs");
 
-// End-card renderers (only needed for EXPIRED)
+// Your two end-card renderers
+let createBountySuccessCard = null;
 let createBountyFailedCard = null;
 
 try {
+  createBountySuccessCard =
+    require("../renderers/bountyCardSuccess.cjs").createBountySuccessCard;
+
   createBountyFailedCard =
     require("../renderers/bountyCardEndFailed.cjs").createBountyFailedCard;
 } catch {
@@ -26,34 +30,39 @@ function normalize(b) {
   if (!b) return null;
 
   return {
-    id: b.id,
-    guildId: b.guild_id || b.guildId,
-    requesterId: b.requester_id || b.requesterId,
-    requesterName: b.requester_name || b.requesterName,
+    id:               b.id,
+    guildId:          b.guild_id || b.guildId,
+    requesterId:      b.requester_id || b.requesterId,
+    requesterName:    b.requester_name || b.requesterName,
+
     pokemons: Array.isArray(b.pokemons)
       ? b.pokemons
       : typeof b.pokemons === "string"
-        ? JSON.parse(b.pokemons)
-        : b.pokemons_json
-          ? JSON.parse(b.pokemons_json)
-          : [],
-    notes: b.notes,
-    startTime: b.start_time || b.startTime,
-    endTime: b.end_time || b.endTime,
-    durationHours: b.duration_hours || b.durationHours,
-    reward: b.reward,
-    rarityKey: b.rarity_key || b.rarityKey,
-    rarityLabel: b.rarity_label || b.rarityLabel,
+      ? JSON.parse(b.pokemons)
+      : b.pokemons_json
+      ? JSON.parse(b.pokemons_json)
+      : [],
+
+    notes:            b.notes,
+    startTime:        b.start_time || b.startTime,
+    endTime:          b.end_time || b.endTime,
+    durationHours:    b.duration_hours || b.durationHours,
+    reward:           b.reward,
+
+    rarityKey:        b.rarity_key || b.rarityKey,
+    rarityLabel:      b.rarity_label || b.rarityLabel,
+
     startsImmediately:
       b.starts_immediately === 1 ||
       b.startsImmediately === 1 ||
       b.starts_immediately === true,
-    status: b.status,
-    requestThreadId: b.request_thread_id || b.requestThreadId,
+
+    status:                b.status,
+    requestThreadId:       b.request_thread_id || b.requestThreadId,
     announcementChannelId: b.announcement_channel_id || b.announcementChannelId,
     announcementMessageId: b.announcement_message_id || b.announcementMessageId,
-    cardChannelId: b.card_channel_id || b.cardChannelId,
-    cardMessageId: b.card_message_id || b.cardMessageId
+    cardChannelId:         b.card_channel_id || b.cardChannelId,
+    cardMessageId:         b.card_message_id || b.cardMessageId
   };
 }
 
@@ -126,6 +135,7 @@ async function postBountyCard(client, raw) {
     components: [row]
   });
 
+  // Save to SQLite
   await db.updateBounty(bounty.id, {
     card_channel_id: channel.id,
     card_message_id: msg.id
@@ -135,7 +145,56 @@ async function postBountyCard(client, raw) {
 }
 
 /* -----------------------------------------------------------
- * Failed / expired card  (scheduler ONLY handles expires)
+ * Completed card
+ * ----------------------------------------------------------- */
+async function postCompletedCard(client, raw, winnerId) {
+  if (!createBountySuccessCard) return;
+
+  const bounty = normalize(raw);
+
+  const guild = client.guilds.cache.get(bounty.guildId);
+  if (!guild) return;
+
+  const channel = guild.channels.cache.get(process.env.BOUNTY_CHANNEL_ID);
+  if (!channel) return;
+
+  const member = await guild.members.fetch(winnerId).catch(() => null);
+
+  const username =
+    member?.nickname ||
+    member?.user?.username ||
+    "Trainer";
+
+  const avatarUrl =
+    member?.displayAvatarURL({ extension: "png", size: 512 }) ||
+    guild.iconURL({ extension: "png", size: 512 });
+
+  // Rank for winner
+  let rankName = "Rookie Trainer";
+  try {
+    const u = await db.getUserById(winnerId);
+    const lifetime = u?.lifetime_points ?? u?.points ?? 0;
+    rankName = getRankName(lifetime);
+  } catch {}
+
+  const rewardLabel = `${Number(bounty.reward).toLocaleString()} PKD`;
+
+  const buffer = await createBountySuccessCard({
+    bountyId: bounty.id,
+    username,
+    rankName,
+    pokemons: bounty.pokemons,
+    rewardLabel,
+    avatarUrl
+  });
+
+  await channel.send({
+    files: [{ attachment: buffer, name: `bounty_completed_${bounty.id}.png` }]
+  });
+}
+
+/* -----------------------------------------------------------
+ * Failed / expired card
  * ----------------------------------------------------------- */
 async function postFailedCard(client, raw) {
   if (!createBountyFailedCard) return;
@@ -186,7 +245,7 @@ async function postFailedCard(client, raw) {
 }
 
 /* -----------------------------------------------------------
- * Scheduler loop (only starts + expires bounties)
+ * Scheduler loop
  * ----------------------------------------------------------- */
 function startBountyScheduler(client) {
   const INTERVAL = 60000;
@@ -201,6 +260,9 @@ function startBountyScheduler(client) {
       for (const raw of toStart) {
         try {
           const bounty = normalize(raw);
+
+          // 🔥 FIX DOUBLE POSTING — do not start an already started bounty
+          if (bounty.status === "open") continue;
 
           // Delete announcement
           if (bounty.announcementChannelId && bounty.announcementMessageId) {
@@ -258,6 +320,7 @@ function startBountyScheduler(client) {
 
 module.exports = {
   postBountyCard,
+  postCompletedCard,
   postFailedCard,
   startBountyScheduler
 };
