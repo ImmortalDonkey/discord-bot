@@ -17,11 +17,12 @@ module.exports = {
 
     try {
       // ----------------------------------------------------------
-      // 0️⃣ Parse customId → "bountyclaim|<bountyId>|<hunterId>"
+      // 0️⃣ Parse customId → "bountyclaim|<bountyId>|<hunterId>|<nickname>"
       // ----------------------------------------------------------
       const parts = String(customId).split("|");
       const bountyId = parts[1];
       const hunterId = parts[2];
+      const rawNickname = parts[3] ? decodeURIComponent(parts[3]) : null;
 
       if (!bountyId || !hunterId) {
         return interaction.reply({
@@ -69,13 +70,32 @@ module.exports = {
       const proof = interaction.fields.getTextInputValue("proof_optional") || "";
 
       // ----------------------------------------------------------
-      // 3️⃣ Create claim in SQLite + memory (let DB assign ID)
+      // 3️⃣ Resolve nickname (prefer modal data, else fallback)
+      // ----------------------------------------------------------
+      let nickname = rawNickname;
+
+      if (!nickname) {
+        try {
+          const member = await interaction.guild.members.fetch(hunterId);
+          nickname =
+            member?.nickname ||
+            member?.displayName ||
+            member?.user?.username ||
+            interaction.user.username;
+        } catch {
+          nickname = interaction.user.username;
+        }
+      }
+
+      // ----------------------------------------------------------
+      // 4️⃣ Create claim in SQLite
       // ----------------------------------------------------------
       const claimId = await db.createBountyClaim({
         bountyId,
         hunterId,
         pokemonId,
         proof,
+        nickname,          // <-- ✔ store trainer name for later success card
         status: "pending",
         createdAt: Date.now(),
         resolvedAt: null,
@@ -85,7 +105,7 @@ module.exports = {
       });
 
       // ----------------------------------------------------------
-      // 4️⃣ Create thread in the claims forum
+      // 5️⃣ Create thread in the claims forum
       // ----------------------------------------------------------
       const forumId = process.env.CLAIMS_FORUM_CHANNEL_ID;
       const forum = interaction.guild.channels.cache.get(forumId);
@@ -98,9 +118,8 @@ module.exports = {
         });
       }
 
-      const threadTitle = `Claim • ${interaction.user.username} • ${pokemonId}`;
+      const threadTitle = `Claim • ${nickname} • ${pokemonId}`;
 
-      // For your discord.js version you **must** include `message`
       const thread = await forum.threads.create({
         name: threadTitle,
         message: {
@@ -109,14 +128,14 @@ module.exports = {
       });
 
       // ----------------------------------------------------------
-      // 5️⃣ Build claim embed + staff buttons
+      // 6️⃣ Build claim embed + staff buttons
       // ----------------------------------------------------------
       const embed = new EmbedBuilder()
         .setTitle("🔎 New Bounty Claim")
         .setColor("Yellow")
         .addFields(
           { name: "Bounty ID", value: String(bountyId), inline: true },
-          { name: "Claimer", value: `<@${hunterId}>`, inline: true },
+          { name: "Claimer", value: `${nickname}\n<@${hunterId}>`, inline: true },
           { name: "Pokémon ID", value: String(pokemonId), inline: true },
           { name: "Notes", value: proof || "None provided", inline: false }
         )
@@ -139,7 +158,7 @@ module.exports = {
       });
 
       // ----------------------------------------------------------
-      // 6️⃣ Save thread + message IDs into DB
+      // 7️⃣ Save thread + message IDs to DB
       // ----------------------------------------------------------
       await db.updateBountyClaim(claimId, {
         claimThreadId: thread.id,
@@ -147,7 +166,7 @@ module.exports = {
       });
 
       // ----------------------------------------------------------
-      // 7️⃣ Tell the user
+      // 8️⃣ Confirm to user
       // ----------------------------------------------------------
       return interaction.reply({
         content: "✅ Your bounty claim has been submitted!",
