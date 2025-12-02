@@ -1,8 +1,5 @@
 // interactions/buttons/bountyButtons.cjs
-const {
-  EmbedBuilder
-} = require("discord.js");
-
+const { EmbedBuilder } = require("discord.js");
 const db = require("../../database.cjs");
 const { postBountyCard } = require("../../utils/bountyScheduler.cjs");
 
@@ -12,8 +9,8 @@ module.exports = {
   async execute(client, interaction) {
     const id = interaction.customId;
 
-    // SAFETY: defer to avoid "Unknown interaction"
-    await interaction.deferReply({ flags: 64 }); // ephemeral reply
+    // Prevent "Unknown interaction"
+    await interaction.deferReply({ flags: 64 });
 
     // ============================================================
     // 🟢 APPROVE BOUNTY
@@ -22,18 +19,20 @@ module.exports = {
       const bountyId = id.replace("approvebounty_", "");
 
       const bounty = await db.getBountyById(bountyId);
+
       if (!bounty || bounty.status !== "pending") {
         return interaction.editReply({
           content: "❌ This bounty is no longer pending."
         });
       }
 
-      // Update status → open
+      // Mark bounty as approved + keep timestamps
       await db.updateBounty(bountyId, {
         status: "open",
         approvedAt: Date.now()
       });
 
+      // Message in request thread
       const guild = interaction.guild;
       const requestThread = guild.channels.cache.get(bounty.requestThreadId);
 
@@ -44,12 +43,12 @@ module.exports = {
       }
 
       const now = Date.now();
-      const startsNow = !!bounty.startsImmediately;
+      const startsImmediately = !!bounty.startsImmediately;
 
       // ============================================================
-      // STARTS IMMEDIATELY → SEND CARD NOW
+      // START NOW → post card immediately (NO ANNOUNCEMENT EMBED)
       // ============================================================
-      if (startsNow || now >= bounty.startTime) {
+      if (startsImmediately || now >= bounty.startTime) {
         const msg = await postBountyCard(client, bounty);
 
         if (msg) {
@@ -65,7 +64,8 @@ module.exports = {
       }
 
       // ============================================================
-      // FUTURE START → SEND SCHEDULED ANNOUNCEMENT
+      // SCHEDULED START → post announcement embed
+      // BUT ONLY IF NOT "START NOW"
       // ============================================================
       const announceChannelId = process.env.BOUNTY_CHANNEL_ID;
       const announceChannel = guild.channels.cache.get(announceChannelId);
@@ -95,8 +95,11 @@ module.exports = {
         )
         .setColor("Yellow");
 
-      const announcement = await announceChannel.send({ embeds: [embed] });
+      const announcement = await announceChannel.send({
+        embeds: [embed]
+      });
 
+      // Save the announcement for scheduler to delete later
       await db.updateBounty(bountyId, {
         announcementChannelId: announceChannel.id,
         announcementMessageId: announcement.id
@@ -114,6 +117,7 @@ module.exports = {
       const bountyId = id.replace("denybounty_", "");
 
       const bounty = await db.getBountyById(bountyId);
+
       if (!bounty || bounty.status !== "pending") {
         return interaction.editReply({
           content: "❌ This bounty is no longer pending."
