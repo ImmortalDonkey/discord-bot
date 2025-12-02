@@ -22,7 +22,7 @@ module.exports = {
 
     if (!bounty) {
       return interaction.reply({
-        content: "❌ This bounty no longer exists.",
+        content: "❌ This bounty does not exist.",
         ephemeral: true
       });
     }
@@ -36,11 +36,24 @@ module.exports = {
 
     // ----------------------------------------------------------
     // 2️⃣ Prevent multiple active claims by same user
+    //    Search BOTH: in-memory + SQLite (failsafe on reboot)
     // ----------------------------------------------------------
-    const existingClaim = await db.getPendingClaimForBountyAndHunter(
+    let existingClaim = await db.getPendingClaimForBountyAndHunter(
       bountyId,
       userId
     );
+
+    // Fallback check → database table
+    if (!existingClaim) {
+      const row = await db.db.get(
+        `SELECT id FROM bounty_claims
+         WHERE bounty_id=? AND hunter_id=? AND status='pending'
+         LIMIT 1`,
+        [bountyId, userId]
+      ).catch(() => null);
+
+      if (row) existingClaim = row;
+    }
 
     if (existingClaim) {
       return interaction.reply({
@@ -50,7 +63,7 @@ module.exports = {
     }
 
     // ----------------------------------------------------------
-    // 3️⃣ Build the modal (safe ID format)
+    // 3️⃣ Build modal (safe custom ID format)
     // ----------------------------------------------------------
     const modalCustomId = `bountyclaim|${bountyId}|${userId}`;
 
