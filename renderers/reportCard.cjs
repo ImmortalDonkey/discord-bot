@@ -83,12 +83,13 @@ function wrapText(ctx, text, maxWidth, lineHeight) {
 
 function getSpritePathForPokemon(name) {
   if (!name) return null;
-  return path.join(SPRITES_DIR, `${name}.png`); // preserves spaces and ()
+  return path.join(SPRITES_DIR, `${name}.png`);
 }
 
 async function drawFullSprite(ctx, x, y, boxW, boxH, pokemonName) {
   const spritePath = getSpritePathForPokemon(pokemonName);
   let img = null;
+
   try {
     if (spritePath && fs.existsSync(spritePath)) img = await loadImage(spritePath);
   } catch {
@@ -142,7 +143,9 @@ async function createReportCard(report) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // Background
+  //
+  // Background gradient
+  //
   const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
   gradient.addColorStop(0, style.gradientFrom);
   gradient.addColorStop(1, style.gradientTo);
@@ -152,7 +155,9 @@ async function createReportCard(report) {
   ctx.fillStyle = "rgba(0, 0, 0, 0.20)";
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // Layout
+  //
+  // Layout calculations
+  //
   const innerWidth = CARD_WIDTH - 2 * MARGIN;
   const innerHeight = CARD_HEIGHT - 2 * MARGIN;
 
@@ -165,14 +170,14 @@ async function createReportCard(report) {
   const leftX = MARGIN;
   const rightX = leftX + leftW + columnGap;
 
-  const topH = rightW; // square for sprite column
+  const topH = rightW; // square top-right box
   const bottomH = innerHeight - topH - rowGap;
 
   const topY = MARGIN;
   const bottomY = topY + topH + rowGap;
 
   //
-  // TOP-LEFT BOX
+  // TOP LEFT INFO BOX
   //
   const infoX = leftX;
   const infoY = topY;
@@ -224,11 +229,9 @@ async function createReportCard(report) {
   const valueX = labelX + maxLabelWidth + labelGap;
 
   const infoTextHeight =
-    nonSpacerRows * lineHeight +
-    spacerRows * groupSpacing;
+    nonSpacerRows * lineHeight + spacerRows * groupSpacing;
 
-  // Nudge down a bit so it looks visually centred
-  let drawY = infoY + (infoH - infoTextHeight) / 2 + lineHeight * 0.35;
+  let drawY = infoY + (infoH - infoTextHeight) / 2;
 
   for (const r of infoRows) {
     if (r.spacer) {
@@ -246,7 +249,7 @@ async function createReportCard(report) {
   }
 
   //
-  // TOP-RIGHT SPRITE BOX
+  // TOP RIGHT SPRITE BOX
   //
   const spriteX = rightX;
   const spriteY = topY;
@@ -265,7 +268,7 @@ async function createReportCard(report) {
   ctx.restore();
 
   //
-  // BOTTOM-LEFT: AVAILABILITY
+  // BOTTOM LEFT — AVAILABILITY
   //
   const blX = leftX;
   const blY = bottomY;
@@ -292,14 +295,15 @@ async function createReportCard(report) {
   const availLines = wrapText(ctx, availability, blW - 100, lineHeight);
   const availHeight = availLines.length * lineHeight;
 
-  let ay = blY + (blH - availHeight) / 2 + lineHeight * 0.2;
+  let ay = blY + (blH - availHeight) / 2;
+
   for (const line of availLines) {
     ctx.fillText(line, blX + blW / 2, ay);
     ay += lineHeight;
   }
 
   //
-  // BOTTOM-RIGHT: ROUTE
+  // BOTTOM RIGHT — ROUTE
   //
   const brX = rightX;
   const brY = bottomY;
@@ -315,23 +319,32 @@ async function createReportCard(report) {
   ctx.stroke();
   ctx.restore();
 
-  const routeLines = wrapText(ctx, location || "Unknown route", brW - 100, lineHeight);
+  const routeLines = wrapText(
+    ctx,
+    location || "Unknown location",
+    brW - 100,
+    lineHeight
+  );
   const routeHeight = routeLines.length * lineHeight;
 
   ctx.font = `bold ${FONT_SIZE + 10}px sans-serif`;
   ctx.fillStyle = "#f9fafb";
   ctx.textAlign = "center";
 
-  let ry = brY + (brH - routeHeight) / 2 + lineHeight * 0.2;
+  let ry = brY + (brH - routeHeight) / 2;
+
   for (const line of routeLines) {
     ctx.fillText(line, brX + brW / 2, ry);
     ry += lineHeight;
   }
 
-  // Save file
+  //
+  // Save PNG
+  //
   const safe = pokemonName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const filepath = path.join(REPORT_DIR, `report_${safe}_${Date.now()}.png`);
   fs.writeFileSync(filepath, canvas.toBuffer("image/png"));
+
   return filepath;
 }
 
