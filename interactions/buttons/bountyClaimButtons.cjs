@@ -16,7 +16,9 @@ module.exports = {
     const isApprove = id.startsWith("approveclaim_");
     const claimId = id.replace(isApprove ? "approveclaim_" : "denyclaim_", "");
 
-    // Load claim
+    // -------------------------------------------------------------
+    // LOAD CLAIM
+    // -------------------------------------------------------------
     const claim = await db.getBountyClaimById(claimId);
     if (!claim) {
       return interaction.reply({
@@ -25,7 +27,7 @@ module.exports = {
       });
     }
 
-    // Load bounty
+    // LOAD BOUNTY
     const bounty = await db.getBountyById(claim.bounty_id || claim.bountyId);
     if (!bounty) {
       return interaction.reply({
@@ -52,9 +54,9 @@ module.exports = {
       });
     }
 
-    // ───────────────────────────────────────
+    // =============================================================
     // ❌ DENY CLAIM
-    // ───────────────────────────────────────
+    // =============================================================
     if (!isApprove) {
       await db.updateBountyClaim(claimId, {
         status: "denied",
@@ -81,9 +83,9 @@ module.exports = {
       return;
     }
 
-    // ───────────────────────────────────────
+    // =============================================================
     // ✔ APPROVE CLAIM
-    // ───────────────────────────────────────
+    // =============================================================
     await db.updateBountyClaim(claimId, {
       status: "approved",
       resolved_at: Date.now(),
@@ -105,30 +107,30 @@ module.exports = {
       components: []
     });
 
-    // ───────────────────────────────────────
-    // REMOVE OLD CARD (PIN FIRST) + POST COMPLETED CARD
-    // ───────────────────────────────────────
+    // =============================================================
+    // REMOVE OLD ACTIVE CARD → POST COMPLETED CARD
+    // =============================================================
     try {
       const guild = interaction.guild;
       const channel = await guild.channels.fetch(
         bounty.card_channel_id || bounty.cardChannelId
       );
 
+      // --- LOAD ORIGINAL CARD MESSAGE ---
       const original = bounty.card_message_id || bounty.cardMessageId
         ? await channel.messages
             .fetch(bounty.card_message_id || bounty.cardMessageId)
             .catch(() => null)
         : null;
 
-      // 👉 Pin the ORIGINAL bounty card, then delete it
+      // --- DELETE ORIGINAL ACTIVE CARD (NO PINNING) ---
       if (original) {
         try {
-          await original.pin().catch(() => {});
+          await original.delete().catch(() => {});
         } catch {}
-        await original.delete().catch(() => {});
       }
 
-      // Winner member / nickname
+      // --- WINNER MEMBER / NAME / AVATAR ---
       const winnerId = claim.hunter_id || claim.hunterId;
       const winnerMember = await guild.members.fetch(winnerId).catch(() => null);
 
@@ -142,7 +144,7 @@ module.exports = {
         winnerMember?.displayAvatarURL({ extension: "png", size: 512 }) ||
         guild.iconURL({ extension: "png", size: 512 });
 
-      // Rank for winner
+      // --- RANK ---
       let rankName = "Rookie Trainer";
       try {
         const dbUser = await db.getUserById(winnerId);
@@ -158,6 +160,7 @@ module.exports = {
           ? JSON.parse(bounty.pokemons_json)
           : []);
 
+      // --- RENDER SUCCESS CARD ---
       const cardBuffer = await createBountySuccessCard({
         bountyId: bounty.id,
         username,
@@ -168,7 +171,8 @@ module.exports = {
         rarityLabel: bounty.rarity_label || bounty.rarityLabel
       });
 
-      const completedMsg = await channel.send({
+      // --- POST SUCCESS CARD (NO PINNING) ---
+      await channel.send({
         files: [
           {
             attachment: cardBuffer,
@@ -177,9 +181,7 @@ module.exports = {
         ]
       });
 
-      // ❌ No pin on completed card (per your latest message)
-
-      // DM the user about their reward
+      // --- DM WINNER ---
       try {
         if (winnerMember) {
           await winnerMember.send({
@@ -197,9 +199,9 @@ module.exports = {
       );
     }
 
-    // ───────────────────────────────────────
-    // NOTIFY THREAD + DELETE AFTER 1 MIN
-    // ───────────────────────────────────────
+    // =============================================================
+    // NOTIFY THREAD + DELETE AFTER 1 MINUTE
+    // =============================================================
     try {
       const thread = await client.channels.fetch(
         claim.claim_thread_id || claim.claimThreadId
