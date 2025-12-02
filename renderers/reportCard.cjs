@@ -142,7 +142,7 @@ async function createReportCard(report) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // Background gradient
+  // Background
   const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
   gradient.addColorStop(0, style.gradientFrom);
   gradient.addColorStop(1, style.gradientTo);
@@ -165,14 +165,14 @@ async function createReportCard(report) {
   const leftX = MARGIN;
   const rightX = leftX + leftW + columnGap;
 
-  const topH = rightW; // perfect square
+  const topH = rightW; // perfect square for sprite column
   const bottomH = innerHeight - topH - rowGap;
 
   const topY = MARGIN;
   const bottomY = topY + topH + rowGap;
 
   //
-  // TOP-LEFT BOX (with corrected vertical centering)
+  // TOP-LEFT BOX
   //
   const infoX = leftX;
   const infoY = topY;
@@ -227,7 +227,8 @@ async function createReportCard(report) {
     nonSpacerRows * lineHeight +
     spacerRows * groupSpacing;
 
-  let drawY = infoY + (infoH - infoTextHeight) / 2;
+  // Slight bias downwards so it looks visually centered
+  let drawY = infoY + (infoH - infoTextHeight) / 2 + lineHeight * 0.05;
 
   for (const r of infoRows) {
     if (r.spacer) {
@@ -245,7 +246,7 @@ async function createReportCard(report) {
   }
 
   //
-  // TOP-RIGHT SPRITE BOX
+  // TOP-RIGHT: SPRITE BOX
   //
   const spriteX = rightX;
   const spriteY = topY;
@@ -264,7 +265,7 @@ async function createReportCard(report) {
   ctx.restore();
 
   //
-  // BOTTOM-LEFT BOX (Availability)
+  // BOTTOM-LEFT: AVAILABILITY
   //
   const blX = leftX;
   const blY = bottomY;
@@ -280,7 +281,8 @@ async function createReportCard(report) {
   ctx.stroke();
   ctx.restore();
 
-  const availability = availabilityText ||
+  const availability =
+    availabilityText ||
     (expired ? "No longer available" : "Available until end of the hour");
 
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
@@ -297,7 +299,7 @@ async function createReportCard(report) {
   }
 
   //
-  // BOTTOM-RIGHT BOX (Route)
+  // BOTTOM-RIGHT: ROUTE
   //
   const brX = rightX;
   const brY = bottomY;
@@ -326,9 +328,7 @@ async function createReportCard(report) {
     ry += lineHeight;
   }
 
-  //
-  // SAVE FILE
-  //
+  // Save file
   const safe = pokemonName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const filepath = path.join(REPORT_DIR, `report_${safe}_${Date.now()}.png`);
   fs.writeFileSync(filepath, canvas.toBuffer("image/png"));
