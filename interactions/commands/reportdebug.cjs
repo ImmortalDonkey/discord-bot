@@ -43,12 +43,14 @@ module.exports = {
       ephemeral: true
     });
 
-    // NICKNAME LOGIC — EXACTLY MATCHES bountyrequest
+    // ✔ Trainer name – match Discord's server display name behaviour
     const member = interaction.member;
     const trainerName =
-      member?.nickname ||
-      interaction.user.username ||
-      interaction.user.tag;
+      member?.displayName ||              // nickname/globalName/username combined
+      member?.nickname ||                 // explicit nickname
+      user.globalName ||                  // Discord global display name
+      user.username ||                    // username
+      user.tag;                           // legacy tag as final fallback
 
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
