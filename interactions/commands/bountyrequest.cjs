@@ -1,7 +1,10 @@
 const {
   SlashCommandBuilder,
   EmbedBuilder,
-  ChannelType
+  ChannelType,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require('discord.js');
 
 const db = require('../../database.cjs');
@@ -123,7 +126,7 @@ module.exports = {
     const startTimeStr = interaction.options.getString('starttime');
     const durationHoursRaw = interaction.options.getInteger('duration');
     const reward = interaction.options.getInteger('reward');
-    
+
     const pokemons = [p1, p2, p3].filter(Boolean);
     const rarityKey = getHighestRarityForList(pokemons);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
@@ -182,13 +185,32 @@ module.exports = {
       invitable: false
     });
 
+    // ------------------------------------------------------------
+    // APPROVE / DENY BUTTONS
+    // ------------------------------------------------------------
+    const buttonRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`approvebounty_${bountyId}`)
+        .setLabel("Approve Bounty")
+        .setStyle(ButtonStyle.Success),
+
+      new ButtonBuilder()
+        .setCustomId(`denybounty_${bountyId}`)
+        .setLabel("Deny Bounty")
+        .setStyle(ButtonStyle.Danger)
+    );
+
+    // ------------------------------------------------------------
+    // SEND REQUEST MESSAGE WITH BUTTONS
+    // ------------------------------------------------------------
     const requestMessage = await thread.send({
-      content: (process.env.STAFF_ROLES || '')
-        .split(',')
-        .map(id => id.trim())
-        .filter(Boolean)
-        .map(id => `<@&${id}>`)
-        .join(' ') || '',
+      content:
+        (process.env.STAFF_ROLES || "")
+          .split(",")
+          .map(id => id.trim())
+          .filter(Boolean)
+          .map(id => `<@&${id}>`)
+          .join(" ") || "",
       embeds: [
         new EmbedBuilder()
           .setTitle('📝 New Bounty Request')
@@ -212,11 +234,12 @@ module.exports = {
             }
           )
           .setTimestamp()
-      ]
+      ],
+      components: [buttonRow]  // ⭐ REQUIRED
     });
 
     // ------------------------------------------------------------
-    // STORE INTO SQLITE DATABASE
+    // STORE INTO SQLITE
     // ------------------------------------------------------------
     await db.run(
       `INSERT INTO bounties (
