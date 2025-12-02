@@ -93,7 +93,6 @@ async function postBountyCard(client, raw) {
     member?.displayAvatarURL({ extension: "png", size: 512 }) ||
     guild.iconURL({ extension: "png", size: 512 });
 
-  // Rank fetch
   let rankName = "Rookie Trainer";
   try {
     const u = await db.getUserById(bounty.requesterId);
@@ -105,6 +104,7 @@ async function postBountyCard(client, raw) {
   const startLabel = bounty.startsImmediately
     ? "Starts Immediately"
     : new Date(bounty.startTime).toLocaleString("en-GB");
+
   const endLabel = new Date(bounty.endTime).toLocaleString("en-GB");
   const durationLabel = `${bounty.durationHours} hour(s)`;
 
@@ -123,7 +123,6 @@ async function postBountyCard(client, raw) {
     avatarUrl
   });
 
-  // Button row
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`claimbounty_${bounty.id}`)
@@ -131,7 +130,6 @@ async function postBountyCard(client, raw) {
       .setStyle(ButtonStyle.Success)
   );
 
-  // Send (NO PINNING)
   const msg = await channel.send({
     files: [{ attachment: cardBuffer, name: `bounty_${bounty.id}.png` }],
     components: [row]
@@ -190,7 +188,6 @@ async function postCompletedCard(client, raw, winnerId) {
     rarityLabel: bounty.rarityLabel
   });
 
-  // Post (NO PINNING)
   const msg = await channel.send({
     files: [{ attachment: buffer, name: `bounty_completed_${bounty.id}.png` }]
   });
@@ -245,7 +242,6 @@ async function postFailedCard(client, raw) {
     rarityLabel: bounty.rarityLabel
   });
 
-  // Post (NO PINNING)
   const msg = await channel.send({
     files: [{ attachment: buffer, name: `bounty_failed_${bounty.id}.png` }]
   });
@@ -274,7 +270,6 @@ function startBountyScheduler(client) {
 
           if (bounty.status === "open") continue;
 
-          // Delete old announcement
           if (bounty.announcementChannelId && bounty.announcementMessageId) {
             const guild = client.guilds.cache.get(bounty.guildId);
             const ch = guild?.channels.cache.get(bounty.announcementChannelId);
@@ -295,7 +290,7 @@ function startBountyScheduler(client) {
       }
 
       /* ----------------------------
-       * Expire bounties
+       * Expire bounties (REPLACE active card)
        * ---------------------------- */
       const toExpire = await db.getBountiesToExpire(now);
 
@@ -304,7 +299,7 @@ function startBountyScheduler(client) {
           const bounty = normalize(raw);
           const guild = client.guilds.cache.get(bounty.guildId);
 
-          // Remove claim button (NO UNPIN)
+          // DELETE active bounty card entirely
           if (bounty.cardMessageId) {
             const ch = guild.channels.cache.get(bounty.cardChannelId);
             if (ch) {
@@ -313,14 +308,16 @@ function startBountyScheduler(client) {
                 .catch(() => null);
 
               if (msg) {
-                await msg.edit({ components: [] }).catch(() => {});
+                await msg.delete().catch(() => {});
               }
             }
           }
 
           await db.updateBounty(bounty.id, { status: "expired" });
 
+          // Post FAILED card
           await postFailedCard(client, bounty);
+
         } catch (err) {
           console.error("❌ Error expiring bounty:", err);
         }
