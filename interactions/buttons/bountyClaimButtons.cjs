@@ -53,7 +53,7 @@ module.exports = {
     }
 
     // ───────────────────────────────────────
-    // ❌ DENY
+    // ❌ DENY CLAIM
     // ───────────────────────────────────────
     if (!isApprove) {
       await db.updateBountyClaim(claimId, {
@@ -72,7 +72,9 @@ module.exports = {
       });
 
       try {
-        const thread = await client.channels.fetch(claim.claim_thread_id || claim.claimThreadId);
+        const thread = await client.channels.fetch(
+          claim.claim_thread_id || claim.claimThreadId
+        );
         await thread.send(`❌ **Claim denied by <@${interaction.user.id}>**`);
       } catch {}
 
@@ -80,7 +82,7 @@ module.exports = {
     }
 
     // ───────────────────────────────────────
-    // ✔ APPROVE
+    // ✔ APPROVE CLAIM
     // ───────────────────────────────────────
     await db.updateBountyClaim(claimId, {
       status: "approved",
@@ -103,24 +105,37 @@ module.exports = {
       components: []
     });
 
-    // Remove original bounty card + post completed card (no pings)
+    // ───────────────────────────────────────
+    // REMOVE OLD CARD + POST COMPLETED CARD
+    // ───────────────────────────────────────
     try {
       const guild = interaction.guild;
-      const channel = await guild.channels.fetch(bounty.card_channel_id || bounty.cardChannelId);
+      const channel = await guild.channels.fetch(
+        bounty.card_channel_id || bounty.cardChannelId
+      );
+
       const original = bounty.card_message_id || bounty.cardMessageId
-        ? await channel.messages.fetch(bounty.card_message_id || bounty.cardMessageId).catch(
-            () => null
-          )
+        ? await channel.messages
+            .fetch(bounty.card_message_id || bounty.cardMessageId)
+            .catch(() => null)
         : null;
 
-      if (original) await original.delete().catch(() => {});
+      // ── NEW: unpin before deleting
+      if (original) {
+        try {
+          await original.unpin().catch(() => {});
+        } catch {}
+        await original.delete().catch(() => {});
+      }
 
       // Winner member / nickname
       const winnerId = claim.hunter_id || claim.hunterId;
       const winnerMember = await guild.members.fetch(winnerId).catch(() => null);
 
+      // ✔ NEW: nickname → displayName → username fallback
       const username =
         winnerMember?.nickname ||
+        winnerMember?.displayName ||
         winnerMember?.user?.username ||
         "Trainer";
 
@@ -137,6 +152,7 @@ module.exports = {
       } catch {}
 
       const rewardLabel = `${Number(bounty.reward || 0).toLocaleString()} PKD`;
+
       const pokemons =
         bounty.pokemons ||
         (typeof bounty.pokemons_json === "string"
@@ -149,10 +165,11 @@ module.exports = {
         rankName,
         pokemons,
         rewardLabel,
-        avatarUrl
+        avatarUrl,
+        rarityLabel: bounty.rarity_label || bounty.rarityLabel
       });
 
-      await channel.send({
+      const completedMsg = await channel.send({
         files: [
           {
             attachment: cardBuffer,
@@ -160,13 +177,35 @@ module.exports = {
           }
         ]
       });
+
+      // ── NEW: Pin the completed card
+      try {
+        await completedMsg.pin().catch(() => {});
+      } catch {}
+
+      // ── NEW: DM the user
+      try {
+        await winnerMember.send({
+          content: `🎉 **Your bounty claim has been approved!**\nYou earned **${rewardLabel}**.\n\nGreat work, ${username}!`
+        });
+      } catch {
+        console.warn("⚠ Could not DM user (DMs closed).");
+      }
+
     } catch (err) {
-      console.warn("⚠ Could not generate completed bounty card:", err.message);
+      console.warn(
+        "⚠ Could not generate or send completed bounty card:",
+        err.message
+      );
     }
 
-    // Notify + delete thread
+    // ───────────────────────────────────────
+    // NOTIFY THREAD + DELETE AFTER 1 MIN
+    // ───────────────────────────────────────
     try {
-      const thread = await client.channels.fetch(claim.claim_thread_id || claim.claimThreadId);
+      const thread = await client.channels.fetch(
+        claim.claim_thread_id || claim.claimThreadId
+      );
 
       await thread.send(
         `✔ **Claim approved by <@${interaction.user.id}>**\n` +
