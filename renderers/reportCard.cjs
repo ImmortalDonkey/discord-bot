@@ -83,7 +83,7 @@ function wrapText(ctx, text, maxWidth, lineHeight) {
 
 function getSpritePathForPokemon(name) {
   if (!name) return null;
-  return path.join(SPRITES_DIR, `${name}.png`); // preserve spaces + ()
+  return path.join(SPRITES_DIR, `${name}.png`); // preserves spaces and ()
 }
 
 async function drawFullSprite(ctx, x, y, boxW, boxH, pokemonName) {
@@ -165,7 +165,7 @@ async function createReportCard(report) {
   const leftX = MARGIN;
   const rightX = leftX + leftW + columnGap;
 
-  const topH = rightW; // perfect square for sprite column
+  const topH = rightW; // square for sprite column
   const bottomH = innerHeight - topH - rowGap;
 
   const topY = MARGIN;
@@ -227,8 +227,8 @@ async function createReportCard(report) {
     nonSpacerRows * lineHeight +
     spacerRows * groupSpacing;
 
-  // Slight bias downwards so it looks visually centered
-  let drawY = infoY + (infoH - infoTextHeight) / 2 + lineHeight * 0.05;
+  // Nudge down a bit so it looks visually centred
+  let drawY = infoY + (infoH - infoTextHeight) / 2 + lineHeight * 0.35;
 
   for (const r of infoRows) {
     if (r.spacer) {
@@ -246,7 +246,7 @@ async function createReportCard(report) {
   }
 
   //
-  // TOP-RIGHT: SPRITE BOX
+  // TOP-RIGHT SPRITE BOX
   //
   const spriteX = rightX;
   const spriteY = topY;
@@ -292,7 +292,7 @@ async function createReportCard(report) {
   const availLines = wrapText(ctx, availability, blW - 100, lineHeight);
   const availHeight = availLines.length * lineHeight;
 
-  let ay = blY + (blH - availHeight) / 2;
+  let ay = blY + (blH - availHeight) / 2 + lineHeight * 0.2;
   for (const line of availLines) {
     ctx.fillText(line, blX + blW / 2, ay);
     ay += lineHeight;
@@ -322,7 +322,7 @@ async function createReportCard(report) {
   ctx.fillStyle = "#f9fafb";
   ctx.textAlign = "center";
 
-  let ry = brY + (brH - routeHeight) / 2;
+  let ry = brY + (brH - routeHeight) / 2 + lineHeight * 0.2;
   for (const line of routeLines) {
     ctx.fillText(line, brX + brW / 2, ry);
     ry += lineHeight;
