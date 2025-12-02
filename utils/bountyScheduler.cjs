@@ -9,14 +9,10 @@ const db = require("../database.cjs");
 const { getRankName } = require("./rankSystem.cjs");
 const { createBountyCard } = require("../renderers/cardRenderer.cjs");
 
-// Your two end-card renderers
-let createBountySuccessCard = null;
+// End-card renderers (only needed for EXPIRED)
 let createBountyFailedCard = null;
 
 try {
-  createBountySuccessCard =
-    require("../renderers/bountyCardSuccess.cjs").createBountySuccessCard;
-
   createBountyFailedCard =
     require("../renderers/bountyCardEndFailed.cjs").createBountyFailedCard;
 } catch {
@@ -130,7 +126,6 @@ async function postBountyCard(client, raw) {
     components: [row]
   });
 
-  // Save to SQLite
   await db.updateBounty(bounty.id, {
     card_channel_id: channel.id,
     card_message_id: msg.id
@@ -140,56 +135,7 @@ async function postBountyCard(client, raw) {
 }
 
 /* -----------------------------------------------------------
- * Completed card
- * ----------------------------------------------------------- */
-async function postCompletedCard(client, raw, winnerId) {
-  if (!createBountySuccessCard) return;
-
-  const bounty = normalize(raw);
-
-  const guild = client.guilds.cache.get(bounty.guildId);
-  if (!guild) return;
-
-  const channel = guild.channels.cache.get(process.env.BOUNTY_CHANNEL_ID);
-  if (!channel) return;
-
-  const member = await guild.members.fetch(winnerId).catch(() => null);
-
-  const username =
-    member?.nickname ||
-    member?.user?.username ||
-    "Trainer";
-
-  const avatarUrl =
-    member?.displayAvatarURL({ extension: "png", size: 512 }) ||
-    guild.iconURL({ extension: "png", size: 512 });
-
-  // Rank for winner
-  let rankName = "Rookie Trainer";
-  try {
-    const u = await db.getUserById(winnerId);
-    const lifetime = u?.lifetime_points ?? u?.points ?? 0;
-    rankName = getRankName(lifetime);
-  } catch {}
-
-  const rewardLabel = `${Number(bounty.reward).toLocaleString()} PKD`;
-
-  const buffer = await createBountySuccessCard({
-    bountyId: bounty.id,
-    username,
-    rankName,
-    pokemons: bounty.pokemons,
-    rewardLabel,
-    avatarUrl
-  });
-
-  await channel.send({
-    files: [{ attachment: buffer, name: `bounty_completed_${bounty.id}.png` }]
-  });
-}
-
-/* -----------------------------------------------------------
- * Failed / expired card
+ * Failed / expired card  (scheduler ONLY handles expires)
  * ----------------------------------------------------------- */
 async function postFailedCard(client, raw) {
   if (!createBountyFailedCard) return;
@@ -240,7 +186,7 @@ async function postFailedCard(client, raw) {
 }
 
 /* -----------------------------------------------------------
- * Scheduler loop
+ * Scheduler loop (only starts + expires bounties)
  * ----------------------------------------------------------- */
 function startBountyScheduler(client) {
   const INTERVAL = 60000;
@@ -312,7 +258,6 @@ function startBountyScheduler(client) {
 
 module.exports = {
   postBountyCard,
-  postCompletedCard,
   postFailedCard,
   startBountyScheduler
 };
