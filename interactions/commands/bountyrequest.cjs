@@ -17,8 +17,9 @@ const {
 } = require('../../utils/rarity.cjs');
 
 const { getBountyRequestChannel } = require('../../utils/channelResolver.cjs');
-// In-memory bounty store (bounties in RAM, points still in SQLite elsewhere)
-const bountyStore = require('../../utils/bountyStore.cjs');
+
+// NEW: real SQLite + memory sync storage
+const db = require('../../database.cjs');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -100,7 +101,7 @@ module.exports = {
       hasRole = member.roles.cache.has(bountyRoleId);
     } else {
       hasRole = member.roles.cache.some(r =>
-        r.name === 'Bounty Hunter' || r.name === 'Roaming Bounty Hunter',
+        r.name === 'Bounty Hunter' || r.name === 'Roaming Bounty Hunter'
       );
     }
 
@@ -123,23 +124,20 @@ module.exports = {
     const reward = interaction.options.getInteger('reward');
 
     const pokemons = [p1, p2, p3].filter(Boolean);
-
     const durationHours = clampHours(durationHoursRaw);
     const durationMs = durationHours * 3600000;
 
     // ───────────────────────────────
-    // SERVER-TIME START / END
+    // SERVER TIME (Pi local time)
     // ───────────────────────────────
-    const now = new Date(); // server local time (Pi) – used for all users
+    const now = new Date();
     let startTime;
     let endTime;
 
     if (startTimeStr === 'now') {
-      // Start immediately
       startTime = now;
 
-      // Next HALF-PAST the hour from *now*
-      // e.g. 12:43 -> 13:30, 12:12 -> 12:30
+      // Next HALF past the hour
       const nextHalf = new Date(now.getTime());
       if (now.getMinutes() < 30) {
         nextHalf.setMinutes(30, 0, 0);
@@ -147,10 +145,8 @@ module.exports = {
         nextHalf.setHours(nextHalf.getHours() + 1, 30, 0, 0);
       }
 
-      // End = nextHalf + duration
       endTime = new Date(nextHalf.getTime() + durationMs);
     } else {
-      // Scheduled start at selected hour (server time)
       const hour = parseHourFromStartTimeString(startTimeStr);
       startTime = getNextOccurrenceOfHour(hour);
       endTime = new Date(startTime.getTime() + durationMs);
@@ -164,12 +160,12 @@ module.exports = {
     const displayName =
       member?.nickname || interaction.user.username || interaction.user.tag;
 
-    // Rarity
+    // RARITY
     const rarityKey = getHighestRarityForList(pokemons);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
     // ───────────────────────────────
-    // CREATE PRIVATE REQUEST THREAD
+    // PRIVATE REQUEST THREAD
     // ───────────────────────────────
     const guild = interaction.guild;
     const requestChannel = await getBountyRequestChannel(guild);
@@ -224,23 +220,12 @@ module.exports = {
     const row = {
       type: 1,
       components: [
-        {
-          type: 2,
-          style: 3,
-          custom_id: approveId,
-          label: 'Approve',
-        },
-        {
-          type: 2,
-          style: 4,
-          custom_id: denyId,
-          label: 'Deny',
-        },
-      ],
+        { type: 2, style: 3, custom_id: approveId, label: 'Approve' },
+        { type: 2, style: 4, custom_id: denyId, label: 'Deny' }
+      ]
     };
 
-    const staffRolesEnv = process.env.STAFF_ROLES || '';
-    const staffMention = staffRolesEnv
+    const staffMention = (process.env.STAFF_ROLES || '')
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
@@ -254,9 +239,9 @@ module.exports = {
     });
 
     // ───────────────────────────────
-    // STORE IN MEMORY (bountyStore)
+    // STORE IN DB + MEMORY
     // ───────────────────────────────
-    const bountyRecord = {
+    await db.createBounty({
       id: bountyId,
       guildId: guild.id,
       requesterId: interaction.user.id,
@@ -281,9 +266,7 @@ module.exports = {
       cardMessageId: null,
       winnerId: null,
       winnerClaimId: null
-    };
-
-    bountyStore.saveBounty(bountyRecord);
+    });
 
     return interaction.reply({
       content: '✅ Bounty request submitted. Staff have been notified in your private bounty thread.',
