@@ -10,103 +10,143 @@ const {
 const db = require("../../database.cjs");
 
 module.exports = {
-  ids: ["bountyclaim"], // <— FIXED (no pipe)
+  // IMPORTANT FIX — must match prefix only
+  ids: ["bountyclaim"],
 
   async execute(client, interaction) {
     try {
+      // Prevent “Unknown interaction”
+      await interaction.deferReply({ ephemeral: true });
+
+      // Parse customId → "bountyclaim|<bountyId>|<hunterId>"
       const [prefix, bountyId, hunterId] = interaction.customId.split("|");
 
       if (!bountyId || !hunterId) {
-        return interaction.reply({
-          content: "❌ Invalid claim data (missing IDs).",
-          ephemeral: true
-        });
+        return interaction.editReply("❌ Invalid claim data (missing IDs).");
       }
 
-      // lookup bounty
+      // -----------------------------------------------------
+      // Validate bounty exists + open
+      // -----------------------------------------------------
       const bounty = await db.getBountyById(bountyId);
-      if (!bounty || bounty.status !== "open") {
-        return interaction.reply({
-          content: "❌ This bounty is not accepting claims.",
-          ephemeral: true
-        });
+
+      if (!bounty) {
+        return interaction.editReply("❌ Could not find this bounty.");
       }
 
-      const existing = await db.getPendingClaimForBountyAndHunter(bountyId, hunterId);
+      if (bounty.status !== "open") {
+        return interaction.editReply("❌ This bounty is not accepting claims.");
+      }
+
+      // -----------------------------------------------------
+      // Prevent multiple active claims per hunter
+      // -----------------------------------------------------
+      const existing = await db.getPendingClaimForBountyAndHunter(
+        bountyId,
+        hunterId
+      );
+
       if (existing) {
-        return interaction.reply({
-          content: "⚠ You already have a pending claim for this bounty.",
-          ephemeral: true
-        });
+        return interaction.editReply(
+          "⚠ You already have a pending claim for this bounty."
+        );
       }
 
+      // -----------------------------------------------------
+      // Read modal fields
+      // -----------------------------------------------------
       const pokemonId = interaction.fields.getTextInputValue("pokemon_id");
-      const proof = interaction.fields.getTextInputValue("proof_optional") || "";
+      const proof =
+        interaction.fields.getTextInputValue("proof_optional") || "";
 
-      // Let SQLite assign ID
+      // -----------------------------------------------------
+      // Create SQLite claim — *let SQLite set ID*
+      // -----------------------------------------------------
       const claimId = await db.createBountyClaim({
         bountyId,
         hunterId,
         pokemonId,
-        proof
+        proof,
+        status: "pending",
+        createdAt: Date.now(),
+        resolvedAt: null,
+        resolverId: null,
+        claimThreadId: null,
+        claimMessageId: null
       });
 
+      // -----------------------------------------------------
+      // Create claim thread in the Claims Forum
+      // -----------------------------------------------------
       const forumId = process.env.CLAIMS_FORUM_CHANNEL_ID;
       const forum = interaction.guild.channels.cache.get(forumId);
 
       if (!forum || forum.type !== ChannelType.GuildForum) {
-        return interaction.reply({
-          content: "❌ Claims forum channel misconfigured.",
-          ephemeral: true
-        });
+        return interaction.editReply(
+          "❌ Claims forum channel is missing or not a valid Forum."
+        );
       }
 
+      const threadTitle = `Claim • ${interaction.user.username} • ${pokemonId}`;
+
+      const starter = {
+        content: `📬 **New bounty claim submitted by <@${hunterId}>**`
+      };
+
       const thread = await forum.threads.create({
-        name: `Claim • ${interaction.user.username} • ${pokemonId}`,
-        message: { content: `📬 Claim from <@${hunterId}>` }
+        name: threadTitle,
+        message: starter
       });
 
+      // -----------------------------------------------------
+      // Build claim embed
+      // -----------------------------------------------------
       const embed = new EmbedBuilder()
         .setTitle("🔎 New Bounty Claim")
         .setColor("Yellow")
         .addFields(
-          { name: "Bounty ID", value: bountyId },
-          { name: "Claimer", value: `<@${hunterId}>` },
-          { name: "Pokémon ID", value: pokemonId },
-          { name: "Notes", value: proof || "None" }
+          { name: "Bounty ID", value: bountyId, inline: true },
+          { name: "Claimer", value: `<@${hunterId}>`, inline: true },
+          { name: "Pokémon ID", value: pokemonId, inline: true },
+          { name: "Notes", value: proof || "None provided" }
         )
         .setTimestamp();
 
+      // Staff buttons
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`approveclaim_${claimId}`)
           .setLabel("Approve Claim")
           .setStyle(ButtonStyle.Success),
+
         new ButtonBuilder()
           .setCustomId(`denyclaim_${claimId}`)
           .setLabel("Deny Claim")
           .setStyle(ButtonStyle.Danger)
       );
 
-      const msg = await thread.send({ embeds: [embed], components: [row] });
+      const claimMessage = await thread.send({
+        embeds: [embed],
+        components: [row]
+      });
 
+      // -----------------------------------------------------
+      // Save thread + message IDs
+      // -----------------------------------------------------
       await db.updateBountyClaim(claimId, {
         claimThreadId: thread.id,
-        claimMessageId: msg.id
+        claimMessageId: claimMessage.id
       });
 
-      return interaction.reply({
-        content: "✅ Your bounty claim has been submitted!",
-        ephemeral: true
-      });
-    }
-
-    catch (err) {
+      // -----------------------------------------------------
+      // Final response
+      // -----------------------------------------------------
+      return interaction.editReply("✅ Your bounty claim has been submitted!");
+    } catch (err) {
       console.error("❌ Modal handler error:", err);
-      return interaction.reply({
-        content: "❌ An error occurred submitting your claim.",
-        ephemeral: true
-      });
+      return interaction.editReply(
+        "❌ An error occurred submitting your claim."
+      );
     }
   }
 };
