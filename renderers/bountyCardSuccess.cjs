@@ -17,46 +17,57 @@ if (!fs.existsSync(CARDS_DIR)) {
 const style = {
   gradientFrom: "#6ee7b7",
   gradientTo: "#065f46",
-  boxColor: "rgba(0, 32, 15, 0.78)",
+  boxColor: "rgba(0, 32, 15, 0.75)",
   gold: "#fbbf24"
 };
 
-// Rounded rect helper
-function roundedRectPath(ctx, x, y, w, h, r) {
-  const radius = Math.min(r, w / 2, h / 2);
+function roundedRect(ctx, x, y, w, h, r) {
+  const rad = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + w - radius, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-  ctx.lineTo(x + w, y + h - radius);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-  ctx.lineTo(x + radius, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.moveTo(x + rad, y);
+  ctx.lineTo(x + w - rad, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+  ctx.lineTo(x + w, y + h - rad);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+  ctx.lineTo(x + rad, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+  ctx.lineTo(x, y + rad);
+  ctx.quadraticCurveTo(x, y, x + rad, y);
   ctx.closePath();
 }
 
-// Draw sprite
+function getSpritePath(name) {
+  if (!name) return null;
+  return path.join(SPRITES_DIR, `${name}.png`);
+}
+
 async function drawSprite(ctx, x, y, size, name) {
   ctx.save();
-  roundedRectPath(ctx, x, y, size, size, 30);
-  ctx.fillStyle = "rgba(15,23,42,0.98)";
+  roundedRect(ctx, x, y, size, size, 40);
+  ctx.fillStyle = "rgba(15, 23, 42, 0.98)";
   ctx.fill();
-  ctx.lineWidth = 7;
+  ctx.lineWidth = 6;
   ctx.strokeStyle = "#f9fafb";
   ctx.stroke();
 
-  const spritePath = path.join(SPRITES_DIR, `${name}.png`);
-  if (fs.existsSync(spritePath)) {
-    const img = await loadImage(spritePath);
-    const pad = size * 0.15;
+  const spritePath = getSpritePath(name);
+  let img = null;
+
+  try {
+    if (spritePath && fs.existsSync(spritePath)) {
+      img = await loadImage(spritePath);
+    }
+  } catch {}
+
+  if (img) {
+    const pad = size * 0.12;
     const maxW = size - pad * 2;
     const maxH = size - pad * 2;
     const aspect = img.width / img.height;
 
     let w = maxW;
     let h = maxH;
+
     if (aspect > 1) h = maxW / aspect;
     else w = maxH * aspect;
 
@@ -64,38 +75,35 @@ async function drawSprite(ctx, x, y, size, name) {
       img,
       x + (size - w) / 2,
       y + (size - h) / 2,
-      w,
-      h
+      w, h
     );
   }
 
   ctx.restore();
 }
 
-// Wrapped text
-function wrap(ctx, text, x, y, maxWidth, lineHeight) {
+function wrapText(ctx, text, x, y, maxWidth, lh) {
   const words = text.split(" ");
   let line = "";
-  for (let word of words) {
-    const test = line + word + " ";
-    if (ctx.measureText(test).width > maxWidth) {
+
+  for (let i = 0; i < words.length; i++) {
+    const test = line + words[i] + " ";
+    if (ctx.measureText(test).width > maxWidth && i > 0) {
       ctx.fillText(line, x, y);
-      y += lineHeight;
-      line = word + " ";
+      line = words[i] + " ";
+      y += lh;
     } else {
       line = test;
     }
   }
+
   ctx.fillText(line, x, y);
 }
 
-/**
- * MAIN RENDERER
- */
 async function createBountySuccessCard(options) {
   const {
     bountyId,
-    nickname,
+    username,           // ✔ ALWAYS username (no nickname)
     rankName,
     pokemons,
     rewardLabel,
@@ -103,6 +111,7 @@ async function createBountySuccessCard(options) {
   } = options;
 
   const pokemonList = pokemons?.length ? pokemons : ["None"];
+
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
@@ -113,10 +122,11 @@ async function createBountySuccessCard(options) {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // Right avatar box (exactly like cardRenderer)
-  const totalInner = CARD_WIDTH - MARGIN * 3;
-  const rightMax = totalInner * 0.4;
-  const imageSize = Math.min(rightMax, CARD_HEIGHT - MARGIN * 2);
+  // RIGHT PROFILE IMAGE (same box size & style as cardRenderer.cjs)
+  const totalInnerWidth = CARD_WIDTH - MARGIN * 3;
+  const rightMaxWidth = totalInnerWidth * 0.4;
+  const rightMaxHeight = CARD_HEIGHT - 2 * MARGIN;
+  const imageSize = Math.min(rightMaxWidth, rightMaxHeight);
 
   const rightX = CARD_WIDTH - MARGIN - imageSize;
   const rightY = MARGIN;
@@ -124,15 +134,17 @@ async function createBountySuccessCard(options) {
   ctx.save();
   try {
     const img = await loadImage(avatarUrl);
-    const aspect = img.width / img.height;
 
+    const aspect = img.width / img.height;
     let w = imageSize;
     let h = imageSize;
+
     if (aspect > 1) h = imageSize / aspect;
     else w = imageSize * aspect;
 
-    roundedRectPath(ctx, rightX, rightY, imageSize, imageSize, 40);
+    roundedRect(ctx, rightX, rightY, imageSize, imageSize, 40);
     ctx.clip();
+
     ctx.drawImage(
       img,
       rightX + (imageSize - w) / 2,
@@ -142,151 +154,117 @@ async function createBountySuccessCard(options) {
 
     ctx.restore();
     ctx.save();
-    roundedRectPath(ctx, rightX, rightY, imageSize, imageSize, 40);
+    roundedRect(ctx, rightX, rightY, imageSize, imageSize, 40);
     ctx.lineWidth = 10;
-    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.strokeStyle = "rgba(248,250,252,0.9)";
     ctx.stroke();
   } catch {
     ctx.restore();
     ctx.save();
-    roundedRectPath(ctx, rightX, rightY, imageSize, imageSize, 40);
-    ctx.clip();
+    roundedRect(ctx, rightX, rightY, imageSize, imageSize, 40);
     ctx.fillStyle = "rgba(15,23,42,0.9)";
-    ctx.fillRect(rightX, rightY, imageSize, imageSize);
+    ctx.fill();
     ctx.restore();
     ctx.save();
-    roundedRectPath(ctx, rightX, rightY, imageSize, imageSize, 40);
+    roundedRect(ctx, rightX, rightY, imageSize, imageSize, 40);
     ctx.lineWidth = 10;
-    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.strokeStyle = "rgba(248,250,252,0.9)";
     ctx.stroke();
   }
   ctx.restore();
 
-  // LEFT side layout
+  // LEFT INFO BOX (same ratio as cardRenderer.cjs)
   const leftX = MARGIN;
+  const leftY = MARGIN;
+
   const leftWidth = rightX - leftX - MARGIN;
   const leftHeight = CARD_HEIGHT - MARGIN * 2;
 
-  const boxGap = 40;
+  const infoBoxHeight = leftHeight * 0.62;   // same proportion
+  const infoBoxY = leftY;
 
-  // Same ratio as active card
-  const infoBoxHeight = leftHeight * 0.65;
-  const noteBoxHeight = leftHeight - infoBoxHeight - boxGap;
-
-  const infoX = leftX;
-  const infoY = MARGIN;
-
-  const noteX = leftX;
-  const noteY = infoY + infoBoxHeight + boxGap;
-
-  // INFO BOX (with border)
-  ctx.save();
-  roundedRectPath(ctx, infoX, infoY, leftWidth, infoBoxHeight, 40);
+  roundedRect(ctx, leftX, infoBoxY, leftWidth, infoBoxHeight, 40);
   ctx.fillStyle = style.boxColor;
   ctx.fill();
   ctx.lineWidth = 8;
-  ctx.strokeStyle = "#ffffff";
+  ctx.strokeStyle = "#f9fafb";
   ctx.stroke();
-  ctx.restore();
 
-  // TEXT Settings
-  const LABEL = 55;
-  const VALUE = 55;
-  const lineHeight = LABEL * 1.25;
-  const groupGap = lineHeight * 0.7;
-  const gold = style.gold;
+  const padX = 60;
+  const lineHeight = 72;
+  let cy = infoBoxY + (infoBoxHeight - lineHeight * 7) / 2;  // ✔ vertically centered
 
-  const rows = [];
-  rows.push({ label: "Trainer:", value: nickname });
-  rows.push({ label: "Rank:", value: rankName });
-  rows.push({ spacer: true });
+  ctx.font = "bold 60px sans-serif";
 
-  rows.push({ label: "Target:", value: pokemonList[0] });
-  for (let i = 1; i < pokemonList.length; i++) {
-    rows.push({ label: "", value: pokemonList[i] });
-  }
-
-  rows.push({ label: "Reward:", value: rewardLabel });
-  rows.push({ spacer: true });
-
-  // Compute vertical centering
-  ctx.font = `bold ${LABEL}px sans-serif`;
-  let contentHeight = 0;
-  rows.forEach(r => {
-    contentHeight += r.spacer ? groupGap : lineHeight;
-  });
-
-  let startY = infoY + (infoBoxHeight - contentHeight) / 2;
-
-  // Compute label column width
-  let maxLabel = 0;
-  for (const r of rows) {
-    if (!r.label) continue;
-    const w = ctx.measureText(r.label).width;
-    if (w > maxLabel) maxLabel = w;
-  }
-
-  const labelX = infoX + 60;
-  const valueX = labelX + maxLabel + 50;
-
-  // Render all rows
-  let cy = startY;
-  for (const r of rows) {
-    if (r.spacer) {
-      cy += groupGap;
-      continue;
-    }
-
-    ctx.font = `bold ${LABEL}px sans-serif`;
-
-    ctx.fillStyle = gold;
-    ctx.fillText(r.label, labelX, cy);
+  function row(label, value) {
+    ctx.fillStyle = style.gold;
+    ctx.fillText(label, leftX + padX, cy);
 
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(r.value, valueX, cy);
+    ctx.fillText(value, leftX + padX + 380, cy);
 
     cy += lineHeight;
   }
 
-  // NOTE BOX (Good luck / message)
-  ctx.save();
-  roundedRectPath(ctx, noteX, noteY, leftWidth, noteBoxHeight, 40);
+  row("Trainer:", username);
+  row("Rank:", rankName);
+  row("", ""); // spacing
+  row("Target:", pokemonList[0]);
+
+  for (let i = 1; i < pokemonList.length; i++) {
+    row("", pokemonList[i]);
+  }
+
+  cy += lineHeight * 0.5;
+  row("Reward:", rewardLabel);
+
+  // COMPLETION TEXT
+  ctx.font = "bold 55px sans-serif";
+  ctx.fillStyle = "#ffffff";
+  wrapText(
+    ctx,
+    `${username} has successfully completed the bounty`,
+    leftX + padX,
+    cy + 20,
+    leftWidth - 120,
+    65
+  );
+
+  // BOTTOM COMPLETED BOX
+  const bottomBoxY = infoBoxY + infoBoxHeight + 40;
+  const bottomBoxHeight = CARD_HEIGHT - bottomBoxY - MARGIN;
+
+  roundedRect(ctx, leftX, bottomBoxY, leftWidth, bottomBoxHeight, 40);
   ctx.fillStyle = style.boxColor;
   ctx.fill();
   ctx.lineWidth = 8;
-  ctx.strokeStyle = "#ffffff";
+  ctx.strokeStyle = "#f9fafb";
   ctx.stroke();
-  ctx.restore();
 
-  // COMPLETED LABEL inside note box
-  ctx.font = "bold 120px sans-serif";
   ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 120px sans-serif";
 
-  const completedText = "COMPLETED";
-  const completedWidth = ctx.measureText(completedText).width;
-
+  const txt = "COMPLETED";
+  const tw = ctx.measureText(txt).width;
   ctx.fillText(
-    completedText,
-    noteX + (leftWidth - completedWidth) / 2,
-    noteY + noteBoxHeight / 2 + 40
+    txt,
+    leftX + (leftWidth - tw) / 2,
+    bottomBoxY + bottomBoxHeight / 2 + 40
   );
 
-  // SPRITE bottom-right (same spacing as active renderer)
-  const spriteRowWidth = imageSize;
+  // BOTTOM-RIGHT SPRITE (same spacing as cardRenderer.cjs)
   const spriteSize =
-    (spriteRowWidth - 30 * 2) / 3; // 3 slots layout
-  const spriteY = CARD_HEIGHT - MARGIN - spriteSize;
+    (imageSize - 30 * 2) / 3; // identical maths to original
 
-  const spriteX = rightX + (spriteRowWidth - spriteSize) / 2;
+  const spriteX = rightX + imageSize / 2 - spriteSize / 2;
+  const spriteY = CARD_HEIGHT - MARGIN - spriteSize;
 
   await drawSprite(ctx, spriteX, spriteY, spriteSize, pokemonList[0]);
 
-  // Export
+  // Save
   const buffer = canvas.toBuffer("image/png");
-  fs.writeFileSync(
-    path.join(CARDS_DIR, `bountyEnd_${bountyId}_success.png`),
-    buffer
-  );
+  const filePath = path.join(CARDS_DIR, `bountyEnd_${bountyId}_success.png`);
+  fs.writeFileSync(filePath, buffer);
 
   return buffer;
 }
