@@ -1,9 +1,10 @@
-// interactions/commands/bountyrequest.cjs
 const {
   SlashCommandBuilder,
   EmbedBuilder,
   ChannelType
 } = require('discord.js');
+
+const db = require('../../database.cjs');
 
 const {
   clampHours,
@@ -18,9 +19,6 @@ const {
 
 const { getBountyRequestChannel } = require('../../utils/channelResolver.cjs');
 
-// NEW: real SQLite + memory sync storage
-const db = require('../../database.cjs');
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('bountyrequest')
@@ -30,7 +28,7 @@ module.exports = {
       o.setName('pokemon1')
         .setDescription('Main Pokémon')
         .setAutocomplete(true)
-        .setRequired(true),
+        .setRequired(true)
     )
 
     .addStringOption(o =>
@@ -41,9 +39,9 @@ module.exports = {
           { name: 'Start Now', value: 'now' },
           ...Array.from({ length: 24 }, (_, h) => ({
             name: `${String(h).padStart(2, '0')}:00`,
-            value: `${String(h).padStart(2, '0')}:00`,
-          })),
-        ),
+            value: `${String(h).padStart(2, '0')}:00`
+          }))
+        )
     )
 
     .addIntegerOption(o =>
@@ -60,40 +58,43 @@ module.exports = {
           { name: '12 hours', value: 12 },
           { name: '24 hours', value: 24 },
           { name: '48 hours', value: 48 },
-          { name: '72 hours', value: 72 },
-        ),
+          { name: '72 hours', value: 72 }
+        )
     )
 
     .addIntegerOption(o =>
       o.setName('reward')
         .setDescription('Reward amount (PKD)')
-        .setRequired(true),
+        .setRequired(true)
     )
 
     .addStringOption(o =>
       o.setName('notes')
         .setDescription('Required note/message')
-        .setRequired(true),
+        .setRequired(true)
     )
 
     .addStringOption(o =>
       o.setName('pokemon2')
         .setDescription('Optional second Pokémon')
-        .setAutocomplete(true),
+        .setAutocomplete(true)
     )
 
     .addStringOption(o =>
       o.setName('pokemon3')
         .setDescription('Optional third Pokémon')
-        .setAutocomplete(true),
+        .setAutocomplete(true)
     ),
 
+  // ────────────────────────────────────────────────
+  // EXECUTE
+  // ────────────────────────────────────────────────
   async execute(client, interaction) {
     const member = interaction.member;
 
-    // ───────────────────────────────
+    // ------------------------------------------------------------
     // ROLE CHECK
-    // ───────────────────────────────
+    // ------------------------------------------------------------
     const bountyRoleId = process.env.ROLE_BOUNTY_HUNTER || null;
     let hasRole = false;
 
@@ -108,13 +109,13 @@ module.exports = {
     if (!hasRole) {
       return interaction.reply({
         content: '🚫 You do not have permission to request bounties.',
-        ephemeral: true,
+        ephemeral: true
       });
     }
 
-    // ───────────────────────────────
+    // ------------------------------------------------------------
     // OPTIONS
-    // ───────────────────────────────
+    // ------------------------------------------------------------
     const p1 = interaction.options.getString('pokemon1');
     const p2 = interaction.options.getString('pokemon2');
     const p3 = interaction.options.getString('pokemon3');
@@ -122,22 +123,25 @@ module.exports = {
     const startTimeStr = interaction.options.getString('starttime');
     const durationHoursRaw = interaction.options.getInteger('duration');
     const reward = interaction.options.getInteger('reward');
-
+    
     const pokemons = [p1, p2, p3].filter(Boolean);
+    const rarityKey = getHighestRarityForList(pokemons);
+    const rarityLabel = getRarityDisplayLabel(rarityKey);
     const durationHours = clampHours(durationHoursRaw);
     const durationMs = durationHours * 3600000;
 
-    // ───────────────────────────────
-    // SERVER TIME (Pi local time)
-    // ───────────────────────────────
     const now = new Date();
+
     let startTime;
     let endTime;
 
+    // ------------------------------------------------------------
+    // START TIME — SERVER TIME ONLY
+    // ------------------------------------------------------------
     if (startTimeStr === 'now') {
       startTime = now;
 
-      // Next HALF past the hour
+      // Next half-past the hour
       const nextHalf = new Date(now.getTime());
       if (now.getMinutes() < 30) {
         nextHalf.setMinutes(30, 0, 0);
@@ -156,121 +160,123 @@ module.exports = {
     const endMs = endTime.getTime();
 
     const bountyId = `${Date.now()}_${interaction.user.id}`;
-
     const displayName =
       member?.nickname || interaction.user.username || interaction.user.tag;
 
-    // RARITY
-    const rarityKey = getHighestRarityForList(pokemons);
-    const rarityLabel = getRarityDisplayLabel(rarityKey);
-
-    // ───────────────────────────────
-    // PRIVATE REQUEST THREAD
-    // ───────────────────────────────
+    // ------------------------------------------------------------
+    // CREATE PRIVATE REQUEST THREAD
+    // ------------------------------------------------------------
     const guild = interaction.guild;
     const requestChannel = await getBountyRequestChannel(guild);
 
     if (!requestChannel || requestChannel.type !== ChannelType.GuildText) {
       return interaction.reply({
-        content: '❌ Bounty request channel is not configured correctly.',
-        ephemeral: true,
+        content: '❌ Bounty request channel misconfigured.',
+        ephemeral: true
       });
     }
 
-    const threadName = `bounty-${interaction.user.username}-${Date.now()}`;
-    const requestThread = await requestChannel.threads.create({
-      name: threadName,
+    const thread = await requestChannel.threads.create({
+      name: `bounty-${interaction.user.username}-${Date.now()}`,
       type: ChannelType.PrivateThread,
-      invitable: false,
+      invitable: false
     });
 
-    const startUnix = Math.floor(startMs / 1000);
-    const endUnix = Math.floor(endMs / 1000);
-
-    const startFieldValue =
-      startTimeStr === 'now'
-        ? 'Starts immediately on approval'
-        : `<t:${startUnix}:F>`;
-
-    const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n');
-
-    const embed = new EmbedBuilder()
-      .setTitle('📝 New Bounty Request')
-      .setDescription('A new bounty has been requested and is awaiting staff approval.')
-      .addFields(
-        { name: 'Trainer', value: `<@${interaction.user.id}>`, inline: true },
-        { name: 'Rarity', value: rarityLabel, inline: true },
-        { name: 'Reward', value: `${reward.toLocaleString()} PKD`, inline: false },
-        { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
-        { name: 'Requested Start', value: startFieldValue, inline: false },
-        { name: 'Requested End', value: `<t:${endUnix}:F>`, inline: false },
-        { name: 'Duration (selected)', value: `${durationHours} hour(s)`, inline: true },
-        { name: 'Note', value: notes, inline: false },
-        {
-          name: 'Bounty ID',
-          value: `${bountyId} | Today at <t:${Math.floor(Date.now() / 1000)}:t>`,
-          inline: false,
-        },
-      )
-      .setTimestamp();
-
-    const approveId = `approvebounty_${bountyId}`;
-    const denyId = `denybounty_${bountyId}`;
-
-    const row = {
-      type: 1,
-      components: [
-        { type: 2, style: 3, custom_id: approveId, label: 'Approve' },
-        { type: 2, style: 4, custom_id: denyId, label: 'Deny' }
+    const requestMessage = await thread.send({
+      content: (process.env.STAFF_ROLES || '')
+        .split(',')
+        .map(id => id.trim())
+        .filter(Boolean)
+        .map(id => `<@&${id}>`)
+        .join(' ') || '',
+      embeds: [
+        new EmbedBuilder()
+          .setTitle('📝 New Bounty Request')
+          .addFields(
+            { name: 'Trainer', value: `<@${interaction.user.id}>`, inline: true },
+            { name: 'Rarity', value: rarityLabel, inline: true },
+            { name: 'Reward', value: `${reward.toLocaleString()} PKD`, inline: false },
+            { name: 'Pokémon Targets', value: pokemons.map(p => `• ${p}`).join('\n') },
+            {
+              name: 'Requested Start',
+              value: startTimeStr === 'now'
+                ? 'Starts immediately on approval'
+                : `<t:${Math.floor(startMs / 1000)}:F>`
+            },
+            { name: 'Requested End', value: `<t:${Math.floor(endMs / 1000)}:F>` },
+            { name: 'Duration', value: `${durationHours} hour(s)` },
+            { name: 'Notes', value: notes },
+            {
+              name: 'Bounty ID',
+              value: `${bountyId} | <t:${Math.floor(Date.now()/1000)}:t>`
+            }
+          )
+          .setTimestamp()
       ]
-    };
-
-    const staffMention = (process.env.STAFF_ROLES || '')
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean)
-      .map(id => `<@&${id}>`)
-      .join(' ');
-
-    const requestMessage = await requestThread.send({
-      content: staffMention || '',
-      embeds: [embed],
-      components: [row],
     });
 
-    // ───────────────────────────────
-    // STORE IN DB + MEMORY
-    // ───────────────────────────────
-    await db.createBounty({
-      id: bountyId,
-      guildId: guild.id,
-      requesterId: interaction.user.id,
-      requesterName: displayName,
-      pokemons,
-      notes,
-      startTime: startMs,
-      endTime: endMs,
-      durationHours,
-      reward,
-      rarityKey,
-      rarityLabel,
-      startsImmediately: startTimeStr === 'now',
-      status: 'pending',
-      createdAt: Date.now(),
-      approvedAt: null,
-      requestThreadId: requestThread.id,
-      requestMessageId: requestMessage.id,
-      announcementChannelId: null,
-      announcementMessageId: null,
-      cardChannelId: null,
-      cardMessageId: null,
-      winnerId: null,
-      winnerClaimId: null
-    });
+    // ------------------------------------------------------------
+    // STORE INTO SQLITE DATABASE
+    // ------------------------------------------------------------
+    await db.run(
+      `INSERT INTO bounties (
+        id,
+        guild_id,
+        requester_id,
+        requester_name,
+        pokemons,
+        notes,
+        start_time,
+        end_time,
+        duration_hours,
+        reward,
+        rarity_key,
+        rarity_label,
+        starts_immediately,
+        status,
+        created_at,
+        approved_at,
+        request_thread_id,
+        request_message_id,
+        announcement_channel_id,
+        announcement_message_id,
+        card_channel_id,
+        card_message_id,
+        winner_id,
+        winner_claim_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        bountyId,
+        guild.id,
+        interaction.user.id,
+        displayName,
+        JSON.stringify(pokemons),
+        notes,
+        startMs,
+        endMs,
+        durationHours,
+        reward,
+        rarityKey,
+        rarityLabel,
+        startTimeStr === 'now' ? 1 : 0,
+        'pending',
+        Date.now(),
+        null,
+        thread.id,
+        requestMessage.id,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    );
 
     return interaction.reply({
-      content: '✅ Bounty request submitted. Staff have been notified in your private bounty thread.',
-      ephemeral: true,
+      content: '✅ Bounty request submitted! Staff have been notified.',
+      ephemeral: true
     });
-  },
+  }
 };
