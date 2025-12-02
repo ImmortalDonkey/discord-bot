@@ -1,13 +1,10 @@
 // interactions/commands/reportdebug.cjs
-const {
-  SlashCommandBuilder
-} = require("discord.js");
+const { SlashCommandBuilder } = require("discord.js");
 
 const db = require("../../database.cjs");
 const { getRankName } = require("../../utils/rankSystem.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { calculateAwardedPoints } = require("../../utils/scoring.cjs");
-const { checkReportAllowed } = require("../../utils/reportLimiter.cjs");
 
 const { createReportCard } = require("../../renderers/reportCard.cjs");
 
@@ -19,13 +16,15 @@ module.exports = {
     .setName("reportdebug")
     .setDescription("Staff-only: test the /report card renderer")
     .addStringOption(o =>
-      o.setName("pokemon")
+      o
+        .setName("pokemon")
         .setDescription("Pokémon name")
         .setRequired(true)
         .setAutocomplete(true)
     )
     .addStringOption(o =>
-      o.setName("route")
+      o
+        .setName("route")
         .setDescription("Route / Location name")
         .setRequired(true)
         .setAutocomplete(true)
@@ -34,9 +33,7 @@ module.exports = {
   async execute(client, interaction) {
     const user = interaction.user;
 
-    // ----------------------
-    //  STAFF CHECK
-    // ----------------------
+    // STAFF CHECK
     if (!interaction.member.roles.cache.some(r => STAFF_ROLES.includes(r.id))) {
       return interaction.reply({
         content: "❌ You do not have permission to use this command.",
@@ -45,32 +42,23 @@ module.exports = {
     }
 
     await interaction.reply({
-      content: "🛠 Rendering preview card…",
+      content: "🛠 Rendering preview report card…",
       ephemeral: true
     });
 
-    // ----------------------
-    //  INPUTS
-    // ----------------------
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
     const now = new Date();
 
-    // ----------------------
-    //  RARITY LOGIC
-    // ----------------------
-    const rarityKey = getRarity(pokemon);
-    const rarityLabel = getRarityDisplayLabel(rarityKey);
+    // SERVER NICKNAME (or username fallback)
+    const trainerName =
+      interaction.member?.nickname || user.username;
 
-    // ----------------------
-    //  EXPIRY TIME
-    // ----------------------
-    const expiry = new Date(now);
-    expiry.setMinutes(59, 59, 999);
+    // RARITY
+    const rarityKey = getRarity(pokemon);                 // e.g. "paradox", "roamerMonth"
+    const rarityLabel = getRarityDisplayLabel(rarityKey); // e.g. "Paradox"
 
-    // ----------------------
-    //  POINTS
-    // ----------------------
+    // POINTS + RANK
     const awarded = calculateAwardedPoints(rarityKey, now);
     const updated = await db.addPoints(
       user.id,
@@ -82,41 +70,28 @@ module.exports = {
     const lifetime = updated?.lifetime_points ?? 0;
     const trainerRank = getRankName(lifetime);
 
-    // ----------------------
-    //  TIMING BAND TEXT
-    // ----------------------
+    // TIMING BAND (used only in debug text)
     const m = now.getMinutes();
     let timingText = "";
-
     if (m < 30) timingText = "100% award (full points)";
     else if (m < 40) timingText = "75% award";
     else if (m < 50) timingText = "50% award";
     else timingText = "10% minimum award";
 
-    // ----------------------
-    //  SPRITE NAME
-    // ----------------------
-    const spriteName = `${pokemon.toLowerCase().replace(/ /g, "-")}.png`;
-
-    // ----------------------
-    //  CREATE TEST CARD
-    // ----------------------
+    // CREATE CARD
     const cardPath = await createReportCard({
-      trainerName: user.username,
+      trainerName,
       trainerRank,
       pokemonName: pokemon,
-      rarity: rarityLabel,
+      rarityKey,
+      rarityLabel,
       points: awarded,
       location: route,
-      spriteName,
-      expired: false // always false for debug mode
+      expired: false,
+      availabilityText: "Available until end of the hour"
     });
 
-    // ----------------------
-    //  DEBUG OUTPUT CHANNEL
-    // ----------------------
     const debugChannel = client.channels.cache.get(DEBUG_CHANNEL_ID);
-
     if (!debugChannel) {
       return interaction.followUp({
         content: `❌ Cannot find debug channel <#${DEBUG_CHANNEL_ID}>.`,
@@ -127,7 +102,7 @@ module.exports = {
     await debugChannel.send({
       content:
         `🛠 **DEBUG REPORT CARD**\n` +
-        `Trainer: ${user.username}\n` +
+        `Trainer: ${trainerName}\n` +
         `Pokémon: ${pokemon}\n` +
         `Route: ${route}\n` +
         `Rarity: ${rarityLabel}\n` +
