@@ -6,6 +6,8 @@ const {
   ActionRowBuilder
 } = require("discord.js");
 
+const db = require("../../database.cjs");
+
 module.exports = {
   ids: ["claimbounty_"],
 
@@ -13,7 +15,43 @@ module.exports = {
     const bountyId = interaction.customId.replace("claimbounty_", "");
     const userId = interaction.user.id;
 
-    // ✔ NEW SAFE ID FORMAT
+    // ----------------------------------------------------------
+    // 1️⃣ Validate bounty exists + is open
+    // ----------------------------------------------------------
+    const bounty = await db.getBountyById(bountyId);
+
+    if (!bounty) {
+      return interaction.reply({
+        content: "❌ This bounty no longer exists.",
+        ephemeral: true
+      });
+    }
+
+    if (bounty.status !== "open") {
+      return interaction.reply({
+        content: "❌ This bounty is not accepting claims.",
+        ephemeral: true
+      });
+    }
+
+    // ----------------------------------------------------------
+    // 2️⃣ Prevent multiple active claims by same user
+    // ----------------------------------------------------------
+    const existingClaim = await db.getPendingClaimForBountyAndHunter(
+      bountyId,
+      userId
+    );
+
+    if (existingClaim) {
+      return interaction.reply({
+        content: "⚠ You already have a **pending claim** for this bounty.",
+        ephemeral: true
+      });
+    }
+
+    // ----------------------------------------------------------
+    // 3️⃣ Build the modal (safe ID format)
+    // ----------------------------------------------------------
     const modalCustomId = `bountyclaim|${bountyId}|${userId}`;
 
     const modal = new ModalBuilder()
