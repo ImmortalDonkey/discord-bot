@@ -14,23 +14,25 @@ if (!fs.existsSync(CARDS_DIR)) {
   fs.mkdirSync(CARDS_DIR, { recursive: true });
 }
 
-// FAILED style (bright red)
 const style = {
-  gradientFrom: "#ef4444",
-  gradientTo: "#b91c1c",
-  boxColor: "rgba(127, 29, 29, 0.95)"
+  gradientFrom: "#ef4444",   // bright red
+  gradientTo: "#b91c1c",     // dark red
+  boxColor: "rgba(127, 29, 29, 0.95)", // deep red glass
+  gold: "#fbbf24"
 };
 
 function roundedRect(ctx, x, y, w, h, r) {
-  const radius = Math.min(r, w / 2, h / 2);
+  const rad = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + w - radius, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-  ctx.lineTo(x + w, y + h - radius);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.moveTo(x + rad, y);
+  ctx.lineTo(x + w - rad, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+  ctx.lineTo(x + w, y + h - rad);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+  ctx.lineTo(x + rad, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+  ctx.lineTo(x, y + rad);
+  ctx.quadraticCurveTo(x, y, x + rad, y);
   ctx.closePath();
 }
 
@@ -41,7 +43,7 @@ function getSpritePath(name) {
 
 async function drawSprite(ctx, x, y, size, name) {
   ctx.save();
-  roundedRect(ctx, x, y, size, size, 30);
+  roundedRect(ctx, x, y, size, size, 40);
   ctx.fillStyle = "rgba(15, 23, 42, 0.98)";
   ctx.fill();
   ctx.lineWidth = 6;
@@ -50,6 +52,7 @@ async function drawSprite(ctx, x, y, size, name) {
 
   const spritePath = getSpritePath(name);
   let img = null;
+
   try {
     if (spritePath && fs.existsSync(spritePath)) {
       img = await loadImage(spritePath);
@@ -62,35 +65,24 @@ async function drawSprite(ctx, x, y, size, name) {
     const maxH = size - pad * 2;
     const aspect = img.width / img.height;
 
-    let drawW = maxW;
-    let drawH = maxH;
-    if (aspect > 1) {
-      drawH = maxW / aspect;
-    } else {
-      drawW = maxH * aspect;
-    }
+    let w = maxW;
+    let h = maxH;
+
+    if (aspect > 1) h = maxW / aspect;
+    else w = maxH * aspect;
 
     ctx.drawImage(
       img,
-      x + (size - drawW) / 2,
-      y + (size - drawH) / 2,
-      drawW,
-      drawH
+      x + (size - w) / 2,
+      y + (size - h) / 2,
+      w,
+      h
     );
   }
 
   ctx.restore();
 }
 
-/**
- * options:
- *  - bountyId
- *  - username   (requester nickname/username)
- *  - rankName
- *  - pokemons[]
- *  - rewardLabel
- *  - avatarUrl
- */
 async function createBountyFailedCard(options) {
   const {
     bountyId,
@@ -98,139 +90,176 @@ async function createBountyFailedCard(options) {
     rankName,
     pokemons,
     rewardLabel,
-    avatarUrl
+    avatarUrl,
+    rarityLabel
   } = options;
 
-  const pokemonList = Array.isArray(pokemons) && pokemons.length
-    ? pokemons
-    : ["None"];
+  const pokemonList = pokemons?.length ? pokemons : ["None"];
 
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // Background
+  // Background gradient
   const g = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
   g.addColorStop(0, style.gradientFrom);
   g.addColorStop(1, style.gradientTo);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  ctx.fillStyle = "rgba(0,0,0,0.2)";
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  // RIGHT PROFILE IMAGE (same as success)
+  const totalInnerWidth = CARD_WIDTH - MARGIN * 3;
+  const rightMaxWidth = totalInnerWidth * 0.4;
+  const rightMaxHeight = CARD_HEIGHT - 2 * MARGIN;
+  const imageSize = Math.min(rightMaxWidth, rightMaxHeight);
 
-  // Right image box
-  const rightW = (CARD_WIDTH - MARGIN * 3) * 0.4;
-  const rightH = CARD_HEIGHT - MARGIN * 2;
-  const imageSize = Math.min(rightW, rightH);
-  const imageX = CARD_WIDTH - MARGIN - imageSize;
-  const imageY = MARGIN;
+  const rightX = CARD_WIDTH - MARGIN - imageSize;
+  const rightY = MARGIN;
 
   ctx.save();
   try {
     const img = await loadImage(avatarUrl);
-    roundedRect(ctx, imageX, imageY, imageSize, imageSize, 40);
-    ctx.clip();
+    const aspect = img.width / img.height;
 
     let w = imageSize;
     let h = imageSize;
-    const aspect = img.width / img.height;
 
-    if (aspect > 1) {
-      h = imageSize / aspect;
-    } else {
-      w = imageSize * aspect;
-    }
+    if (aspect > 1) h = imageSize / aspect;
+    else w = imageSize * aspect;
+
+    roundedRect(ctx, rightX, rightY, imageSize, imageSize, 40);
+    ctx.clip();
 
     ctx.drawImage(
       img,
-      imageX + (imageSize - w) / 2,
-      imageY + (imageSize - h) / 2,
+      rightX + (imageSize - w) / 2,
+      rightY + (imageSize - h) / 2,
       w,
       h
     );
+
+    ctx.restore();
+    ctx.save();
+    roundedRect(ctx, rightX, rightY, imageSize, imageSize, 40);
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = "rgba(248,250,252,0.9)";
+    ctx.stroke();
+
   } catch {
-    roundedRect(ctx, imageX, imageY, imageSize, imageSize, 40);
+    ctx.restore();
+    ctx.save();
+    roundedRect(ctx, rightX, rightY, imageSize, imageSize, 40);
     ctx.fillStyle = "rgba(15,23,42,0.9)";
     ctx.fill();
+    ctx.restore();
+    ctx.save();
+    roundedRect(ctx, rightX, rightY, imageSize, imageSize, 40);
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = "rgba(248,250,252,0.9)";
+    ctx.stroke();
   }
   ctx.restore();
 
-  // Left column
+  // LEFT COLUMN
   const leftX = MARGIN;
   const leftY = MARGIN;
-  const leftWidth = imageX - MARGIN - leftX;
+  const leftWidth = rightX - leftX - MARGIN;
   const leftHeight = CARD_HEIGHT - MARGIN * 2;
 
-  const boxGap = 40;
-  const infoBoxHeight = leftHeight * 0.65;
-  const noteBoxHeight = leftHeight - infoBoxHeight - boxGap;
+  // TOP INFO BOX
+  const infoBoxHeight = leftHeight * 0.62;
+  const infoBoxY = leftY;
 
-  // Info box
-  roundedRect(ctx, leftX, leftY, leftWidth, infoBoxHeight, 40);
+  roundedRect(ctx, leftX, infoBoxY, leftWidth, infoBoxHeight, 40);
   ctx.fillStyle = style.boxColor;
   ctx.fill();
   ctx.lineWidth = 8;
   ctx.strokeStyle = "#f9fafb";
   ctx.stroke();
 
-  const FONT = 55;
-  const lh = FONT * 1.25;
+  // TEXT SETTINGS
+  const LABEL_FONT = 60;
+  const LINE_GAP = 75;
+  const padX = 60;
 
-  ctx.font = `bold ${FONT}px sans-serif`;
-  ctx.fillStyle = "#f9fafb";
+  ctx.font = `bold ${LABEL_FONT}px sans-serif`;
 
-  let lineY = leftY + 80;
+  const labels = ["Trainer:", "Rank:", "Target:", "Rarity:", "Reward:"];
 
-  ctx.fillText("Trainer:", leftX + 60, lineY);
-  ctx.fillText(username, leftX + 400, lineY);
-  lineY += lh;
-
-  ctx.fillText("Rank:", leftX + 60, lineY);
-  ctx.fillText(rankName, leftX + 400, lineY);
-  lineY += lh * 1.2;
-
-  ctx.fillText("Target:", leftX + 60, lineY);
-  ctx.fillText(pokemonList[0], leftX + 400, lineY);
-  lineY += lh;
-
-  for (let i = 1; i < pokemonList.length; i++) {
-    ctx.fillText(pokemonList[i], leftX + 400, lineY);
-    lineY += lh;
+  let maxLabelWidth = 0;
+  for (const lab of labels) {
+    const w = ctx.measureText(lab).width;
+    if (w > maxLabelWidth) maxLabelWidth = w;
   }
 
-  lineY += lh * 0.6;
+  const labelX = leftX + padX;
+  const valueX = labelX + maxLabelWidth + 40;
 
-  ctx.fillText("Reward:", leftX + 60, lineY);
-  ctx.fillText(rewardLabel, leftX + 400, lineY);
-  // no extra “completed” line here
+  // Build lines (same as success)
+  const lines = [];
 
-  // Note box
-  const noteY = leftY + infoBoxHeight + boxGap;
-  roundedRect(ctx, leftX, noteY, leftWidth, noteBoxHeight, 40);
+  lines.push({ type: "row", label: "Trainer:", value: username });
+  lines.push({ type: "row", label: "Rank:", value: rankName });
+  lines.push({ type: "spacer" });
+
+  lines.push({ type: "row", label: "Target:", value: pokemonList[0] });
+  for (let i = 1; i < pokemonList.length; i++) {
+    lines.push({ type: "row", label: "", value: pokemonList[i] });
+  }
+
+  lines.push({ type: "row", label: "Rarity:", value: rarityLabel || "Unknown" });
+  lines.push({ type: "spacer" });
+
+  lines.push({ type: "row", label: "Reward:", value: rewardLabel });
+
+  const totalLines = lines.length;
+  const blockHeight = totalLines * LINE_GAP;
+
+  let cy = infoBoxY + (infoBoxHeight - blockHeight) / 2 + LINE_GAP;
+
+  for (const line of lines) {
+    if (line.type === "spacer") {
+      cy += LINE_GAP;
+      continue;
+    }
+
+    ctx.fillStyle = style.gold;
+    ctx.fillText(line.label, labelX, cy);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(line.value || "", valueX, cy);
+
+    cy += LINE_GAP;
+  }
+
+  // BOTTOM FAILED BOX
+  const bottomBoxY = infoBoxY + infoBoxHeight + 40;
+  const bottomBoxHeight = CARD_HEIGHT - bottomBoxY - MARGIN;
+
+  roundedRect(ctx, leftX, bottomBoxY, leftWidth, bottomBoxHeight, 40);
   ctx.fillStyle = style.boxColor;
   ctx.fill();
   ctx.lineWidth = 8;
   ctx.strokeStyle = "#f9fafb";
   ctx.stroke();
 
-  ctx.font = `bold ${FONT}px sans-serif`;
-  ctx.fillStyle = "#f9fafb";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 120px sans-serif";
+
+  const txt = "FAILED";
+  const tw = ctx.measureText(txt).width;
 
   ctx.fillText(
-    "Bounty Failed",
-    leftX + 60,
-    noteY + noteBoxHeight / 2 - FONT / 2
+    txt,
+    leftX + (leftWidth - tw) / 2,
+    bottomBoxY + bottomBoxHeight / 2 + 40
   );
 
-  // Sprites
-  const spriteSize = imageSize / 3 - 20;
-  const spriteY = CARD_HEIGHT - MARGIN - spriteSize - 20;
-  let spriteX = imageX;
+  // SPRITE (same as success)
+  const spriteSize = imageSize / 3;
+  const spriteX = rightX + imageSize / 2 - spriteSize / 2;
+  const spriteY = CARD_HEIGHT - MARGIN - spriteSize;
 
-  for (const p of pokemonList.slice(0, 3)) {
-    await drawSprite(ctx, spriteX, spriteY, spriteSize, p);
-    spriteX += spriteSize + 30;
-  }
+  await drawSprite(ctx, spriteX, spriteY, spriteSize, pokemonList[0]);
 
   const buffer = canvas.toBuffer("image/png");
   const filePath = path.join(CARDS_DIR, `bountyEnd_${bountyId}_failed.png`);
