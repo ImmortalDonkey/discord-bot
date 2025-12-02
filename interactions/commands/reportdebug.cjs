@@ -14,18 +14,16 @@ const DEBUG_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("reportdebug")
-    .setDescription("Staff-only: test the /report card renderer")
+    .setDescription("Staff-only: test the report card renderer")
     .addStringOption(o =>
-      o
-        .setName("pokemon")
+      o.setName("pokemon")
         .setDescription("Pokémon name")
         .setRequired(true)
         .setAutocomplete(true)
     )
     .addStringOption(o =>
-      o
-        .setName("route")
-        .setDescription("Route / Location name")
+      o.setName("route")
+        .setDescription("Route / Location")
         .setRequired(true)
         .setAutocomplete(true)
     ),
@@ -33,7 +31,7 @@ module.exports = {
   async execute(client, interaction) {
     const user = interaction.user;
 
-    // STAFF CHECK
+    // Staff-only gate
     if (!interaction.member.roles.cache.some(r => STAFF_ROLES.includes(r.id))) {
       return interaction.reply({
         content: "❌ You do not have permission to use this command.",
@@ -46,19 +44,25 @@ module.exports = {
       ephemeral: true
     });
 
+    // Fetch correct nickname (same as bounty cards)
+    let trainerName = user.username;
+    try {
+      const gm = await interaction.guild.members.fetch(user.id);
+      trainerName = gm.nickname || user.username;
+    } catch {
+      trainerName = user.username;
+    }
+
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
+
     const now = new Date();
 
-    // SERVER NICKNAME (or username fallback)
-    const trainerName =
-      interaction.member?.nickname || user.username;
+    // Rarity
+    const rarityKey = getRarity(pokemon);
+    const rarityLabel = getRarityDisplayLabel(rarityKey);
 
-    // RARITY
-    const rarityKey = getRarity(pokemon);                 // e.g. "paradox", "roamerMonth"
-    const rarityLabel = getRarityDisplayLabel(rarityKey); // e.g. "Paradox"
-
-    // POINTS + RANK
+    // Points
     const awarded = calculateAwardedPoints(rarityKey, now);
     const updated = await db.addPoints(
       user.id,
@@ -70,15 +74,7 @@ module.exports = {
     const lifetime = updated?.lifetime_points ?? 0;
     const trainerRank = getRankName(lifetime);
 
-    // TIMING BAND (used only in debug text)
-    const m = now.getMinutes();
-    let timingText = "";
-    if (m < 30) timingText = "100% award (full points)";
-    else if (m < 40) timingText = "75% award";
-    else if (m < 50) timingText = "50% award";
-    else timingText = "10% minimum award";
-
-    // CREATE CARD
+    // Create card
     const cardPath = await createReportCard({
       trainerName,
       trainerRank,
@@ -100,14 +96,7 @@ module.exports = {
     }
 
     await debugChannel.send({
-      content:
-        `🛠 **DEBUG REPORT CARD**\n` +
-        `Trainer: ${trainerName}\n` +
-        `Pokémon: ${pokemon}\n` +
-        `Route: ${route}\n` +
-        `Rarity: ${rarityLabel}\n` +
-        `Points: ${awarded}\n` +
-        `Timing: ${timingText}`,
+      content: `🛠 **DEBUG REPORT CARD**\nTrainer: ${trainerName}`,
       files: [cardPath]
     });
 
