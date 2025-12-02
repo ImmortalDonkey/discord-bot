@@ -13,12 +13,12 @@ module.exports = {
 
   async execute(client, interaction) {
     try {
-      const customId = interaction.customId;          // e.g. "claimbounty_<bountyId>"
+      const customId = interaction.customId; // e.g. "claimbounty_<bountyId>"
       const bountyId = customId.replace("claimbounty_", "");
       const userId = interaction.user.id;
 
       // ----------------------------------------------------------
-      // 1️⃣ Load bounty from DB (via our API)
+      // 1️⃣ Load bounty from DB
       // ----------------------------------------------------------
       const bounty = await db.getBountyById(bountyId);
 
@@ -29,6 +29,9 @@ module.exports = {
         });
       }
 
+      // ----------------------------------------------------------
+      // 2️⃣ Block claiming after expiration or completion
+      // ----------------------------------------------------------
       if (bounty.status !== "open") {
         return interaction.reply({
           content: "❌ This bounty is not accepting claims.",
@@ -37,7 +40,17 @@ module.exports = {
       }
 
       // ----------------------------------------------------------
-      // 2️⃣ Prevent multiple active claims by same user
+      // 3️⃣ Prevent owner claiming their own bounty
+      // ----------------------------------------------------------
+      if (bounty.requester_id == userId || bounty.requesterId == userId) {
+        return interaction.reply({
+          content: "❌ You cannot claim your **own** bounty.",
+          ephemeral: true
+        });
+      }
+
+      // ----------------------------------------------------------
+      // 4️⃣ Prevent multiple active claims by same user
       // ----------------------------------------------------------
       const existingClaim = await db.getPendingClaimForBountyAndHunter(
         bountyId,
@@ -52,9 +65,24 @@ module.exports = {
       }
 
       // ----------------------------------------------------------
-      // 3️⃣ Build the modal (safe customId format)
+      // 5️⃣ Resolve nickname early (saved into DB in modal submit)
       // ----------------------------------------------------------
-      const modalCustomId = `bountyclaim|${bountyId}|${userId}`;
+      const guild = interaction.guild;
+      let nickname = null;
+
+      try {
+        const member = await guild.members.fetch(userId);
+        nickname = member?.nickname || member?.displayName || member?.user?.username;
+      } catch {
+        nickname = interaction.user.username; // fallback
+      }
+
+      // ----------------------------------------------------------
+      // 6️⃣ Build modal
+      // ----------------------------------------------------------
+      const modalCustomId = `bountyclaim|${bountyId}|${userId}|${encodeURIComponent(
+        nickname
+      )}`;
 
       const modal = new ModalBuilder()
         .setCustomId(modalCustomId)
@@ -77,12 +105,15 @@ module.exports = {
         new ActionRowBuilder().addComponents(proofInput)
       );
 
+      // Show modal
       await interaction.showModal(modal);
+
     } catch (err) {
       console.error(
-        `❌  Button handler error (claimbounty_${interaction.customId}):`,
+        `❌ Button handler error (claimbounty_${interaction.customId}):`,
         err
       );
+
       if (!interaction.replied && !interaction.deferred) {
         return interaction.reply({
           content: "❌ An error occurred while opening the claim modal.",
