@@ -5,7 +5,6 @@ const db = require("../../database.cjs");
 const { getRankName } = require("../../utils/rankSystem.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { calculateAwardedPoints } = require("../../utils/scoring.cjs");
-
 const { createReportCard } = require("../../renderers/reportCard.cjs");
 
 const STAFF_ROLES = process.env.STAFF_ROLES?.split(",") || [];
@@ -31,7 +30,7 @@ module.exports = {
   async execute(client, interaction) {
     const user = interaction.user;
 
-    // Staff-only gate
+    // Staff-only
     if (!interaction.member.roles.cache.some(r => STAFF_ROLES.includes(r.id))) {
       return interaction.reply({
         content: "❌ You do not have permission to use this command.",
@@ -44,25 +43,22 @@ module.exports = {
       ephemeral: true
     });
 
-    // Fetch correct nickname (same as bounty cards)
-    let trainerName = user.username;
-    try {
-      const gm = await interaction.guild.members.fetch(user.id);
-      trainerName = gm.nickname || user.username;
-    } catch {
-      trainerName = user.username;
-    }
+    // NICKNAME LOGIC — EXACTLY MATCHES bountyrequest
+    const member = interaction.member;
+    const trainerName =
+      member?.nickname ||
+      interaction.user.username ||
+      interaction.user.tag;
 
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
-
     const now = new Date();
 
-    // Rarity
+    // Rarity + label
     const rarityKey = getRarity(pokemon);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
-    // Points
+    // Points + rank
     const awarded = calculateAwardedPoints(rarityKey, now);
     const updated = await db.addPoints(
       user.id,
@@ -74,7 +70,7 @@ module.exports = {
     const lifetime = updated?.lifetime_points ?? 0;
     const trainerRank = getRankName(lifetime);
 
-    // Create card
+    // Build report card
     const cardPath = await createReportCard({
       trainerName,
       trainerRank,
@@ -96,7 +92,13 @@ module.exports = {
     }
 
     await debugChannel.send({
-      content: `🛠 **DEBUG REPORT CARD**\nTrainer: ${trainerName}`,
+      content:
+        `🛠 **DEBUG REPORT CARD**\n` +
+        `Trainer: ${trainerName}\n` +
+        `Pokémon: ${pokemon}\n` +
+        `Route: ${route}\n` +
+        `Rarity: ${rarityLabel}\n` +
+        `Points: ${awarded}`,
       files: [cardPath]
     });
 
