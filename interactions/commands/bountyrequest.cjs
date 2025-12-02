@@ -16,9 +16,9 @@ const {
   getRarityDisplayLabel,
 } = require('../../utils/rarity.cjs');
 
-// in-memory DB wrapper (points in SQLite, bounties in RAM)
-const db = require('../../database.cjs');
 const { getBountyRequestChannel } = require('../../utils/channelResolver.cjs');
+// In-memory bounty store (bounties in RAM, points still in SQLite elsewhere)
+const bountyStore = require('../../utils/bountyStore.cjs');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -130,16 +130,31 @@ module.exports = {
     // ───────────────────────────────
     // SERVER-TIME START / END
     // ───────────────────────────────
+    const now = new Date(); // server local time (Pi) – used for all users
     let startTime;
-    const now = new Date();
+    let endTime;
+
     if (startTimeStr === 'now') {
+      // Start immediately
       startTime = now;
+
+      // Next HALF-PAST the hour from *now*
+      // e.g. 12:43 -> 13:30, 12:12 -> 12:30
+      const nextHalf = new Date(now.getTime());
+      if (now.getMinutes() < 30) {
+        nextHalf.setMinutes(30, 0, 0);
+      } else {
+        nextHalf.setHours(nextHalf.getHours() + 1, 30, 0, 0);
+      }
+
+      // End = nextHalf + duration
+      endTime = new Date(nextHalf.getTime() + durationMs);
     } else {
+      // Scheduled start at selected hour (server time)
       const hour = parseHourFromStartTimeString(startTimeStr);
       startTime = getNextOccurrenceOfHour(hour);
+      endTime = new Date(startTime.getTime() + durationMs);
     }
-
-    const endTime = new Date(startTime.getTime() + durationMs);
 
     const startMs = startTime.getTime();
     const endMs = endTime.getTime();
@@ -178,7 +193,7 @@ module.exports = {
 
     const startFieldValue =
       startTimeStr === 'now'
-        ? `<t:${startUnix}:F> (Start on approval / immediately)`
+        ? 'Starts immediately on approval'
         : `<t:${startUnix}:F>`;
 
     const pokemonListLines = pokemons.map(p => `• ${p}`).join('\n');
@@ -193,7 +208,7 @@ module.exports = {
         { name: 'Pokémon Targets', value: pokemonListLines, inline: false },
         { name: 'Requested Start', value: startFieldValue, inline: false },
         { name: 'Requested End', value: `<t:${endUnix}:F>`, inline: false },
-        { name: 'Duration', value: `${durationHours} hour(s)`, inline: true },
+        { name: 'Duration (selected)', value: `${durationHours} hour(s)`, inline: true },
         { name: 'Note', value: notes, inline: false },
         {
           name: 'Bounty ID',
@@ -239,7 +254,7 @@ module.exports = {
     });
 
     // ───────────────────────────────
-    // STORE IN MEMORY
+    // STORE IN MEMORY (bountyStore)
     // ───────────────────────────────
     const bountyRecord = {
       id: bountyId,
@@ -268,7 +283,7 @@ module.exports = {
       winnerClaimId: null
     };
 
-    await db.createBounty(bountyRecord);
+    bountyStore.saveBounty(bountyRecord);
 
     return interaction.reply({
       content: '✅ Bounty request submitted. Staff have been notified in your private bounty thread.',
