@@ -9,7 +9,7 @@ const db = require("../database.cjs");
 const { getRankName } = require("./rankSystem.cjs");
 const { createBountyCard } = require("../renderers/cardRenderer.cjs");
 
-// Your two end-card renderers
+// End-card renderers
 let createBountySuccessCard = null;
 let createBountyFailedCard = null;
 
@@ -24,16 +24,16 @@ try {
 }
 
 /* -----------------------------------------------------------
- * Utility – normalize DB row to camelCase
+ * Normalize DB row → camelCase
  * ----------------------------------------------------------- */
 function normalize(b) {
   if (!b) return null;
 
   return {
-    id:               b.id,
-    guildId:          b.guild_id || b.guildId,
-    requesterId:      b.requester_id || b.requesterId,
-    requesterName:    b.requester_name || b.requesterName,
+    id: b.id,
+    guildId: b.guild_id || b.guildId,
+    requesterId: b.requester_id || b.requesterId,
+    requesterName: b.requester_name || b.requesterName,
 
     pokemons: Array.isArray(b.pokemons)
       ? b.pokemons
@@ -43,31 +43,31 @@ function normalize(b) {
       ? JSON.parse(b.pokemons_json)
       : [],
 
-    notes:            b.notes,
-    startTime:        b.start_time || b.startTime,
-    endTime:          b.end_time || b.endTime,
-    durationHours:    b.duration_hours || b.durationHours,
-    reward:           b.reward,
+    notes: b.notes,
+    startTime: b.start_time || b.startTime,
+    endTime: b.end_time || b.endTime,
+    durationHours: b.duration_hours || b.durationHours,
+    reward: b.reward,
 
-    rarityKey:        b.rarity_key || b.rarityKey,
-    rarityLabel:      b.rarity_label || b.rarityLabel,
+    rarityKey: b.rarity_key || b.rarityKey,
+    rarityLabel: b.rarity_label || b.rarityLabel,
 
     startsImmediately:
       b.starts_immediately === 1 ||
       b.startsImmediately === 1 ||
       b.starts_immediately === true,
 
-    status:                b.status,
-    requestThreadId:       b.request_thread_id || b.requestThreadId,
+    status: b.status,
+    requestThreadId: b.request_thread_id || b.requestThreadId,
     announcementChannelId: b.announcement_channel_id || b.announcementChannelId,
     announcementMessageId: b.announcement_message_id || b.announcementMessageId,
-    cardChannelId:         b.card_channel_id || b.cardChannelId,
-    cardMessageId:         b.card_message_id || b.cardMessageId
+    cardChannelId: b.card_channel_id || b.cardChannelId,
+    cardMessageId: b.card_message_id || b.cardMessageId
   };
 }
 
 /* -----------------------------------------------------------
- * Post ACTIVE bounty card
+ * Post ACTIVE bounty card (NOT PINNED)
  * ----------------------------------------------------------- */
 async function postBountyCard(client, raw) {
   const bounty = normalize(raw);
@@ -80,7 +80,6 @@ async function postBountyCard(client, raw) {
 
   const member = await guild.members.fetch(bounty.requesterId).catch(() => null);
 
-  // ✔ nickname → displayName → username → fallback
   const username =
     member?.nickname ||
     member?.displayName ||
@@ -92,6 +91,7 @@ async function postBountyCard(client, raw) {
     member?.displayAvatarURL({ extension: "png", size: 512 }) ||
     guild.iconURL({ extension: "png", size: 512 });
 
+  // Rank
   let rankName = "Rookie Trainer";
   try {
     const u = await db.getUserById(bounty.requesterId);
@@ -108,7 +108,7 @@ async function postBountyCard(client, raw) {
   const endLabel = new Date(bounty.endTime).toLocaleString("en-GB");
   const durationLabel = `${bounty.durationHours} hour(s)`;
 
-  // Render image
+  // Render card
   const cardBuffer = await createBountyCard({
     bountyId: bounty.id,
     username,
@@ -132,18 +132,12 @@ async function postBountyCard(client, raw) {
       .setStyle(ButtonStyle.Success)
   );
 
-  // Send card
+  // Send card (NO PINNING HERE!)
   const msg = await channel.send({
     files: [{ attachment: cardBuffer, name: `bounty_${bounty.id}.png` }],
     components: [row]
   });
 
-  // NEW ✔ Auto-pin active bounty card
-  try {
-    await msg.pin().catch(() => {});
-  } catch {}
-
-  // Save message location
   await db.updateBounty(bounty.id, {
     card_channel_id: channel.id,
     card_message_id: msg.id
@@ -159,7 +153,6 @@ async function postCompletedCard(client, raw, winnerId) {
   if (!createBountySuccessCard) return;
 
   const bounty = normalize(raw);
-
   const guild = client.guilds.cache.get(bounty.guildId);
   if (!guild) return;
 
@@ -168,7 +161,6 @@ async function postCompletedCard(client, raw, winnerId) {
 
   const member = await guild.members.fetch(winnerId).catch(() => null);
 
-  // ✔ nickname → displayName → username
   const username =
     member?.nickname ||
     member?.displayName ||
@@ -198,12 +190,12 @@ async function postCompletedCard(client, raw, winnerId) {
     rarityLabel: bounty.rarityLabel
   });
 
-  // Send completed card
+  // Post success card
   const msg = await channel.send({
     files: [{ attachment: buffer, name: `bounty_completed_${bounty.id}.png` }]
   });
 
-  // NEW ✔ Pin completed card
+  // Pin success card (your choice — you already do it)
   try {
     await msg.pin().catch(() => {});
   } catch {}
@@ -262,7 +254,7 @@ async function postFailedCard(client, raw) {
     files: [{ attachment: buffer, name: `bounty_failed_${bounty.id}.png` }]
   });
 
-  // NEW ✔ Pin failed card
+  // Pin failed card (your existing behaviour)
   try {
     await msg.pin().catch(() => {});
   } catch {}
@@ -271,7 +263,7 @@ async function postFailedCard(client, raw) {
 }
 
 /* -----------------------------------------------------------
- * Scheduler loop
+ * Scheduler
  * ----------------------------------------------------------- */
 function startBountyScheduler(client) {
   const INTERVAL = 60000;
@@ -280,19 +272,17 @@ function startBountyScheduler(client) {
     const now = Date.now();
 
     try {
-      /* -----------------------------------------
-       * Start bounties
-       * ----------------------------------------- */
+      /* ----------------------------
+       * Start scheduled bounties
+       * ---------------------------- */
       const toStart = await db.getBountiesToStart(now);
 
       for (const raw of toStart) {
         try {
           const bounty = normalize(raw);
 
-          // ✔ prevent double-post
           if (bounty.status === "open") continue;
 
-          // Delete announcement message
           if (bounty.announcementChannelId && bounty.announcementMessageId) {
             const guild = client.guilds.cache.get(bounty.guildId);
             const ch = guild?.channels.cache.get(bounty.announcementChannelId);
@@ -312,9 +302,9 @@ function startBountyScheduler(client) {
         }
       }
 
-      /* -----------------------------------------
+      /* ----------------------------
        * Expire bounties
-       * ----------------------------------------- */
+       * ---------------------------- */
       const toExpire = await db.getBountiesToExpire(now);
 
       for (const raw of toExpire) {
@@ -322,7 +312,6 @@ function startBountyScheduler(client) {
           const bounty = normalize(raw);
           const guild = client.guilds.cache.get(bounty.guildId);
 
-          // Remove claim button
           if (bounty.cardMessageId) {
             const ch = guild.channels.cache.get(bounty.cardChannelId);
             if (ch) {
@@ -346,7 +335,6 @@ function startBountyScheduler(client) {
           console.error("❌ Error expiring bounty:", err);
         }
       }
-
     } catch (err) {
       console.error("❌ Scheduler tick failed:", err);
     }
