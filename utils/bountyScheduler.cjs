@@ -67,7 +67,7 @@ function normalize(b) {
 }
 
 /* -----------------------------------------------------------
- * Post ACTIVE bounty card (NOT PINNED)
+ * Post ACTIVE bounty card  (NO PINNING)
  * ----------------------------------------------------------- */
 async function postBountyCard(client, raw) {
   const bounty = normalize(raw);
@@ -78,7 +78,9 @@ async function postBountyCard(client, raw) {
   const channel = guild.channels.cache.get(process.env.BOUNTY_CHANNEL_ID);
   if (!channel) return console.error("❌ BOUNTY_CHANNEL_ID invalid");
 
-  const member = await guild.members.fetch(bounty.requesterId).catch(() => null);
+  const member = await guild.members
+    .fetch(bounty.requesterId)
+    .catch(() => null);
 
   const username =
     member?.nickname ||
@@ -91,7 +93,7 @@ async function postBountyCard(client, raw) {
     member?.displayAvatarURL({ extension: "png", size: 512 }) ||
     guild.iconURL({ extension: "png", size: 512 });
 
-  // Rank
+  // Rank fetch
   let rankName = "Rookie Trainer";
   try {
     const u = await db.getUserById(bounty.requesterId);
@@ -100,15 +102,12 @@ async function postBountyCard(client, raw) {
   } catch {}
 
   const rewardLabel = `${Number(bounty.reward).toLocaleString()} PKD`;
-
   const startLabel = bounty.startsImmediately
     ? "Starts Immediately"
     : new Date(bounty.startTime).toLocaleString("en-GB");
-
   const endLabel = new Date(bounty.endTime).toLocaleString("en-GB");
   const durationLabel = `${bounty.durationHours} hour(s)`;
 
-  // Render card
   const cardBuffer = await createBountyCard({
     bountyId: bounty.id,
     username,
@@ -124,7 +123,7 @@ async function postBountyCard(client, raw) {
     avatarUrl
   });
 
-  // Buttons
+  // Button row
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`claimbounty_${bounty.id}`)
@@ -132,7 +131,7 @@ async function postBountyCard(client, raw) {
       .setStyle(ButtonStyle.Success)
   );
 
-  // Send card (NO PINNING HERE!)
+  // Send (NO PINNING)
   const msg = await channel.send({
     files: [{ attachment: cardBuffer, name: `bounty_${bounty.id}.png` }],
     components: [row]
@@ -147,12 +146,13 @@ async function postBountyCard(client, raw) {
 }
 
 /* -----------------------------------------------------------
- * Completed card
+ * Completed card (NO PINNING)
  * ----------------------------------------------------------- */
 async function postCompletedCard(client, raw, winnerId) {
   if (!createBountySuccessCard) return;
 
   const bounty = normalize(raw);
+
   const guild = client.guilds.cache.get(bounty.guildId);
   if (!guild) return;
 
@@ -190,21 +190,16 @@ async function postCompletedCard(client, raw, winnerId) {
     rarityLabel: bounty.rarityLabel
   });
 
-  // Post success card
+  // Post (NO PINNING)
   const msg = await channel.send({
     files: [{ attachment: buffer, name: `bounty_completed_${bounty.id}.png` }]
   });
-
-  // Pin success card (your choice — you already do it)
-  try {
-    await msg.pin().catch(() => {});
-  } catch {}
 
   return msg;
 }
 
 /* -----------------------------------------------------------
- * Failed / expired card
+ * Failed / expired card (NO PINNING)
  * ----------------------------------------------------------- */
 async function postFailedCard(client, raw) {
   if (!createBountyFailedCard) return;
@@ -250,14 +245,10 @@ async function postFailedCard(client, raw) {
     rarityLabel: bounty.rarityLabel
   });
 
+  // Post (NO PINNING)
   const msg = await channel.send({
     files: [{ attachment: buffer, name: `bounty_failed_${bounty.id}.png` }]
   });
-
-  // Pin failed card (your existing behaviour)
-  try {
-    await msg.pin().catch(() => {});
-  } catch {}
 
   return msg;
 }
@@ -283,6 +274,7 @@ function startBountyScheduler(client) {
 
           if (bounty.status === "open") continue;
 
+          // Delete old announcement
           if (bounty.announcementChannelId && bounty.announcementMessageId) {
             const guild = client.guilds.cache.get(bounty.guildId);
             const ch = guild?.channels.cache.get(bounty.announcementChannelId);
@@ -312,6 +304,7 @@ function startBountyScheduler(client) {
           const bounty = normalize(raw);
           const guild = client.guilds.cache.get(bounty.guildId);
 
+          // Remove claim button (NO UNPIN)
           if (bounty.cardMessageId) {
             const ch = guild.channels.cache.get(bounty.cardChannelId);
             if (ch) {
@@ -320,9 +313,6 @@ function startBountyScheduler(client) {
                 .catch(() => null);
 
               if (msg) {
-                try {
-                  await msg.unpin().catch(() => {});
-                } catch {}
                 await msg.edit({ components: [] }).catch(() => {});
               }
             }
