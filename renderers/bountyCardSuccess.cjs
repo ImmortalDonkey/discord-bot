@@ -36,9 +36,9 @@ function roundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function getSpritePath(pokemon) {
-  if (!pokemon) return null;
-  return path.join(SPRITES_DIR, `${pokemon}.png`);
+function getSpritePath(name) {
+  if (!name) return null;
+  return path.join(SPRITES_DIR, `${name}.png`);
 }
 
 async function drawSprite(ctx, x, y, size, name) {
@@ -50,10 +50,13 @@ async function drawSprite(ctx, x, y, size, name) {
   ctx.strokeStyle = "#f9fafb";
   ctx.stroke();
 
+  const spritePath = getSpritePath(name);
   let img = null;
+
   try {
-    const p = getSpritePath(name);
-    if (p && fs.existsSync(p)) img = await loadImage(p);
+    if (spritePath && fs.existsSync(spritePath)) {
+      img = await loadImage(spritePath);
+    }
   } catch {}
 
   if (img) {
@@ -64,6 +67,7 @@ async function drawSprite(ctx, x, y, size, name) {
 
     let w = maxW;
     let h = maxH;
+
     if (aspect > 1) h = maxW / aspect;
     else w = maxH * aspect;
 
@@ -75,13 +79,14 @@ async function drawSprite(ctx, x, y, size, name) {
       h
     );
   }
+
   ctx.restore();
 }
 
 async function createBountySuccessCard(options) {
   const {
     bountyId,
-    username,
+    username,           // Trainer name (currently using username)
     rankName,
     pokemons,
     rewardLabel,
@@ -90,19 +95,18 @@ async function createBountySuccessCard(options) {
   } = options;
 
   const pokemonList = pokemons?.length ? pokemons : ["None"];
-  const target = pokemonList[0];
 
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // Background
+  // Background gradient
   const g = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
   g.addColorStop(0, style.gradientFrom);
   g.addColorStop(1, style.gradientTo);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  // RIGHT PROFILE IMAGE (identical to active card)
+  // RIGHT PROFILE IMAGE (same layout ratio as active card)
   const totalInnerWidth = CARD_WIDTH - MARGIN * 3;
   const rightMaxWidth = totalInnerWidth * 0.4;
   const rightMaxHeight = CARD_HEIGHT - 2 * MARGIN;
@@ -114,8 +118,8 @@ async function createBountySuccessCard(options) {
   ctx.save();
   try {
     const img = await loadImage(avatarUrl);
-    const aspect = img.width / img.height;
 
+    const aspect = img.width / img.height;
     let w = imageSize;
     let h = imageSize;
 
@@ -139,7 +143,6 @@ async function createBountySuccessCard(options) {
     ctx.lineWidth = 10;
     ctx.strokeStyle = "rgba(248,250,252,0.9)";
     ctx.stroke();
-
   } catch {
     ctx.restore();
     ctx.save();
@@ -155,12 +158,16 @@ async function createBountySuccessCard(options) {
   }
   ctx.restore();
 
-  // LEFT TEXT BOX (same proportions)
+  // LEFT COLUMN
   const leftX = MARGIN;
+  const leftY = MARGIN;
+
   const leftWidth = rightX - leftX - MARGIN;
   const leftHeight = CARD_HEIGHT - MARGIN * 2;
+
+  // Top info box (same proportion as active card)
   const infoBoxHeight = leftHeight * 0.62;
-  const infoBoxY = MARGIN;
+  const infoBoxY = leftY;
 
   roundedRect(ctx, leftX, infoBoxY, leftWidth, infoBoxHeight, 40);
   ctx.fillStyle = style.boxColor;
@@ -169,47 +176,72 @@ async function createBountySuccessCard(options) {
   ctx.strokeStyle = "#f9fafb";
   ctx.stroke();
 
-  // TEXT LAYOUT
+  const LABEL_FONT = 60;
+  const LINE_GAP = 75;
   const padX = 60;
-  const rowGap = 78;
-  const extraGap = 64; // extra between rarity → bounty paid (Option 3)
-  const labelFont = "bold 60px sans-serif";
-  const valueFont = "bold 60px sans-serif";
 
-  const rows = [
-    { label: "Trainer:", value: username },
-    { label: "Rank:", value: rankName },
-    { label: "Target:", value: target },
-    { label: "Rarity:", value: rarityLabel },
-    { label: "Bounty paid:", value: rewardLabel }
-  ];
+  ctx.font = `bold ${LABEL_FONT}px sans-serif`;
 
-  // Calculate vertical offset
-  ctx.font = valueFont;
-  const totalRowsHeight = rowGap * 5 + extraGap; // extra between 4→5
-  let cy = infoBoxY + (infoBoxHeight - totalRowsHeight) / 2 + 20;
+  // Figure out label column width
+  const labels = ["Trainer:", "Rank:", "Target:", "Rarity:", "Reward:"];
+  let maxLabelWidth = 0;
+  for (const lab of labels) {
+    const w = ctx.measureText(lab).width;
+    if (w > maxLabelWidth) maxLabelWidth = w;
+  }
+  const labelX = leftX + padX;
+  const valueX = labelX + maxLabelWidth + 40;
 
-  ctx.font = labelFont;
+  // Build line sequence for vertical centering
+  const lines = [];
 
-  function drawRow(label, value, gap) {
-    ctx.font = labelFont;
-    ctx.fillStyle = style.gold;
-    ctx.fillText(label, leftX + padX, cy);
+  lines.push({ type: "row", label: "Trainer:", value: username });
+  lines.push({ type: "row", label: "Rank:", value: rankName });
+  lines.push({ type: "spacer" });
 
-    ctx.font = valueFont;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(value, leftX + padX + 420, cy);
-
-    cy += gap;
+  lines.push({ type: "row", label: "Target:", value: pokemonList[0] });
+  for (let i = 1; i < pokemonList.length; i++) {
+    lines.push({ type: "row", label: "", value: pokemonList[i] });
   }
 
-  drawRow(rows[0].label, rows[0].value, rowGap);
-  drawRow(rows[1].label, rows[1].value, rowGap);
-  drawRow(rows[2].label, rows[2].value, rowGap);
-  drawRow(rows[3].label, rows[3].value, rowGap + extraGap);
-  drawRow(rows[4].label, rows[4].value, rowGap);
+  lines.push({
+    type: "row",
+    label: "Rarity:",
+    value: rarityLabel || "Unknown"
+  });
 
-  // BOTTOM COMPLETED BOX
+  lines.push({ type: "spacer" });
+
+  lines.push({
+    type: "row",
+    label: "Reward:",
+    value: rewardLabel
+  });
+
+  const effectiveLines = lines.reduce(
+    (acc, line) => acc + (line.type === "spacer" ? 1 : 1),
+    0
+  );
+  const blockHeight = effectiveLines * LINE_GAP;
+
+  let cy = infoBoxY + (infoBoxHeight - blockHeight) / 2 + LINE_GAP * 0.2;
+
+  for (const line of lines) {
+    if (line.type === "spacer") {
+      cy += LINE_GAP;
+      continue;
+    }
+
+    ctx.fillStyle = style.gold;
+    ctx.fillText(line.label, labelX, cy);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(line.value || "", valueX, cy);
+
+    cy += LINE_GAP;
+  }
+
+  // Bottom COMPLETED box
   const bottomBoxY = infoBoxY + infoBoxHeight + 40;
   const bottomBoxHeight = CARD_HEIGHT - bottomBoxY - MARGIN;
 
@@ -221,28 +253,25 @@ async function createBountySuccessCard(options) {
   ctx.stroke();
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 140px sans-serif";
-
+  ctx.font = "bold 120px sans-serif";
   const txt = "COMPLETED";
   const tw = ctx.measureText(txt).width;
-
   ctx.fillText(
     txt,
     leftX + (leftWidth - tw) / 2,
-    bottomBoxY + bottomBoxHeight / 2 + 45
+    bottomBoxY + bottomBoxHeight / 2 + 40
   );
 
-  // SPRITE (same placement as active)
+  // Bottom-right sprite (same spacing idea as active card)
   const spriteSize = imageSize / 3;
-  const spriteX = rightX + (imageSize - spriteSize) / 2;
+  const spriteX = rightX + imageSize / 2 - spriteSize / 2;
   const spriteY = CARD_HEIGHT - MARGIN - spriteSize;
 
-  await drawSprite(ctx, spriteX, spriteY, spriteSize, target);
+  await drawSprite(ctx, spriteX, spriteY, spriteSize, pokemonList[0]);
 
-  // Save file
   const buffer = canvas.toBuffer("image/png");
-  const fp = path.join(CARDS_DIR, `bountyEnd_${bountyId}_success.png`);
-  fs.writeFileSync(fp, buffer);
+  const filePath = path.join(CARDS_DIR, `bountyEnd_${bountyId}_success.png`);
+  fs.writeFileSync(filePath, buffer);
 
   return buffer;
 }
