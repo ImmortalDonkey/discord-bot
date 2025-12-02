@@ -245,7 +245,7 @@ async function createBountyFailedCard(options) {
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 120px sans-serif";
 
-  const txt = "FAILED";
+  const txt = "EXPIRED";
   const tw = ctx.measureText(txt).width;
 
   ctx.fillText(
