@@ -2,6 +2,7 @@
 // ------------------------------------------------------
 // POINTS + LOGS = SQLite
 // BOUNTIES + CLAIMS = SQLite + in-memory cache
+// REPORTS = SQLite (no cache, short-lived)
 // ------------------------------------------------------
 
 const path = require('path');
@@ -59,6 +60,7 @@ function all(sql, params = []) {
 // INITIALISE SQLITE SCHEMA
 //   - points / point_logs (existing)
 //   - bounties / bounty_claims / scheduled_bounties (for bounty system)
+//   - reports (for /report card tracking)
 // ------------------------------------------------------
 async function init() {
   // -------- POINTS TABLES --------
@@ -157,6 +159,27 @@ async function init() {
     announcement_channel_id TEXT,
     announcement_message_id TEXT
   )`);
+
+  // -------- REPORTS TABLE (for /report cards) --------
+  await run(`CREATE TABLE IF NOT EXISTS reports (
+    id TEXT PRIMARY KEY,              -- e.g. 'report_1234567890_userid'
+    guild_id TEXT,
+    reporter_id TEXT,
+    reporter_name TEXT,
+    pokemon_name TEXT,
+    rarity_key TEXT,
+    rarity_label TEXT,
+    location TEXT,
+    status TEXT,                      -- 'active' or 'expired'
+    message_id TEXT,                  -- Discord message ID for the card
+    channel_id TEXT,                  -- Discord channel ID
+    expires_at INTEGER,               -- ms since epoch (end of hour)
+    delete_at INTEGER,                -- ms since epoch (expires_at + 24h)
+    created_at INTEGER,
+    image_path TEXT                   -- local PNG path (for optional cleanup)
+  )`);
+
+  console.log('📌 Reports table ready');
 
   // -------- LOAD CACHED BOUNTIES & CLAIMS INTO MEMORY --------
   await loadBountiesFromDB();
@@ -575,6 +598,121 @@ async function getPendingClaimForBountyAndHunter(bountyId, hunterId) {
 }
 
 // ------------------------------------------------------
+// REPORTS API (for /report cards)
+// ------------------------------------------------------
+
+/**
+ * Create a report row.
+ * Expect caller (/report) to pass:
+ * - id, guildId, reporterId, reporterName
+ * - pokemonName, rarityKey, rarityLabel, location
+ * - status ('active')
+ * - messageId, channelId
+ * - expiresAt, deleteAt, createdAt
+ * - imagePath
+ */
+async function createReport(reportObj) {
+  const now = Date.now();
+  const {
+    id,
+    guildId,
+    reporterId,
+    reporterName,
+    pokemonName,
+    rarityKey,
+    rarityLabel,
+    location,
+    status = 'active',
+    messageId,
+    channelId,
+    expiresAt,
+    deleteAt,
+    createdAt = now,
+    imagePath
+  } = reportObj;
+
+  await run(
+    `INSERT OR REPLACE INTO reports (
+      id,
+      guild_id,
+      reporter_id,
+      reporter_name,
+      pokemon_name,
+      rarity_key,
+      rarity_label,
+      location,
+      status,
+      message_id,
+      channel_id,
+      expires_at,
+      delete_at,
+      created_at,
+      image_path
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      id,
+      guildId,
+      reporterId,
+      reporterName,
+      pokemonName,
+      rarityKey,
+      rarityLabel,
+      location,
+      status,
+      messageId,
+      channelId,
+      expiresAt,
+      deleteAt,
+      createdAt,
+      imagePath
+    ]
+  );
+
+  return id;
+}
+
+async function getReportById(id) {
+  return await get(`SELECT * FROM reports WHERE id = ?`, [id]);
+}
+
+/**
+ * For scheduler: reports whose status = 'active' and expires_at <= nowMs
+ */
+async function getReportsToExpire(nowMs) {
+  return await all(
+    `SELECT * FROM reports WHERE status = 'active' AND expires_at <= ?`,
+    [nowMs]
+  );
+}
+
+/**
+ * For scheduler: any report (active or expired) whose delete_at <= nowMs
+ */
+async function getReportsToDelete(nowMs) {
+  return await all(
+    `SELECT * FROM reports WHERE delete_at IS NOT NULL AND delete_at <= ?`,
+    [nowMs]
+  );
+}
+
+/**
+ * Mark report as expired but keep it in DB (until later delete).
+ */
+async function markReportExpired(id) {
+  await run(
+    `UPDATE reports SET status = 'expired' WHERE id = ?`,
+    [id]
+  );
+}
+
+/**
+ * Permanently delete a report row.
+ */
+async function deleteReport(id) {
+  await run(`DELETE FROM reports WHERE id = ?`, [id]);
+}
+
+// ------------------------------------------------------
 // EXPORT
 // ------------------------------------------------------
 module.exports = {
@@ -606,5 +744,13 @@ module.exports = {
   createBountyClaim,
   getBountyClaimById,
   updateBountyClaim,
-  getPendingClaimForBountyAndHunter
+  getPendingClaimForBountyAndHunter,
+
+  // Reports
+  createReport,
+  getReportById,
+  getReportsToExpire,
+  getReportsToDelete,
+  markReportExpired,
+  deleteReport
 };
