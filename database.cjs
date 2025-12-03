@@ -180,16 +180,28 @@ async function init() {
     image_path TEXT
   )`);
 
-  // Backwards compat for reports (in case table already existed)
-  const infoReports = await all(`PRAGMA table_info(reports)`);
-  const reportCols = infoReports.map(c => c.name);
+  // Backwards compat / auto-migrate for reports
+  async function ensureReportColumns() {
+    const infoReports = await all(`PRAGMA table_info(reports)`);
+    const reportCols = infoReports.map(c => c.name);
 
-  if (!reportCols.includes('trainer_rank')) {
-    await run(`ALTER TABLE reports ADD COLUMN trainer_rank TEXT`);
+    const expected = {
+      trainer_rank: 'TEXT',
+      points: 'INTEGER DEFAULT 0',
+      delete_at: 'INTEGER'
+    };
+
+    for (const [col, type] of Object.entries(expected)) {
+      if (!reportCols.includes(col)) {
+        console.warn(`⚠️ Adding missing column to reports: ${col}`);
+        await run(`ALTER TABLE reports ADD COLUMN ${col} ${type}`);
+      }
+    }
   }
-  if (!reportCols.includes('points')) {
-    await run(`ALTER TABLE reports ADD COLUMN points INTEGER DEFAULT 0`);
-  }
+  await ensureReportColumns();
+
+  // Clean obviously broken legacy rows (no reporter)
+  await run(`DELETE FROM reports WHERE reporter_id IS NULL OR reporter_id = ''`);
 
   // -------- LOAD CACHED BOUNTIES & CLAIMS INTO MEMORY --------
   await loadBountiesFromDB();
