@@ -1,10 +1,3 @@
-// database.cjs
-// ------------------------------------------------------
-// POINTS + LOGS = SQLite
-// BOUNTIES + CLAIMS = SQLite + in-memory cache
-// REPORTS = SQLite (no cache, short-lived)
-// ------------------------------------------------------
-
 const path = require('path');
 const fs = require('fs');
 const sqlite3 = require('sqlite3');
@@ -58,9 +51,9 @@ function all(sql, params = []) {
 
 // ------------------------------------------------------
 // INITIALISE SQLITE SCHEMA
-//   - points / point_logs (existing)
-//   - bounties / bounty_claims / scheduled_bounties (for bounty system)
-//   - reports (for /report card tracking)
+//   - points / point_logs
+//   - bounties / bounty_claims / scheduled_bounties
+//   - reports (NEW)
 // ------------------------------------------------------
 async function init() {
   // -------- POINTS TABLES --------
@@ -94,7 +87,6 @@ async function init() {
   }
 
   // -------- BOUNTIES TABLE --------
-  // Use the schema you had, including winner_claim_id
   await run(`CREATE TABLE IF NOT EXISTS bounties (
     id TEXT PRIMARY KEY,
     guild_id TEXT,
@@ -160,26 +152,26 @@ async function init() {
     announcement_message_id TEXT
   )`);
 
-  // -------- REPORTS TABLE (for /report cards) --------
+  // -------- REPORTS TABLE (NEW) --------
   await run(`CREATE TABLE IF NOT EXISTS reports (
-    id TEXT PRIMARY KEY,              -- e.g. 'report_1234567890_userid'
+    id TEXT PRIMARY KEY,
     guild_id TEXT,
     reporter_id TEXT,
     reporter_name TEXT,
+    trainer_rank TEXT,
     pokemon_name TEXT,
     rarity_key TEXT,
     rarity_label TEXT,
     location TEXT,
-    status TEXT,                      -- 'active' or 'expired'
-    message_id TEXT,                  -- Discord message ID for the card
-    channel_id TEXT,                  -- Discord channel ID
-    expires_at INTEGER,               -- ms since epoch (end of hour)
-    delete_at INTEGER,                -- ms since epoch (expires_at + 24h)
+    status TEXT,               -- 'active','expired'
+    message_id TEXT,
+    channel_id TEXT,
+    points INTEGER,
+    expires_at INTEGER,        -- ms since epoch
+    delete_at INTEGER,         -- ms since epoch (cleanup time)
     created_at INTEGER,
-    image_path TEXT                   -- local PNG path (for optional cleanup)
+    image_path TEXT
   )`);
-
-  console.log('📌 Reports table ready');
 
   // -------- LOAD CACHED BOUNTIES & CLAIMS INTO MEMORY --------
   await loadBountiesFromDB();
@@ -348,6 +340,37 @@ function normalizeClaimObject(source) {
   };
 }
 
+// -------- REPORT NORMALISER (NEW) --------
+function normalizeReportObject(source) {
+  if (!source) return null;
+
+  return {
+    id: String(source.id),
+
+    guildId: source.guildId ?? source.guild_id ?? null,
+    reporterId: source.reporterId ?? source.reporter_id ?? null,
+    reporterName: source.reporterName ?? source.reporter_name ?? null,
+    trainerRank: source.trainerRank ?? source.trainer_rank ?? null,
+
+    pokemonName: source.pokemonName ?? source.pokemon_name ?? null,
+    rarityKey: source.rarityKey ?? source.rarity_key ?? null,
+    rarityLabel: source.rarityLabel ?? source.rarity_label ?? null,
+    location: source.location ?? source.route ?? null,
+
+    status: source.status ?? 'active',
+
+    messageId: source.messageId ?? source.message_id ?? null,
+    channelId: source.channelId ?? source.channel_id ?? null,
+
+    points: source.points ?? 0,
+    expiresAt: source.expiresAt ?? source.expires_at ?? null,
+    deleteAt: source.deleteAt ?? source.delete_at ?? null,
+    createdAt: source.createdAt ?? source.created_at ?? Date.now(),
+
+    imagePath: source.imagePath ?? source.image_path ?? null
+  };
+}
+
 // ---------------- LOAD FROM DB ON STARTUP ----------------
 async function loadBountiesFromDB() {
   const rows = await all(`SELECT * FROM bounties`);
@@ -510,6 +533,54 @@ async function persistClaimToDb(claim) {
   return c.id;
 }
 
+// -------- REPORT PERSIST HELPER (NEW) --------
+async function persistReportToDb(report) {
+  const r = normalizeReportObject(report);
+
+  await run(
+    `INSERT OR REPLACE INTO reports (
+      id,
+      guild_id,
+      reporter_id,
+      reporter_name,
+      trainer_rank,
+      pokemon_name,
+      rarity_key,
+      rarity_label,
+      location,
+      status,
+      message_id,
+      channel_id,
+      points,
+      expires_at,
+      delete_at,
+      created_at,
+      image_path
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      r.id,
+      r.guildId,
+      r.reporterId,
+      r.reporterName,
+      r.trainerRank,
+      r.pokemonName,
+      r.rarityKey,
+      r.rarityLabel,
+      r.location,
+      r.status,
+      r.messageId,
+      r.channelId,
+      r.points,
+      r.expiresAt,
+      r.deleteAt,
+      r.createdAt,
+      r.imagePath
+    ]
+  );
+
+  return r;
+}
+
 // ---------------- PUBLIC BOUNTY API ----------------
 async function createBounty(bountyObj) {
   const norm = normalizeBountyObject({
@@ -541,7 +612,6 @@ async function updateBounty(id, patch) {
 }
 
 async function getBountiesToStart(nowMs) {
-  // from cache – already normalised
   return memoryBounties.filter(b =>
     b.status === 'open' &&
     typeof b.startTime === 'number' &&
@@ -598,118 +668,61 @@ async function getPendingClaimForBountyAndHunter(bountyId, hunterId) {
 }
 
 // ------------------------------------------------------
-// REPORTS API (for /report cards)
+// PUBLIC REPORT API (NEW)
 // ------------------------------------------------------
 
-/**
- * Create a report row.
- * Expect caller (/report) to pass:
- * - id, guildId, reporterId, reporterName
- * - pokemonName, rarityKey, rarityLabel, location
- * - status ('active')
- * - messageId, channelId
- * - expiresAt, deleteAt, createdAt
- * - imagePath
- */
+// Create new report row (used by /reportdebug & real /report)
 async function createReport(reportObj) {
-  const now = Date.now();
-  const {
-    id,
-    guildId,
-    reporterId,
-    reporterName,
-    pokemonName,
-    rarityKey,
-    rarityLabel,
-    location,
-    status = 'active',
-    messageId,
-    channelId,
-    expiresAt,
-    deleteAt,
-    createdAt = now,
-    imagePath
-  } = reportObj;
-
-  await run(
-    `INSERT OR REPLACE INTO reports (
-      id,
-      guild_id,
-      reporter_id,
-      reporter_name,
-      pokemon_name,
-      rarity_key,
-      rarity_label,
-      location,
-      status,
-      message_id,
-      channel_id,
-      expires_at,
-      delete_at,
-      created_at,
-      image_path
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      id,
-      guildId,
-      reporterId,
-      reporterName,
-      pokemonName,
-      rarityKey,
-      rarityLabel,
-      location,
-      status,
-      messageId,
-      channelId,
-      expiresAt,
-      deleteAt,
-      createdAt,
-      imagePath
-    ]
-  );
-
-  return id;
+  const base = {
+    status: reportObj.status || 'active',
+    createdAt: reportObj.createdAt || Date.now(),
+    ...reportObj
+  };
+  const norm = normalizeReportObject(base);
+  return await persistReportToDb(norm);
 }
 
-async function getReportById(id) {
-  return await get(`SELECT * FROM reports WHERE id = ?`, [id]);
+// Fetch single report by ID
+async function getReport(id) {
+  const row = await get(`SELECT * FROM reports WHERE id = ?`, [id]);
+  if (!row) return null;
+  return normalizeReportObject(row);
 }
 
-/**
- * For scheduler: reports whose status = 'active' and expires_at <= nowMs
- */
-async function getReportsToExpire(nowMs) {
-  return await all(
-    `SELECT * FROM reports WHERE status = 'active' AND expires_at <= ?`,
-    [nowMs]
-  );
+// Update report: merges existing + patch, writes full row
+async function updateReport(id, patch) {
+  const existing = await getReport(id);
+  if (!existing) return null;
+
+  const merged = normalizeReportObject({ ...existing, ...patch, id });
+  return await persistReportToDb(merged);
 }
 
-/**
- * For scheduler: any report (active or expired) whose delete_at <= nowMs
- */
-async function getReportsToDelete(nowMs) {
-  return await all(
-    `SELECT * FROM reports WHERE delete_at IS NOT NULL AND delete_at <= ?`,
-    [nowMs]
-  );
-}
-
-/**
- * Mark report as expired but keep it in DB (until later delete).
- */
-async function markReportExpired(id) {
-  await run(
-    `UPDATE reports SET status = 'expired' WHERE id = ?`,
-    [id]
-  );
-}
-
-/**
- * Permanently delete a report row.
- */
+// Hard delete report row
 async function deleteReport(id) {
   await run(`DELETE FROM reports WHERE id = ?`, [id]);
+}
+
+// Reports whose hour has just ended
+async function getReportsToExpire(nowMs) {
+  return (await all(
+    `SELECT * FROM reports
+     WHERE status = 'active'
+       AND expires_at IS NOT NULL
+       AND expires_at <= ?`,
+    [nowMs]
+  )).map(normalizeReportObject);
+}
+
+// Expired reports older than their delete_at
+async function getReportsToCleanup(nowMs) {
+  return (await all(
+    `SELECT * FROM reports
+     WHERE status = 'expired'
+       AND delete_at IS NOT NULL
+       AND delete_at <= ?`,
+    [nowMs]
+  )).map(normalizeReportObject);
 }
 
 // ------------------------------------------------------
@@ -746,11 +759,11 @@ module.exports = {
   updateBountyClaim,
   getPendingClaimForBountyAndHunter,
 
-  // Reports
+  // Reports (NEW)
   createReport,
-  getReportById,
+  getReport,
+  updateReport,
+  deleteReport,
   getReportsToExpire,
-  getReportsToDelete,
-  markReportExpired,
-  deleteReport
+  getReportsToCleanup
 };
