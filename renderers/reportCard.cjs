@@ -5,7 +5,7 @@ const { createCanvas, loadImage } = require("canvas");
 
 const CARD_WIDTH = 2200;
 const CARD_HEIGHT = 1300;
-const MARGIN = Math.floor(CARD_WIDTH * 0.05); // 5% outer margin
+const MARGIN = Math.floor(CARD_WIDTH * 0.05);
 
 const REPORT_DIR = path.join(__dirname, "report-images");
 const SPRITES_DIR = path.join(__dirname, "..", "sprites");
@@ -15,7 +15,6 @@ if (!fs.existsSync(REPORT_DIR)) {
   fs.mkdirSync(REPORT_DIR, { recursive: true });
 }
 
-// Outline by rarity
 const rarityOutline = {
   paradox: "#a855f7",
   roamerMonth: "#ec4899",
@@ -25,64 +24,59 @@ const rarityOutline = {
 };
 
 function roundedRectPath(ctx, x, y, w, h, r) {
-  const radius = Math.min(r, w / 2, h / 2);
+  const rad = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + w - radius, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-  ctx.lineTo(x + w, y + h - radius);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-  ctx.lineTo(x + radius, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.moveTo(x + rad, y);
+  ctx.lineTo(x + w - rad, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+  ctx.lineTo(x + w, y + h - rad);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+  ctx.lineTo(x + rad, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+  ctx.lineTo(x, y + rad);
+  ctx.quadraticCurveTo(x, y, x + rad, y);
   ctx.closePath();
 }
 
-async function drawSprite(ctx, x, y, spriteW, spriteH, pokemonName) {
-  const spritePath = path.join(SPRITES_DIR, `${pokemonName}.png`);
-  if (!fs.existsSync(spritePath)) return;
+async function drawSprite(ctx, x, y, w, h, name) {
+  const p = path.join(SPRITES_DIR, `${name}.png`);
+  if (!fs.existsSync(p)) return;
 
-  const img = await loadImage(spritePath);
+  const img = await loadImage(p);
   const imgRatio = img.width / img.height;
-  const boxRatio = spriteW / spriteH;
-
-  let drawW = spriteW;
-  let drawH = spriteH;
+  const boxRatio = w / h;
+  let drawW = w, drawH = h;
 
   if (imgRatio > boxRatio) drawH = drawW / imgRatio;
   else drawW = drawH * imgRatio;
 
   ctx.drawImage(
     img,
-    x + (spriteW - drawW) / 2,
-    y + (spriteH - drawH) / 2,
+    x + (w - drawW) / 2,
+    y + (h - drawH) / 2,
     drawW, drawH
   );
 }
 
-// helper for Pokémon + Rarity only
-function wrapValue(ctx, value, maxWidth) {
-  if (!value) return [""];
-  const words = value.split(" ");
-  const lines = [];
+function wrapValue(ctx, text, max) {
+  const words = text.split(" ");
   let line = "";
+  const lines = [];
 
   for (const w of words) {
     const test = line + w + " ";
-    if (ctx.measureText(test).width > maxWidth && line) {
-      lines.push(line);
+    if (ctx.measureText(test).width > max && line !== "") {
+      lines.push(line.trim());
       line = w + " ";
     } else {
       line = test;
     }
   }
-
-  if (line) lines.push(line);
+  if (line.trim()) lines.push(line.trim());
   return lines;
 }
 
-async function createReportCard(report) {
+async function createReportCard(r) {
   const {
     trainerName,
     trainerRank,
@@ -92,61 +86,50 @@ async function createReportCard(report) {
     points,
     location,
     statusText
-  } = report;
+  } = r;
 
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // route background support
-  let bgApplied = false;
-  const routeMatch = String(location).match(/Route\s+(\d+)/i);
-  if (routeMatch) {
-    const n = routeMatch[1];
-    const p = path.join(BG_DIR, `route-${n}.png`);
-    if (fs.existsSync(p)) {
-      const bg = await loadImage(p);
-      ctx.drawImage(bg, 0, 0, CARD_WIDTH, CARD_HEIGHT);
-      bgApplied = true;
-    }
-  }
+  // 🔥 GENERIC BACKGROUND FILE SUPPORT
+  const bgFile = String(location || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+$/, "") + ".png";
 
-  if (!bgApplied) {
+  const bgPath = path.join(BG_DIR, bgFile);
+  if (fs.existsSync(bgPath)) {
+    const bg = await loadImage(bgPath);
+    ctx.drawImage(bg, 0, 0, CARD_WIDTH, CARD_HEIGHT);
+  } else {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
   }
 
-  const innerWidth = CARD_WIDTH - MARGIN * 2;
-  const innerHeight = CARD_HEIGHT - MARGIN * 2;
+  const innerW = CARD_WIDTH - MARGIN * 2;
+  const innerH = CARD_HEIGHT - MARGIN * 2;
 
-  const leftW = Math.floor(innerWidth * 0.58);
-  const rightW = innerWidth - leftW;
+  const panelW = Math.floor(innerW * 0.58);
+  const panelH = innerH - 160;
+  const panelX = MARGIN;
+  const panelY = MARGIN;
 
-  const leftX = MARGIN;
-  const leftY = MARGIN;
-
-  const panelW = leftW;
-  const panelH = innerHeight - 160; // room for route bar below
-
-  // main panel
   ctx.save();
-  roundedRectPath(ctx, leftX, leftY, panelW, panelH, 40);
+  roundedRectPath(ctx, panelX, panelY, panelW, panelH, 40);
   ctx.fillStyle = "rgba(50, 50, 50, 0.70)";
   ctx.fill();
   ctx.lineWidth = 10;
-  ctx.strokeStyle = rarityOutline[rarityKey] || "#ffffff";
+  ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
   ctx.stroke();
   ctx.restore();
 
-  // ───────────────────────────
-  // TEXT LAYOUT
-  // ───────────────────────────
   const LABEL_COLOR = "#facc15";
   const VALUE_COLOR = "#ffffff";
   const FONT_SIZE = 55;
-  ctx.font = `bold ${FONT_SIZE}px sans-serif`;
   const lineHeight = FONT_SIZE * 1.25;
+  ctx.font = `bold ${FONT_SIZE}px sans-serif`;
 
-  const fields = [
+  const rows = [
     { label: "Trainer:", value: trainerName },
     { label: "Rank:", value: trainerRank },
     { spacer: true },
@@ -159,97 +142,78 @@ async function createReportCard(report) {
     { label: "Status:", value: statusText || "Active" }
   ];
 
-  const labelX = leftX + 60;
-  const maxValueW = panelW - 300;
-
-  // Step 1 — measure total height needed
-  let totalHeight = 0;
-  const rows = [];
-  for (const f of fields) {
-    if (f.spacer) {
-      rows.push({ spacer: true });
-      totalHeight += lineHeight * 0.55;
-      continue;
-    }
-
-    let lines = [f.value];
-    if (f.wrap) lines = wrapValue(ctx, f.value, maxValueW);
-
-    rows.push({ label: f.label, lines });
-    totalHeight += lines.length * lineHeight;
+  // 🔥 Determine max label width for aligned values
+  let maxLabelW = 0;
+  for (const r of rows) {
+    if (!r.label) continue;
+    const w = ctx.measureText(r.label).width;
+    if (w > maxLabelW) maxLabelW = w;
   }
 
-  // Step 2 — center vertically
-  let currentY = leftY + (panelH - totalHeight) / 2;
+  const labelX = panelX + 60;
+  const valueX = labelX + maxLabelW + 40;
+  const maxValueW = panelW - (valueX - panelX) - 60;
 
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
+  let totalHeight = 0;
+  const measured = rows.map(f => {
+    if (f.spacer) return { spacer: true, h: lineHeight * 0.55 };
+    if (f.wrap) {
+      const lines = wrapValue(ctx, f.value, maxValueW);
+      return { label: f.label, lines, h: lines.length * lineHeight };
+    }
+    return { label: f.label, lines: [f.value], h: lineHeight };
+  });
 
-  // Step 3 — draw
-  for (const r of rows) {
-    if (r.spacer) {
-      currentY += lineHeight * 0.55;
-      continue;
+  measured.forEach(m => totalHeight += m.h);
+  let y = panelY + (panelH - totalHeight) / 2;
+
+  measured.forEach(m => {
+    if (m.spacer) {
+      y += m.h;
+      return;
     }
 
     ctx.fillStyle = LABEL_COLOR;
-    ctx.fillText(r.label, labelX, currentY);
+    ctx.fillText(m.label, labelX, y);
 
     ctx.fillStyle = VALUE_COLOR;
-    const valueX = labelX + ctx.measureText(r.label).width + 40;
+    m.lines.forEach((line, i) => {
+      ctx.fillText(line, valueX, y + (i * lineHeight));
+    });
 
-    for (let i = 0; i < r.lines.length; i++) {
-      const line = r.lines[i];
-      if (i > 0) currentY += lineHeight;
-      ctx.fillText(line, valueX, currentY);
-    }
-    currentY += lineHeight;
-  }
+    y += m.h;
+  });
 
-  // ───────────────────────────
-  // SPRITE (unchanged scale)
-  // ───────────────────────────
-  const spriteW = rightW - 180;
+  const spriteX = panelX + panelW + 90;
+  const spriteY = panelY + 60;
+  const spriteW = innerW - panelW - 160;
   const spriteH = panelH - 120;
+  await drawSprite(ctx, spriteX, spriteY, spriteW, spriteH, pokemonName);
 
-  await drawSprite(
-    ctx,
-    leftX + panelW + 90,
-    leftY + 60,
-    spriteW,
-    spriteH,
-    pokemonName
-  );
-
-  // ───────────────────────────
-  // ROUTE BAR (unchanged)
-  // ───────────────────────────
+  const routeW = innerW;
   const routeH = 120;
   const routeX = MARGIN;
   const routeY = CARD_HEIGHT - MARGIN - routeH;
-  const routeW = innerWidth;
 
   ctx.save();
   roundedRectPath(ctx, routeX, routeY, routeW, routeH, 35);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#fff";
   ctx.fill();
   ctx.lineWidth = 10;
-  ctx.strokeStyle = rarityOutline[rarityKey] || "#ffffff";
+  ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
   ctx.stroke();
   ctx.restore();
 
+  ctx.font = `bold ${FONT_SIZE + 20}px sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `bold ${FONT_SIZE + 20}px sans-serif`;
   ctx.fillStyle = "#000";
-  ctx.fillText(location || "Unknown Route", routeX + routeW / 2, routeY + routeH / 2);
+  ctx.fillText(location || "Unknown Location", routeX + routeW / 2, routeY + routeH / 2);
 
-  // Save 🧃
-  const safe =
-    pokemonName?.toLowerCase()?.replace(/[^a-z0-9]+/g, "-") || "pokemon";
-  const file = path.join(REPORT_DIR, `report_${safe}_${Date.now()}.png`);
-  fs.writeFileSync(file, canvas.toBuffer("image/png"));
-  return file;
+  const safe = pokemonName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const out = path.join(REPORT_DIR, `report_${safe}_${Date.now()}.png`);
+  fs.writeFileSync(out, canvas.toBuffer("image/png"));
+  return out;
 }
 
 module.exports = { createReportCard };
