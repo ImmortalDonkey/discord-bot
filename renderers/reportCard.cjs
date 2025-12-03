@@ -1,11 +1,12 @@
-// renderers/reportCard.cjs
 const fs = require("fs");
 const path = require("path");
 const { createCanvas, loadImage } = require("canvas");
 
 const CARD_WIDTH = 2200;
 const CARD_HEIGHT = 1300;
-const MARGIN = 40;
+
+// 5% margin based on width (applied on all sides)
+const MARGIN = Math.round(CARD_WIDTH * 0.05); // 110px
 
 const REPORT_DIR = path.join(__dirname, "report-images");
 const SPRITES_DIR = path.join(__dirname, "..", "sprites");
@@ -14,7 +15,7 @@ if (!fs.existsSync(REPORT_DIR)) {
   fs.mkdirSync(REPORT_DIR, { recursive: true });
 }
 
-// Outline colours based on rarity
+// Rarity outline colours
 const rarityOutline = {
   paradox: "#a855f7",
   roamerMonth: "#ec4899",
@@ -23,6 +24,7 @@ const rarityOutline = {
   common: "#4ade80"
 };
 
+// Rounded-rect helper
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -38,28 +40,28 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-async function drawSprite(ctx, x, y, spriteW, spriteH, pokemonName) {
+// Pixel-perfect sprite (no scaling)
+async function drawSpriteCentered(ctx, areaX, areaY, areaW, areaH, pokemonName) {
   if (!pokemonName) return;
 
-  const p = path.join(SPRITES_DIR, `${pokemonName}.png`);
-  if (!fs.existsSync(p)) return;
+  const spritePath = path.join(SPRITES_DIR, `${pokemonName}.png`);
+  if (!fs.existsSync(spritePath)) return;
 
-  const img = await loadImage(p);
-
-  const imgRatio = img.width / img.height;
-  const boxRatio = spriteW / spriteH;
-
-  let drawW = spriteW;
-  let drawH = spriteH;
-
-  if (imgRatio > boxRatio) {
-    drawH = drawW / imgRatio;
-  } else {
-    drawW = drawH * imgRatio;
+  let img;
+  try {
+    img = await loadImage(spritePath);
+  } catch {
+    return;
   }
 
-  const dx = x + (spriteW - drawW) / 2;
-  const dy = y + (spriteH - drawH) / 2;
+  const centerX = areaX + areaW / 2;
+  const centerY = areaY + areaH / 2;
+
+  const drawW = img.width;
+  const drawH = img.height;
+
+  const dx = centerX - drawW / 2;
+  const dy = centerY - drawH / 2;
 
   ctx.drawImage(img, dx, dy, drawW, drawH);
 }
@@ -73,139 +75,186 @@ async function createReportCard(report) {
     rarityLabel,
     points,
     location,
-    statusText
+    expired,
+    statusText,
+    backgroundImagePath
   } = report;
+
+  const outlineColor = rarityOutline[rarityKey] || "#ffffff";
+  const statusLine = statusText || (expired ? "Expired" : "Active");
 
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // Background transparent for route backgrounds
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  // ─────────────────────────────
+  // BACKGROUND (can swap to route art later)
+  // ─────────────────────────────
+  if (backgroundImagePath && fs.existsSync(backgroundImagePath)) {
+    const bg = await loadImage(backgroundImagePath);
+    ctx.drawImage(bg, 0, 0, CARD_WIDTH, CARD_HEIGHT);
+  } else {
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  }
 
-  const innerWidth = CARD_WIDTH - MARGIN * 2;
-  const innerHeight = CARD_HEIGHT - MARGIN * 2;
+  // Inner usable area after margins
+  const innerW = CARD_WIDTH - MARGIN * 2;
+  const innerH = CARD_HEIGHT - MARGIN * 2;
 
-  const leftW = Math.floor(innerWidth * 0.50); // 10% narrower
-  const rightW = innerWidth - leftW;
+  // Geometry: | MARGIN | PANEL | gap | SPRITE AREA | MARGIN |
+  const gap = MARGIN; // 5% spacing between panel and sprite region
+  const availableW = innerW - gap;
 
-  const leftX = MARGIN;
-  const rightX = leftX + leftW;
-  const leftY = MARGIN;
+  // Panel width = 55% of available area (panel + sprite)
+  const panelW = Math.round(availableW * 0.55);
+  const spriteAreaW = availableW - panelW;
 
-  // ──────────────────────────────
-  // LEFT PANEL — Full Height
-  // ──────────────────────────────
-  const panelW = leftW;
-  const panelH = innerHeight - 160; // leave space for full-width route bar
+  const panelX = MARGIN;
+  const spriteAreaX = panelX + panelW + gap;
 
+  // ROUTE bar height (previously ~11% innerH, now +15%)
+  const baseRouteRatio = 0.111;
+  const routeRatio = baseRouteRatio * 1.15; // +15%
+  const routeH = Math.round(innerH * routeRatio);
+
+  const routeY = CARD_HEIGHT - MARGIN - routeH;
+  const routeX = MARGIN;
+  const routeW = innerW;
+
+  // Available vertical space above route bar
+  const availableHForPanel = routeY - MARGIN;
+
+  // Panel height = 75% of this available space (reduced by 25%)
+  const panelH = Math.round(availableHForPanel * 0.75);
+
+  // Vertically center panel within this available area
+  const panelY = MARGIN + Math.round((availableHForPanel - panelH) / 2);
+
+  // Sprite area is entire vertical strip above route bar
+  const spriteAreaY = MARGIN;
+  const spriteAreaH = availableHForPanel;
+
+  // ─────────────────────────────
+  // MAIN TEXT PANEL
+  // ─────────────────────────────
   ctx.save();
-  roundedRectPath(ctx, leftX, leftY, panelW, panelH, 40);
-  ctx.fillStyle = "rgba(180, 180, 180, 0.50)";
+  roundedRectPath(ctx, panelX, panelY, panelW, panelH, 40);
+  ctx.fillStyle = "rgba(180,180,180,0.5)"; // 50% light grey
   ctx.fill();
   ctx.lineWidth = 10;
-  ctx.strokeStyle = rarityOutline[rarityKey] || "#ffffff";
+  ctx.strokeStyle = outlineColor;
   ctx.stroke();
   ctx.restore();
 
-  // FONT SETTINGS
-  const LABEL_COLOR = "#facc15"; // gold label
+  // Typography
+  const LABEL_COLOR = "#facc15"; // gold
   const VALUE_COLOR = "#ffffff";
-  const FONT_SIZE = 66;
-  const lineHeight = FONT_SIZE * 1.28;
+  const FONT_SIZE = 66;         // +10% from 60
+  const LINE_HEIGHT = FONT_SIZE * 1.28;
 
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
+  ctx.textBaseline = "top";
+  ctx.textAlign = "left";
 
+  // Fields (Trainer + Rank grouped logically)
   const fields = [
-    { label: "Trainer:", value: trainerName },
-    { label: "Rank:", value: trainerRank },
+    { label: "Trainer:", value: trainerName || "Unknown" },
+    { label: "Rank:", value: trainerRank || "Trainer" },
     { spacer: true },
-    { label: "Pokémon:", value: pokemonName },
+    { label: "Pokémon:", value: pokemonName || "Unknown" },
     { spacer: true },
-    { label: "Rarity:", value: rarityLabel },
+    { label: "Rarity:", value: rarityLabel || "Unknown" },
     { spacer: true },
     { label: "Points:", value: String(points || 0) },
     { spacer: true },
-    { label: "Status:", value: statusText || "Active" }
+    { label: "Status:", value: statusLine }
   ];
 
-  const nonSpacers = fields.filter(x => !x.spacer).length;
-  const spacers = fields.length - nonSpacers;
-
-  const textBlockHeight = nonSpacers * lineHeight + spacers * (lineHeight * 0.55);
-  let currentY = leftY + (panelH - textBlockHeight) / 2 + lineHeight * 0.25;
-
-  let maxLabelWidth = 0;
-  fields.forEach(f => {
-    if (!f.spacer && f.label) {
-      const w = ctx.measureText(f.label).width;
-      if (w > maxLabelWidth) maxLabelWidth = w;
+  // Determine label column width
+  let maxLabelW = 0;
+  for (const row of fields) {
+    if (!row.spacer && row.label) {
+      const w = ctx.measureText(row.label).width;
+      if (w > maxLabelW) maxLabelW = w;
     }
-  });
+  }
 
-  const labelX = leftX + 70;
-  const valueX = labelX + maxLabelWidth + 45;
+  const innerPadX = Math.round(panelW * 0.05); // slight inset from left border
+  const labelX = panelX + innerPadX;
+  const valueX = labelX + maxLabelW + 45;
 
-  fields.forEach(f => {
-    if (f.spacer) {
-      currentY += lineHeight * 0.55;
-      return;
+  // Compute total block height for vertical centering
+  const nonSpacerCount = fields.filter(r => !r.spacer).length;
+  const spacerCount = fields.length - nonSpacerCount;
+  const spacerHeight = LINE_HEIGHT * 0.55;
+
+  const textBlockHeight =
+    nonSpacerCount * LINE_HEIGHT + spacerCount * spacerHeight;
+
+  let currentY =
+    panelY + (panelH - textBlockHeight) / 2 + LINE_HEIGHT * 0.1;
+
+  for (const row of fields) {
+    if (row.spacer) {
+      currentY += spacerHeight;
+      continue;
     }
 
     // Label
     ctx.fillStyle = LABEL_COLOR;
-    ctx.fillText(f.label, labelX, currentY);
+    ctx.fillText(row.label, labelX, currentY);
 
     // Value
     ctx.fillStyle = VALUE_COLOR;
-    ctx.fillText(f.value, valueX, currentY);
+    ctx.fillText(row.value, valueX, currentY);
 
-    currentY += lineHeight;
-  });
+    currentY += LINE_HEIGHT;
+  }
 
-  // ──────────────────────────────
-  // SPRITE — floating right
-  // ──────────────────────────────
-  const spritePadding = 60;
-  const spriteW = rightW - spritePadding * 2;
-  const spriteH = panelH - spritePadding * 2;
-
-  await drawSprite(
+  // ─────────────────────────────
+  // SPRITE — pixel-perfect, centered in its area
+  // ─────────────────────────────
+  await drawSpriteCentered(
     ctx,
-    rightX + spritePadding,
-    leftY + spritePadding,
-    spriteW,
-    spriteH,
+    spriteAreaX,
+    spriteAreaY,
+    spriteAreaW,
+    spriteAreaH,
     pokemonName
   );
 
-  // ──────────────────────────────
-  // FULL-WIDTH ROUTE BOX
-  // ──────────────────────────────
-  const routeX = MARGIN;
-  const routeH = 120;
-  const routeY = CARD_HEIGHT - MARGIN - routeH;
-  const routeW = innerWidth;
-
+  // ─────────────────────────────
+  // FULL-WIDTH ROUTE BOX (BOTTOM)
+  // ─────────────────────────────
   ctx.save();
-  roundedRectPath(ctx, routeX, routeY, routeW, routeH, 35);
-  ctx.fillStyle = "#ffffff"; // solid white
+  roundedRectPath(ctx, routeX, routeY, routeW, routeH, 40);
+  ctx.fillStyle = "#ffffff"; // solid white background
   ctx.fill();
   ctx.lineWidth = 10;
-  ctx.strokeStyle = rarityOutline[rarityKey] || "#ffffff";
+  ctx.strokeStyle = outlineColor; // same border as main panel
   ctx.stroke();
   ctx.restore();
 
-  // Route text centered in X and Y
-  ctx.font = `bold ${FONT_SIZE + 20}px sans-serif`;
-  ctx.fillStyle = "#000000"; // black text
+  // Route text: bold black, +15% font size, centered X+Y
+  const routeFontSize = Math.round(FONT_SIZE * 1.15);
+  ctx.font = `bold ${routeFontSize}px sans-serif`;
+  ctx.fillStyle = "#000000";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(location || "Unknown Route", routeX + routeW / 2, routeY + routeH / 2);
 
-  // Save file
-  const safe = pokemonName?.toLowerCase()?.replace(/[^a-z0-9]+/g, "-") || "pokemon";
-  const filePath = path.join(REPORT_DIR, `report_${safe}_${Date.now()}.png`);
+  const routeName = location || "Unknown Route";
+  ctx.fillText(routeName, routeX + routeW / 2, routeY + routeH / 2);
+
+  // ─────────────────────────────
+  // SAVE FILE
+  // ─────────────────────────────
+  const safe =
+    (pokemonName || "pokemon").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const filePath = path.join(
+    REPORT_DIR,
+    `report_${safe}_${Date.now()}.png`
+  );
+
   fs.writeFileSync(filePath, canvas.toBuffer("image/png"));
   return filePath;
 }
