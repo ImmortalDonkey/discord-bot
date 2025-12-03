@@ -10,22 +10,23 @@ const {
   TextInputStyle,
   ActionRowBuilder
 } = require("discord.js");
+const fs = require("fs");
 
 module.exports = {
   ids: ["reportedit_", "reportdelete_"],
 
   async execute(client, interaction) {
-    const id = interaction.customId;
+    const customId = interaction.customId;
 
     let action = null;
     let reportId = null;
 
-    if (id.startsWith("reportedit_")) {
+    if (customId.startsWith("reportedit_")) {
       action = "edit";
-      reportId = id.replace("reportedit_", "");
-    } else if (id.startsWith("reportdelete_")) {
+      reportId = customId.replace("reportedit_", "");
+    } else if (customId.startsWith("reportdelete_")) {
       action = "delete";
-      reportId = id.replace("reportdelete_", "");
+      reportId = customId.replace("reportdelete_", "");
     } else {
       return;
     }
@@ -34,69 +35,69 @@ module.exports = {
     if (!report) {
       return interaction.reply({
         content: "❌ Report no longer exists.",
-        ephemeral: true
+        flags: 64
       });
     }
 
-    // Only original reporter can modify
-    if (report.reporter_id !== interaction.user.id) {
+    // -------------------------
+    // Permission check (FIXED)
+    // -------------------------
+    if (interaction.user.id !== report.reporterId) {
       return interaction.reply({
         content: "⛔ Only the original reporter can modify this report.",
-        ephemeral: true
+        flags: 64
       });
     }
 
-    // ────────────────────────────────────────
+    // ───────────────────────────────
     // DELETE REPORT
-    // ────────────────────────────────────────
+    // ───────────────────────────────
     if (action === "delete") {
       try {
-        const channel = await client.channels.fetch(report.channel_id).catch(() => null);
+        const channel = await client.channels.fetch(report.channelId).catch(() => null);
         if (channel) {
-          const msg = await channel.messages.fetch(report.message_id).catch(() => null);
-          if (msg) await msg.delete().catch(() => {});
+          const message = await channel.messages.fetch(report.messageId).catch(() => null);
+          if (message) await message.delete().catch(() => {});
         }
 
-        const fs = require("fs");
-        if (report.image_path && fs.existsSync(report.image_path)) {
-          fs.unlinkSync(report.image_path);
+        if (report.imagePath && fs.existsSync(report.imagePath)) {
+          fs.unlinkSync(report.imagePath);
         }
 
         await db.deleteReport(reportId);
 
         return interaction.reply({
           content: "🗑 **Report deleted successfully.**",
-          ephemeral: true
+          flags: 64
         });
-
       } catch (err) {
         console.error("❌ Delete error:", err);
         return interaction.reply({
           content: "❌ Failed to delete report.",
-          ephemeral: true
+          flags: 64
         });
       }
     }
 
-    // ────────────────────────────────────────
-    // EDIT REPORT — OPEN MODAL
-    // ────────────────────────────────────────
+    // ───────────────────────────────
+    // EDIT REPORT — Show Modal
+    // ───────────────────────────────
     if (action === "edit") {
       const modal = new ModalBuilder()
-        .setCustomId(`reportedit_${reportId}`)
+        .setCustomId(`reporteditmodal_${reportId}`)
         .setTitle("Edit Report");
 
       const pokemonInput = new TextInputBuilder()
         .setCustomId("pokemon")
         .setLabel("New Pokémon (optional)")
-        .setPlaceholder("Leave blank to keep current")
+        .setPlaceholder(report.pokemonName || "Keep current")
         .setStyle(TextInputStyle.Short)
         .setRequired(false);
 
       const routeInput = new TextInputBuilder()
         .setCustomId("route")
         .setLabel("New Route (optional)")
-        .setPlaceholder("Leave blank to keep current")
+        .setPlaceholder(report.location || "Keep current")
         .setStyle(TextInputStyle.Short)
         .setRequired(false);
 
