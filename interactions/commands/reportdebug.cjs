@@ -70,7 +70,7 @@ module.exports = {
 
     const reportId = `report_${Date.now()}_${user.id}`;
 
-    // Render card PNG
+    // Render report card PNG
     const cardPath = await createReportCard({
       trainerName,
       trainerRank,
@@ -90,7 +90,7 @@ module.exports = {
       });
     }
 
-    // Action Row
+    // Buttons
     const controls = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`reportedit_${reportId}`)
@@ -108,25 +108,25 @@ module.exports = {
       components: [controls]
     });
 
-    // 🚀 INSERT DB ROW — with correct column names
+    // DB SAVE — using correct camelCase fields 🚀
     await db.createReport({
       id: reportId,
-      guild_id: interaction.guild.id,
-      reporter_id: user.id,
-      reporter_name: trainerName,
-      pokemon_name: pokemon,
-      rarity_key: rarityKey,
-      rarity_label: rarityLabel,
+      guildId: interaction.guild.id,
+      reporterId: user.id,
+      reporterName: trainerName,
+      pokemonName: pokemon,
+      rarityKey,
+      rarityLabel,
       location: route,
-      trainer_rank: trainerRank,
+      trainerRank,
       points,
       status: "active",
-      channel_id: sent.channelId,
-      message_id: sent.id,
-      image_path: cardPath,
-      expires_at: expiresAt.getTime(),
-      delete_at: deleteAt,
-      created_at: now.getTime()
+      channelId: sent.channelId,
+      messageId: sent.id,
+      imagePath: cardPath,
+      expiresAt: expiresAt.getTime(),
+      deleteAt,
+      createdAt: now.getTime()
     });
 
     return interaction.followUp({
