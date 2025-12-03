@@ -7,24 +7,23 @@ const { createReportCard } = require("../../renderers/reportCard.cjs");
 const fs = require("fs");
 
 module.exports = {
-  idPrefix: "reporteditmodal_",
+  idPrefix: "reporteditmodal_",  // 🔹 modal handler uses its own prefix
 
-  async execute(client, interaction, idSuffix) {
-    const reportId = idSuffix;
+  async execute(client, interaction, reportId) {
+
     const report = await db.getReport(reportId);
-
     if (!report) {
       return interaction.reply({
         content: "❌ This report no longer exists.",
-        flags: 64
+        ephemeral: true
       });
     }
 
-    // Permission check again
+    // Permission check
     if (interaction.user.id !== report.reporterId) {
       return interaction.reply({
-        content: "⛔ Only the original reporter can modify this report.",
-        flags: 64
+        content: "⛔ Only the original reporter can edit this report.",
+        ephemeral: true
       });
     }
 
@@ -33,57 +32,66 @@ module.exports = {
 
     if (!newPokemon && !newRoute) {
       return interaction.reply({
-        content: "⚠ No changes entered.",
-        flags: 64
+        content: "⚠ Please change at least one field.",
+        ephemeral: true
       });
     }
 
-    // Apply updates
-    const updatedPatch = {};
+    // Build DB update data (snake_case db schema!)
+    let patch = {};
 
     if (newPokemon) {
       const rarityKey = getRarity(newPokemon);
-      updatedPatch.pokemonName = newPokemon;
-      updatedPatch.rarityKey = rarityKey;
-      updatedPatch.rarityLabel = getRarityDisplayLabel(rarityKey);
-      updatedPatch.points = calculateAwardedPoints(rarityKey, new Date());
+      patch.pokemon_name = newPokemon;
+      patch.rarity_key = rarityKey;
+      patch.rarity_label = getRarityDisplayLabel(rarityKey);
+      patch.points = calculateAwardedPoints(rarityKey, new Date());
+      patch.trainer_rank = getRankName(patch.points);
     }
-    if (newRoute) updatedPatch.location = newRoute;
 
-    const updated = await db.updateReport(reportId, updatedPatch);
+    if (newRoute) {
+      patch.location = newRoute;
+    }
 
-    // Re-render card
+    const updated = await db.updateReport(reportId, patch);
+
+    // Render updated card
     const newCardPath = await createReportCard({
       trainerName: updated.reporterName,
-      trainerRank: updated.trainerRank || getRankName(updated.points || 0),
+      trainerRank: updated.trainerRank,
       pokemonName: updated.pokemonName,
       rarityKey: updated.rarityKey,
       rarityLabel: updated.rarityLabel,
       points: updated.points,
       location: updated.location,
-      statusText: updated.status === "expired" ? "Expired" : "Active"
+      statusText: updated.status === "expired" ? "Expired" : "Active",
     });
 
-    // Remove old image to avoid disk clutter
+    // Delete previous card image if exists
     if (report.imagePath && fs.existsSync(report.imagePath)) {
       fs.unlinkSync(report.imagePath);
     }
 
-    // Update message in channel
-    const channel = await client.channels.fetch(updated.channelId).catch(() => null);
-    if (channel) {
-      const msg = await channel.messages.fetch(updated.messageId).catch(() => null);
-      if (msg) {
-        await msg.edit({ files: [newCardPath] }).catch(() => {});
-      }
+    // Update database with new image path
+    await db.updateReport(reportId, { image_path: newCardPath });
+
+    // Edit the message in Discord
+    try {
+      const channel = await client.channels.fetch(updated.channelId);
+      const msg = await channel.messages.fetch(updated.messageId);
+
+      await msg.edit({
+        content: `🕵️ **Report Updated:** ${updated.pokemonName} — ${updated.location}`,
+        files: [newCardPath]
+      });
+
+    } catch (err) {
+      console.error("❌ Failed to update message:", err);
     }
 
-    // Save new image
-    await db.updateReport(reportId, { imagePath: newCardPath });
-
     return interaction.reply({
-      content: "✏ Report updated successfully!",
-      flags: 64
+      content: "✏ Report successfully updated!",
+      ephemeral: true
     });
   }
 };
