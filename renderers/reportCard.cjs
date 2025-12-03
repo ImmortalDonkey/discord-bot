@@ -1,3 +1,4 @@
+// renderers/reportCard.cjs
 const fs = require("fs");
 const path = require("path");
 const { createCanvas, loadImage } = require("canvas");
@@ -13,32 +14,34 @@ if (!fs.existsSync(REPORT_DIR)) {
   fs.mkdirSync(REPORT_DIR, { recursive: true });
 }
 
-// Rarity gradient styles
+// ───────────────────────────────────────────────────────────────
+// Rarity styles
+// ───────────────────────────────────────────────────────────────
 const rarityStyles = {
   paradox: {
     gradientFrom: "#3b82f6",
     gradientTo: "#a855f7",
-    boxColor: "rgba(15, 23, 42, 0.95)"
+    boxColor: "rgba(15,23,42,0.95)"
   },
   roamerMonth: {
     gradientFrom: "#f97316",
     gradientTo: "#ec4899",
-    boxColor: "rgba(17, 24, 39, 0.95)"
+    boxColor: "rgba(17,24,39,0.95)"
   },
   legendary: {
     gradientFrom: "#1d4ed8",
     gradientTo: "#22d3ee",
-    boxColor: "rgba(15, 23, 42, 0.95)"
+    boxColor: "rgba(15,23,42,0.95)"
   },
   rare: {
     gradientFrom: "#1d4ed8",
     gradientTo: "#22d3ee",
-    boxColor: "rgba(15, 23, 42, 0.95)"
+    boxColor: "rgba(15,23,42,0.95)"
   },
   common: {
     gradientFrom: "#16a34a",
     gradientTo: "#0f766e",
-    boxColor: "rgba(5, 46, 22, 0.95)"
+    boxColor: "rgba(5,46,22,0.95)"
   }
 };
 
@@ -46,21 +49,27 @@ function getStyleForRarity(key) {
   return rarityStyles[key] || rarityStyles.common;
 }
 
-function roundedRectPath(ctx, x, y, w, h, radius) {
-  const r = Math.min(radius, w / 2, h / 2);
+// ───────────────────────────────────────────────────────────────
+// Rounded rectangle helper
+// ───────────────────────────────────────────────────────────────
+function roundedRectPath(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
 }
 
+// ───────────────────────────────────────────────────────────────
+// Word wrap
+// ───────────────────────────────────────────────────────────────
 function wrapText(ctx, text, maxWidth, lineHeight) {
   const words = String(text || "").split(/\s+/);
   const lines = [];
@@ -75,25 +84,25 @@ function wrapText(ctx, text, maxWidth, lineHeight) {
       current = test;
     }
   }
-
   if (current) lines.push(current);
   return lines.length ? lines : [""];
 }
 
+// ───────────────────────────────────────────────────────────────
+// Pokémon sprite loader
+// ───────────────────────────────────────────────────────────────
 function getSpritePathForPokemon(name) {
   if (!name) return null;
   return path.join(SPRITES_DIR, `${name}.png`);
 }
 
-// ⭐ FINAL SPRITE DRAWER WITH 5% REDUCTION
 async function drawFullSprite(ctx, x, y, boxW, boxH, pokemonName) {
   const spritePath = getSpritePathForPokemon(pokemonName);
 
   let img = null;
   try {
-    if (spritePath && fs.existsSync(spritePath)) {
+    if (spritePath && fs.existsSync(spritePath))
       img = await loadImage(spritePath);
-    }
   } catch {
     img = null;
   }
@@ -107,23 +116,32 @@ async function drawFullSprite(ctx, x, y, boxW, boxH, pokemonName) {
     return;
   }
 
-  const scale = 0.95; // ⭐ 5% reduction
-
   const imgRatio = img.width / img.height;
-  let drawW = boxW * scale;
-  let drawH = drawW / imgRatio;
+  const boxRatio = boxW / boxH;
 
-  if (drawH > boxH * scale) {
-    drawH = boxH * scale;
+  let drawW = boxW;
+  let drawH = boxH;
+
+  if (imgRatio > boxRatio) {
+    drawW = boxW;
+    drawH = drawW / imgRatio;
+  } else {
+    drawH = boxH;
     drawW = drawH * imgRatio;
   }
 
-  const dx = x + (boxW - drawW) / 2;
-  const dy = y + (boxH - drawH) / 2;
-
-  ctx.drawImage(img, dx, dy, drawW, drawH);
+  ctx.drawImage(
+    img,
+    x + (boxW - drawW) / 2,
+    y + (boxH - drawH) / 2,
+    drawW,
+    drawH
+  );
 }
 
+// ───────────────────────────────────────────────────────────────
+// MAIN CARD RENDERER
+// ───────────────────────────────────────────────────────────────
 async function createReportCard(report) {
   const {
     trainerName,
@@ -143,36 +161,37 @@ async function createReportCard(report) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // Background gradient
+  // Background with gradient + overlay
   const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
   gradient.addColorStop(0, style.gradientFrom);
   gradient.addColorStop(1, style.gradientTo);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  ctx.fillStyle = "rgba(0, 0, 0, 0.20)";
+  ctx.fillStyle = "rgba(0,0,0,0.20)";
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
   // Layout
-  const innerW = CARD_WIDTH - 2 * MARGIN;
-  const innerH = CARD_HEIGHT - 2 * MARGIN;
+  const innerW = CARD_WIDTH - MARGIN * 2;
+  const innerH = CARD_HEIGHT - MARGIN * 2;
+  const colGap = 40;
+  const rowGap = 40;
 
-  const gapX = 40;
-  const gapY = 40;
+  const leftW = Math.round((innerW - colGap) * 0.6);
+  const rightW = innerW - colGap - leftW;
 
-  const leftW = Math.round((innerW - gapX) * 0.6);
-  const rightW = innerW - gapX - leftW;
+  const topH = rightW; // sprite box is square
+  const bottomH = innerH - topH - rowGap;
 
   const leftX = MARGIN;
-  const rightX = leftX + leftW + gapX;
-
-  const topH = rightW; // square
-  const bottomH = innerH - topH - gapY;
+  const rightX = leftX + leftW + colGap;
 
   const topY = MARGIN;
-  const bottomY = topY + topH + gapY;
+  const bottomY = topY + topH + rowGap;
 
-  // TOP-LEFT INFO BOX
+  // ───────────────────────────────────────────────────────────────
+  // TOP-LEFT INFO BOX (with *true* centered block)
+  // ───────────────────────────────────────────────────────────────
   const infoX = leftX;
   const infoY = topY;
   const infoW = leftW;
@@ -189,65 +208,54 @@ async function createReportCard(report) {
 
   const FONT_SIZE = 60;
   const lineHeight = FONT_SIZE * 1.25;
-  const groupSpacing = lineHeight * 0.7;
+  const groupSpacing = lineHeight * 0.6;
 
   const infoRows = [
-    { label: "Trainer:", value: trainerName || "Unknown" },
-    { label: "Rank:", value: trainerRank || "Trainer" },
+    { label: "Trainer:", value: trainerName },
+    { label: "Rank:", value: trainerRank },
     { spacer: true },
-
     { label: "Pokémon:", value: pokemonName },
     { spacer: true },
-
     { label: "Rarity:", value: rarityLabel },
     { spacer: true },
-
-    { label: "Points:", value: String(points || 0) }
+    { label: "Points:", value: String(points) }
   ];
 
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
 
-  // Measure labels
   let maxLabelWidth = 0;
-  for (const r of infoRows) {
-    if (!r.spacer && r.label) {
-      const w = ctx.measureText(r.label).width;
-      if (w > maxLabelWidth) maxLabelWidth = w;
-    }
-  }
+  for (const r of infoRows)
+    if (!r.spacer && r.label)
+      maxLabelWidth = Math.max(maxLabelWidth, ctx.measureText(r.label).width);
 
   const labelX = infoX + 60;
-  const labelGap = 40;
-  const valueX = labelX + maxLabelWidth + labelGap;
+  const valueX = labelX + maxLabelWidth + 40;
 
-  // Compute total content height
-  const nonSpacerCount = infoRows.filter(r => !r.spacer).length;
-  const spacerCount = infoRows.length - nonSpacerCount;
+  const nonSpacer = infoRows.filter(r => !r.spacer).length;
+  const spacerCount = infoRows.length - nonSpacer;
 
-  const contentHeight =
-    nonSpacerCount * lineHeight +
-    spacerCount * groupSpacing;
+  const totalTextHeight =
+    nonSpacer * lineHeight + spacerCount * groupSpacing;
 
-  // PERFECT CENTER
-  let drawY = infoY + (infoH - contentHeight) / 2;
+  let y = infoY + infoH / 2 - totalTextHeight / 2;
 
-  // Draw all rows
-  for (const r of infoRows) {
-    if (r.spacer) {
-      drawY += groupSpacing;
+  ctx.textBaseline = "top"; // consistent alignment
+
+  for (const row of infoRows) {
+    if (row.spacer) {
+      y += groupSpacing;
       continue;
     }
-
     ctx.fillStyle = "#facc15";
-    ctx.fillText(r.label, labelX, drawY);
-
+    ctx.fillText(row.label, labelX, y);
     ctx.fillStyle = "#f9fafb";
-    ctx.fillText(r.value, valueX, drawY);
-
-    drawY += lineHeight;
+    ctx.fillText(row.value, valueX, y);
+    y += lineHeight;
   }
 
+  // ───────────────────────────────────────────────────────────────
   // TOP-RIGHT SPRITE BOX
+  // ───────────────────────────────────────────────────────────────
   const spriteX = rightX;
   const spriteY = topY;
   const spriteW = rightW;
@@ -256,17 +264,14 @@ async function createReportCard(report) {
   ctx.save();
   roundedRectPath(ctx, spriteX, spriteY, spriteW, spriteH, 40);
   ctx.fillStyle = style.boxColor;
-  ctx.fill();
-  ctx.lineWidth = 8;
-  ctx.strokeStyle = "#f9fafb";
-  ctx.stroke();
-  ctx.clip();
-
+  ctx.fill(); ctx.strokeStyle = "#f9fafb"; ctx.lineWidth = 8;
+  ctx.stroke(); ctx.clip();
   await drawFullSprite(ctx, spriteX, spriteY, spriteW, spriteH, pokemonName);
-
   ctx.restore();
 
-  // BOTTOM-LEFT AVAILABILITY BOX
+  // ───────────────────────────────────────────────────────────────
+  // BOTTOM-LEFT — **TRUE CENTER**
+  // ───────────────────────────────────────────────────────────────
   const blX = leftX;
   const blY = bottomY;
   const blW = leftW;
@@ -281,24 +286,27 @@ async function createReportCard(report) {
   ctx.stroke();
   ctx.restore();
 
-  const availability =
-    availabilityText ||
-    (expired ? "No longer available" : "Available until end of the hour");
+  const avail =
+    availabilityText || (expired ? "No longer available" : "Available until end of the hour");
 
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
-  ctx.textAlign = "center";
   ctx.fillStyle = "#facc15";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
 
-  const availLines = wrapText(ctx, availability, blW - 100, lineHeight);
-  const availTotalHeight = availLines.length * lineHeight;
+  const availLines = wrapText(ctx, avail, blW - 120, lineHeight);
+  const blockH = availLines.length * lineHeight;
 
-  let ay = blY + (blH - availTotalHeight) / 2;
+  let centerY = blY + blH / 2 - blockH / 2 + lineHeight / 2;
+
   for (const line of availLines) {
-    ctx.fillText(line, blX + blW / 2, ay);
-    ay += lineHeight;
+    ctx.fillText(line, blX + blW / 2, centerY);
+    centerY += lineHeight;
   }
 
-  // BOTTOM-RIGHT ROUTE BOX
+  // ───────────────────────────────────────────────────────────────
+  // BOTTOM-RIGHT — **TRUE CENTER**
+  // ───────────────────────────────────────────────────────────────
   const brX = rightX;
   const brY = bottomY;
   const brW = rightW;
@@ -307,25 +315,21 @@ async function createReportCard(report) {
   ctx.save();
   roundedRectPath(ctx, brX, brY, brW, brH, 40);
   ctx.fillStyle = style.boxColor;
-  ctx.fill();
-  ctx.lineWidth = 8;
+  ctx.fill(); ctx.lineWidth = 8;
   ctx.strokeStyle = "#f9fafb";
   ctx.stroke();
   ctx.restore();
 
-  const routeLines = wrapText(
-    ctx,
-    location || "Unknown route",
-    brW - 100,
-    lineHeight
-  );
-  const routeTotalHeight = routeLines.length * lineHeight;
-
   ctx.font = `bold ${FONT_SIZE + 10}px sans-serif`;
-  ctx.textAlign = "center";
   ctx.fillStyle = "#f9fafb";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
 
-  let ry = brY + (brH - routeTotalHeight) / 2;
+  const routeLines = wrapText(ctx, location, brW - 120, lineHeight);
+  const routeBlockH = routeLines.length * lineHeight;
+
+  let ry = brY + brH / 2 - routeBlockH / 2 + lineHeight / 2;
+
   for (const line of routeLines) {
     ctx.fillText(line, brX + brW / 2, ry);
     ry += lineHeight;
@@ -334,10 +338,10 @@ async function createReportCard(report) {
   // Save file
   const safe = pokemonName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const filepath = path.join(REPORT_DIR, `report_${safe}_${Date.now()}.png`);
-
   fs.writeFileSync(filepath, canvas.toBuffer("image/png"));
-
   return filepath;
 }
 
-module.exports = { createReportCard };
+module.exports = {
+  createReportCard
+};
