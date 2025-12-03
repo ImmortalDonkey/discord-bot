@@ -1,86 +1,88 @@
 // interactions/modals/reportEditModal.cjs
-// Applies edits: re-renders card + updates DB + updates Discord message
-
 const db = require("../../database.cjs");
-const { createReportCard } = require("../../renderers/reportCard.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
+const { calculateAwardedPoints } = require("../../utils/scoring.cjs");
+const { getRankName } = require("../../utils/rankSystem.cjs");
+const { createReportCard } = require("../../renderers/reportCard.cjs");
+const fs = require("fs");
 
 module.exports = {
-  ids: ["reportedit_"],
+  idPrefix: "reporteditmodal_",
 
-  async execute(client, interaction) {
-    const id = interaction.customId.replace("reportedit_", "");
+  async execute(client, interaction, idSuffix) {
+    const reportId = idSuffix;
+    const report = await db.getReport(reportId);
 
-    const newPokemon = interaction.fields.getTextInputValue("pokemon") || "";
-    const newRoute = interaction.fields.getTextInputValue("route") || "";
+    if (!report) {
+      return interaction.reply({
+        content: "❌ This report no longer exists.",
+        flags: 64
+      });
+    }
 
-    // Must edit at least one field
+    // Permission check again
+    if (interaction.user.id !== report.reporterId) {
+      return interaction.reply({
+        content: "⛔ Only the original reporter can modify this report.",
+        flags: 64
+      });
+    }
+
+    const newPokemon = interaction.fields.getTextInputValue("pokemon")?.trim();
+    const newRoute = interaction.fields.getTextInputValue("route")?.trim();
+
     if (!newPokemon && !newRoute) {
       return interaction.reply({
-        content: "❌ You must change **Pokémon**, **Route**, or both.",
+        content: "⚠ No changes entered.",
         flags: 64
       });
     }
 
-    // Load report
-    const r = await db.getReport(id);
-    if (!r) {
-      return interaction.reply({ content: "❌ Report not found.", flags: 64 });
+    // Apply updates
+    const updatedPatch = {};
+
+    if (newPokemon) {
+      const rarityKey = getRarity(newPokemon);
+      updatedPatch.pokemonName = newPokemon;
+      updatedPatch.rarityKey = rarityKey;
+      updatedPatch.rarityLabel = getRarityDisplayLabel(rarityKey);
+      updatedPatch.points = calculateAwardedPoints(rarityKey, new Date());
     }
+    if (newRoute) updatedPatch.location = newRoute;
 
-    // Reporter permission
-    if (r.reporter_id !== interaction.user.id) {
-      return interaction.reply({
-        content: "⛔ Only the original reporter can edit this.",
-        flags: 64
-      });
-    }
-
-    // Apply edits
-    const pokemonName = newPokemon || r.pokemon_name;
-    const location = newRoute || r.location;
-
-    // Recompute rarity from new Pokémon
-    const rarityKey = getRarity(pokemonName);
-    const rarityLabel = getRarityDisplayLabel(rarityKey);
+    const updated = await db.updateReport(reportId, updatedPatch);
 
     // Re-render card
-    const cardPath = await createReportCard({
-      trainerName: r.reporter_name,
-      trainerRank: r.trainer_rank || "Trainer",
-      pokemonName,
-      rarityKey,
-      rarityLabel,
-      points: r.points,
-      location,
-      statusText: "Active"
+    const newCardPath = await createReportCard({
+      trainerName: updated.reporterName,
+      trainerRank: updated.trainerRank || getRankName(updated.points || 0),
+      pokemonName: updated.pokemonName,
+      rarityKey: updated.rarityKey,
+      rarityLabel: updated.rarityLabel,
+      points: updated.points,
+      location: updated.location,
+      statusText: updated.status === "expired" ? "Expired" : "Active"
     });
 
-    // Edit Discord message
-    try {
-      const channel = await client.channels.fetch(r.channel_id);
-      const msg = await channel.messages.fetch(r.message_id);
-
-      await msg.edit({
-        content: `✏️ **Edited Report**`,
-        files: [cardPath],
-        components: msg.components // keep buttons
-      });
-    } catch (err) {
-      console.error("❌ Message edit error:", err);
+    // Remove old image to avoid disk clutter
+    if (report.imagePath && fs.existsSync(report.imagePath)) {
+      fs.unlinkSync(report.imagePath);
     }
 
-    // Update DB
-    await db.updateReport(id, {
-      pokemon_name: pokemonName,
-      rarity_key: rarityKey,
-      rarity_label: rarityLabel,
-      location,
-      image_path: cardPath
-    });
+    // Update message in channel
+    const channel = await client.channels.fetch(updated.channelId).catch(() => null);
+    if (channel) {
+      const msg = await channel.messages.fetch(updated.messageId).catch(() => null);
+      if (msg) {
+        await msg.edit({ files: [newCardPath] }).catch(() => {});
+      }
+    }
+
+    // Save new image
+    await db.updateReport(reportId, { imagePath: newCardPath });
 
     return interaction.reply({
-      content: "✔ **Report updated successfully.**",
+      content: "✏ Report updated successfully!",
       flags: 64
     });
   }
