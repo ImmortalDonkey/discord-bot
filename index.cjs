@@ -31,6 +31,9 @@ const handleAutocompleteInteraction = require('./handlers/autocompleteHandler.cj
 // NEW — SQLite-based bounty scheduler
 const { startBountyScheduler } = require('./utils/bountyScheduler.cjs');
 
+// NEW — report scheduler (for /report cards)
+const { runReportScheduler } = require('./utils/reportScheduler.cjs');
+
 
 // ──────────────────────────────────────
 // DISCORD CLIENT
@@ -145,12 +148,25 @@ client.once('ready', async () => {
     console.error('❌ Handler init failed:', err);
   }
 
-  // Start the NEW SQLite scheduler
+  // Start the NEW SQLite bounty scheduler
   try {
     startBountyScheduler(client);
     console.log('⏱️ Bounty scheduler online');
   } catch (err) {
     console.error('❌ Failed to start bounty scheduler:', err);
+  }
+
+  // Start report scheduler loop (runs every 60 seconds)
+  try {
+    setInterval(() => {
+      runReportScheduler(client).catch(err => {
+        console.error('❌ Report scheduler error:', err);
+      });
+    }, 60 * 1000);
+
+    console.log('⏱️ Report scheduler online');
+  } catch (err) {
+    console.error('❌ Failed to start report scheduler:', err);
   }
 });
 
