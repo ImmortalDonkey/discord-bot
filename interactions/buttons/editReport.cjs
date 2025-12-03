@@ -1,7 +1,5 @@
 // interactions/buttons/editReport.cjs
-// Handles:
-//  - reportedit_<id>   → open edit modal
-//  - reportdelete_<id> → hard delete report
+// Handles edit/delete on active report cards
 
 const db = require("../../database.cjs");
 const {
@@ -35,53 +33,48 @@ module.exports = {
     if (!report) {
       return interaction.reply({
         content: "❌ Report no longer exists.",
-        flags: 64
+        ephemeral: true
       });
     }
 
-    // -------------------------
-    // Permission check (FIXED)
-    // -------------------------
+    // Permission check
     if (interaction.user.id !== report.reporterId) {
       return interaction.reply({
         content: "⛔ Only the original reporter can modify this report.",
-        flags: 64
+        ephemeral: true
       });
     }
 
-    // ───────────────────────────────
-    // DELETE REPORT
-    // ───────────────────────────────
+    // DELETE
     if (action === "delete") {
       try {
-        const channel = await client.channels.fetch(report.channelId).catch(() => null);
+        const channel = await client.channels.fetch(report.channel_id).catch(() => null);
         if (channel) {
-          const message = await channel.messages.fetch(report.messageId).catch(() => null);
+          const message = await channel.messages.fetch(report.message_id).catch(() => null);
           if (message) await message.delete().catch(() => {});
         }
 
-        if (report.imagePath && fs.existsSync(report.imagePath)) {
-          fs.unlinkSync(report.imagePath);
+        if (report.image_path && fs.existsSync(report.image_path)) {
+          fs.unlinkSync(report.image_path);
         }
 
         await db.deleteReport(reportId);
 
         return interaction.reply({
-          content: "🗑 **Report deleted successfully.**",
-          flags: 64
+          content: "🗑 Report deleted successfully.",
+          ephemeral: true
         });
+
       } catch (err) {
         console.error("❌ Delete error:", err);
         return interaction.reply({
-          content: "❌ Failed to delete report.",
-          flags: 64
+          content: "❌ Could not delete report.",
+          ephemeral: true
         });
       }
     }
 
-    // ───────────────────────────────
-    // EDIT REPORT — Show Modal
-    // ───────────────────────────────
+    // EDIT → Show Modal
     if (action === "edit") {
       const modal = new ModalBuilder()
         .setCustomId(`reporteditmodal_${reportId}`)
@@ -90,7 +83,7 @@ module.exports = {
       const pokemonInput = new TextInputBuilder()
         .setCustomId("pokemon")
         .setLabel("New Pokémon (optional)")
-        .setPlaceholder(report.pokemonName || "Keep current")
+        .setPlaceholder(report.pokemon_name || "Keep current")
         .setStyle(TextInputStyle.Short)
         .setRequired(false);
 
