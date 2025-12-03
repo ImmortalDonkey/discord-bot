@@ -47,11 +47,10 @@ module.exports = {
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
 
-    // Rarity
+    // Rarity + points
     const rarityKey = getRarity(pokemon);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
-    // Points and rank update
     const now = new Date();
     const points = calculateAwardedPoints(rarityKey, now);
     const updated = await db.addPoints(user.id, user.username, points, `Debug Report: ${pokemon}`);
@@ -63,15 +62,15 @@ module.exports = {
       user.globalName ||
       user.username;
 
-    // Expiry times
+    // Expiry window
     const expiresAt = new Date(now);
     expiresAt.setMinutes(59, 59, 999);
 
-    const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
+    const deleteAt = expiresAt.getTime() + (24 * 60 * 60 * 1000);
 
     const reportId = `report_${Date.now()}_${user.id}`;
 
-    // Render card image
+    // Render card PNG
     const cardPath = await createReportCard({
       trainerName,
       trainerRank,
@@ -91,45 +90,43 @@ module.exports = {
       });
     }
 
-    // Buttons
+    // Action Row
     const controls = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`reportedit_${reportId}`)
         .setLabel("✏ Edit")
         .setStyle(ButtonStyle.Primary),
-
       new ButtonBuilder()
         .setCustomId(`reportdelete_${reportId}`)
         .setLabel("🗑 Delete")
         .setStyle(ButtonStyle.Danger)
     );
 
-    // Send message with image + controls
     const sent = await debugChannel.send({
-      content: `🧪 **DEBUG REPORT** — expires: **${expiresAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}**`,
+      content: `🧪 **DEBUG REPORT** — expires **${expiresAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}**`,
       files: [cardPath],
       components: [controls]
     });
 
-    // Insert DB row
+    // 🚀 INSERT DB ROW — with correct column names
     await db.createReport({
       id: reportId,
-      guildId: interaction.guild.id,
-      reporterId: user.id,
-      reporterName: trainerName,
-      pokemonName: pokemon,
-      rarityKey,
-      rarityLabel,
+      guild_id: interaction.guild.id,
+      reporter_id: user.id,
+      reporter_name: trainerName,
+      pokemon_name: pokemon,
+      rarity_key: rarityKey,
+      rarity_label: rarityLabel,
       location: route,
-      trainerRank,
+      trainer_rank: trainerRank,
       points,
       status: "active",
-      channelId: sent.channelId,
-      messageId: sent.id,
-      imagePath: cardPath,
-      expiresAt: expiresAt.getTime(),
-      deleteAt,
-      createdAt: now.getTime()
+      channel_id: sent.channelId,
+      message_id: sent.id,
+      image_path: cardPath,
+      expires_at: expiresAt.getTime(),
+      delete_at: deleteAt,
+      created_at: now.getTime()
     });
 
     return interaction.followUp({
