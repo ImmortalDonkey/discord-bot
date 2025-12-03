@@ -1,3 +1,10 @@
+// database.cjs
+// ------------------------------------------------------
+// POINTS + LOGS = SQLite
+// BOUNTIES + CLAIMS = SQLite + in-memory cache
+// REPORTS = SQLite
+// ------------------------------------------------------
+
 const path = require('path');
 const fs = require('fs');
 const sqlite3 = require('sqlite3');
@@ -53,7 +60,7 @@ function all(sql, params = []) {
 // INITIALISE SQLITE SCHEMA
 //   - points / point_logs
 //   - bounties / bounty_claims / scheduled_bounties
-//   - reports (NEW)
+//   - reports
 // ------------------------------------------------------
 async function init() {
   // -------- POINTS TABLES --------
@@ -152,7 +159,7 @@ async function init() {
     announcement_message_id TEXT
   )`);
 
-  // -------- REPORTS TABLE (NEW) --------
+  // -------- REPORTS TABLE --------
   await run(`CREATE TABLE IF NOT EXISTS reports (
     id TEXT PRIMARY KEY,
     guild_id TEXT,
@@ -173,6 +180,17 @@ async function init() {
     image_path TEXT
   )`);
 
+  // Backwards compat for reports (in case table already existed)
+  const infoReports = await all(`PRAGMA table_info(reports)`);
+  const reportCols = infoReports.map(c => c.name);
+
+  if (!reportCols.includes('trainer_rank')) {
+    await run(`ALTER TABLE reports ADD COLUMN trainer_rank TEXT`);
+  }
+  if (!reportCols.includes('points')) {
+    await run(`ALTER TABLE reports ADD COLUMN points INTEGER DEFAULT 0`);
+  }
+
   // -------- LOAD CACHED BOUNTIES & CLAIMS INTO MEMORY --------
   await loadBountiesFromDB();
   await loadClaimsFromDB();
@@ -183,7 +201,7 @@ async function init() {
 }
 
 // ------------------------------------------------------
-// POINT FUNCTIONS (UNCHANGED LOGIC)
+// POINT FUNCTIONS
 // ------------------------------------------------------
 async function getUserById(discordId) {
   return await get(`SELECT * FROM points WHERE discord_id = ?`, [discordId]);
@@ -286,8 +304,8 @@ function normalizeBountyObject(source) {
     pokemons: Array.isArray(pokemonsField)
       ? pokemonsField
       : (typeof pokemonsField === 'string'
-          ? safeJsonArray(pokemonsField)
-          : []),
+        ? safeJsonArray(pokemonsField)
+        : []),
 
     notes: source.notes ?? null,
 
@@ -340,7 +358,7 @@ function normalizeClaimObject(source) {
   };
 }
 
-// -------- REPORT NORMALISER (NEW) --------
+// -------- REPORT NORMALISER --------
 function normalizeReportObject(source) {
   if (!source) return null;
 
@@ -533,7 +551,7 @@ async function persistClaimToDb(claim) {
   return c.id;
 }
 
-// -------- REPORT PERSIST HELPER (NEW) --------
+// -------- REPORT PERSIST HELPER --------
 async function persistReportToDb(report) {
   const r = normalizeReportObject(report);
 
@@ -668,10 +686,8 @@ async function getPendingClaimForBountyAndHunter(bountyId, hunterId) {
 }
 
 // ------------------------------------------------------
-// PUBLIC REPORT API (NEW)
+// PUBLIC REPORT API
 // ------------------------------------------------------
-
-// Create new report row (used by /reportdebug & real /report)
 async function createReport(reportObj) {
   const base = {
     status: reportObj.status || 'active',
@@ -682,14 +698,12 @@ async function createReport(reportObj) {
   return await persistReportToDb(norm);
 }
 
-// Fetch single report by ID
 async function getReport(id) {
   const row = await get(`SELECT * FROM reports WHERE id = ?`, [id]);
   if (!row) return null;
   return normalizeReportObject(row);
 }
 
-// Update report: merges existing + patch, writes full row
 async function updateReport(id, patch) {
   const existing = await getReport(id);
   if (!existing) return null;
@@ -698,31 +712,30 @@ async function updateReport(id, patch) {
   return await persistReportToDb(merged);
 }
 
-// Hard delete report row
 async function deleteReport(id) {
   await run(`DELETE FROM reports WHERE id = ?`, [id]);
 }
 
-// Reports whose hour has just ended
 async function getReportsToExpire(nowMs) {
-  return (await all(
+  const rows = await all(
     `SELECT * FROM reports
      WHERE status = 'active'
        AND expires_at IS NOT NULL
        AND expires_at <= ?`,
     [nowMs]
-  )).map(normalizeReportObject);
+  );
+  return rows.map(normalizeReportObject);
 }
 
-// Expired reports older than their delete_at
 async function getReportsToCleanup(nowMs) {
-  return (await all(
+  const rows = await all(
     `SELECT * FROM reports
      WHERE status = 'expired'
        AND delete_at IS NOT NULL
        AND delete_at <= ?`,
     [nowMs]
-  )).map(normalizeReportObject);
+  );
+  return rows.map(normalizeReportObject);
 }
 
 // ------------------------------------------------------
@@ -759,7 +772,7 @@ module.exports = {
   updateBountyClaim,
   getPendingClaimForBountyAndHunter,
 
-  // Reports (NEW)
+  // Reports
   createReport,
   getReport,
   updateReport,
