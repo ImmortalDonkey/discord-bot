@@ -1,16 +1,13 @@
 // utils/reportScheduler.cjs
-// Handles EXPIRY + CLEANUP for reports
+// Expire & cleanup reports (independent of bounty logic)
 
-const path = require("path");
 const fs = require("fs");
-
 const db = require("../database.cjs");
 const { createReportCard } = require("../renderers/reportCard.cjs");
 
 /**
- * Expire reports when their hour ends
- *   - updates card message with Expired version
- *   - sets DB.status = "expired"
+ * Expire reports whose hour has ended
+ * Re-render → update message → update DB
  */
 async function expireDueReports(client, nowMs) {
   const dueReports = await db.getReportsToExpire(nowMs);
@@ -20,89 +17,96 @@ async function expireDueReports(client, nowMs) {
 
   for (const r of dueReports) {
     try {
-      const channel = await client.channels.fetch(r.channelId).catch(() => null);
+      const channelId = r.channel_id;
+      const messageId = r.message_id;
+
+      const channel = await client.channels.fetch(channelId).catch(() => null);
       if (!channel) {
         console.warn(`⚠ Channel missing for report ${r.id}`);
         continue;
       }
 
-      const oldMsg = await channel.messages.fetch(r.messageId).catch(() => null);
+      const oldMsg = await channel.messages.fetch(messageId).catch(() => null);
       if (!oldMsg) {
         console.warn(`⚠ Message missing for report ${r.id}`);
         continue;
       }
 
-      // Re-render card with new status
+      // Re-render card
       const cardPath = await createReportCard({
-        trainerName: r.reporterName,
-        trainerRank: r.trainerRank || "Trainer",
-        pokemonName: r.pokemonName,
-        rarityKey: r.rarityKey,
-        rarityLabel: r.rarityLabel,
+        trainerName: r.reporter_name,
+        trainerRank: r.trainer_rank || "Trainer",
+        pokemonName: r.pokemon_name,
+        rarityKey: r.rarity_key,
+        rarityLabel: r.rarity_label,
         points: r.points,
         location: r.location,
         statusText: "Expired"
       });
 
       await oldMsg.edit({
-        content: `⚠ **Expired**`,
+        content: `⚠️ **Expired**`,
         files: [cardPath]
       });
 
-      // Update DB
+      // Update DB: mark expired + save new image path
+      const expireAt = Date.now();
       await db.updateReport(r.id, {
         status: "expired",
-        imagePath: cardPath
+        image_path: cardPath,
+        expire_at: expireAt
       });
 
-      console.log(`✔ Report ${r.id} expired and message updated.`);
+      console.log(`✔ Report ${r.id} expired`);
     } catch (err) {
       console.error(`❌ Expire error for report ${r.id}:`, err);
     }
   }
 }
 
+
 /**
- * Cleanup older expired reports (keep 24h after expiry)
- * - deletes message + image + DB row
+ * Delete expired reports older than 24 hours
  */
 async function cleanupReports(client, nowMs) {
   const stale = await db.getReportsToCleanup(nowMs);
   if (!stale.length) return;
 
-  console.log(`🗑 Removing ${stale.length} expired report(s)...`);
+  console.log(`🗑 Removing ${stale.length} stale report(s)...`);
 
   for (const r of stale) {
     try {
-      // Remove discord message if still exists
-      const channel = await client.channels.fetch(r.channelId).catch(() => null);
+      const channelId = r.channel_id;
+      const messageId = r.message_id;
 
+      // Remove Discord message if exists
+      const channel = await client.channels.fetch(channelId).catch(() => null);
       if (channel) {
-        const msg = await channel.messages.fetch(r.messageId).catch(() => null);
+        const msg = await channel.messages.fetch(messageId).catch(() => null);
         if (msg) await msg.delete().catch(() => {});
       }
 
-      // Delete saved image
-      if (r.imagePath && fs.existsSync(r.imagePath)) {
-        fs.unlinkSync(r.imagePath);
+      // Delete image if exists
+      if (r.image_path && fs.existsSync(r.image_path)) {
+        fs.unlinkSync(r.image_path);
       }
 
-      // Delete DB entry
+      // Remove DB row
       await db.deleteReport(r.id);
 
-      console.log(`✔ Fully removed report ${r.id}`);
+      console.log(`✔ Deleted report ${r.id}`);
     } catch (err) {
       console.error(`❌ Cleanup error ${r.id}:`, err);
     }
   }
 }
 
+
 /**
- * Main run — called from index.js every 60 seconds
+ * Called from index.js every 60 seconds
  */
 async function runReportScheduler(client) {
   const nowMs = Date.now();
-
   await expireDueReports(client, nowMs);
   await cleanupReports(client, nowMs);
 }
