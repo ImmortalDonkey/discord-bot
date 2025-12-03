@@ -1,4 +1,9 @@
 // interactions/buttons/editReport.cjs
+// Handles:
+//  - reportedit_<id>   → open edit modal
+//  - reportdelete_<id> → hard delete report
+
+const db = require("../../database.cjs");
 const {
   ModalBuilder,
   TextInputBuilder,
@@ -6,62 +11,101 @@ const {
   ActionRowBuilder
 } = require("discord.js");
 
-const db = require("../../database.cjs");
-
 module.exports = {
-  ids: ["reportedit_"], // prefix match
+  ids: ["reportedit_", "reportdelete_"],
 
-  /**
-   * Handles clicking an "Edit Report" button under an active card
-   */
   async execute(client, interaction) {
-    const customId = interaction.customId;
-    const prefix = "reportedit_";
-    const reportId = customId.startsWith(prefix)
-      ? customId.substring(prefix.length)
-      : customId;
+    const id = interaction.customId;
 
-    // Fetch report from DB
-    const report = await db.getReportById(reportId);
+    let action = null;
+    let reportId = null;
+
+    if (id.startsWith("reportedit_")) {
+      action = "edit";
+      reportId = id.replace("reportedit_", "");
+    } else if (id.startsWith("reportdelete_")) {
+      action = "delete";
+      reportId = id.replace("reportdelete_", "");
+    } else {
+      return;
+    }
+
+    const report = await db.getReport(reportId);
     if (!report) {
       return interaction.reply({
-        content: "❌ Report not found in the database.",
+        content: "❌ Report no longer exists.",
         ephemeral: true
       });
     }
 
-    // Reporter check
-    if (interaction.user.id !== report.reporterId) {
+    // Only original reporter can modify
+    if (report.reporter_id !== interaction.user.id) {
       return interaction.reply({
-        content: "🚫 Only the original reporter can edit this report.",
+        content: "⛔ Only the original reporter can modify this report.",
         ephemeral: true
       });
     }
 
-    // Build modal
-    const modal = new ModalBuilder()
-      .setCustomId(`reportedit_${reportId}`)
-      .setTitle("Edit Report Details");
+    // ────────────────────────────────────────
+    // DELETE REPORT
+    // ────────────────────────────────────────
+    if (action === "delete") {
+      try {
+        const channel = await client.channels.fetch(report.channel_id).catch(() => null);
+        if (channel) {
+          const msg = await channel.messages.fetch(report.message_id).catch(() => null);
+          if (msg) await msg.delete().catch(() => {});
+        }
 
-    const pokemonInput = new TextInputBuilder()
-      .setCustomId("pokemon")
-      .setLabel("Pokémon name (optional)")
-      .setPlaceholder(report.pokemonName)
-      .setRequired(false)
-      .setStyle(TextInputStyle.Short);
+        const fs = require("fs");
+        if (report.image_path && fs.existsSync(report.image_path)) {
+          fs.unlinkSync(report.image_path);
+        }
 
-    const routeInput = new TextInputBuilder()
-      .setCustomId("route")
-      .setLabel("Route (optional)")
-      .setPlaceholder(report.location)
-      .setRequired(false)
-      .setStyle(TextInputStyle.Short);
+        await db.deleteReport(reportId);
 
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(pokemonInput),
-      new ActionRowBuilder().addComponents(routeInput)
-    );
+        return interaction.reply({
+          content: "🗑 **Report deleted successfully.**",
+          ephemeral: true
+        });
 
-    return interaction.showModal(modal);
+      } catch (err) {
+        console.error("❌ Delete error:", err);
+        return interaction.reply({
+          content: "❌ Failed to delete report.",
+          ephemeral: true
+        });
+      }
+    }
+
+    // ────────────────────────────────────────
+    // EDIT REPORT — OPEN MODAL
+    // ────────────────────────────────────────
+    if (action === "edit") {
+      const modal = new ModalBuilder()
+        .setCustomId(`reportedit_${reportId}`)
+        .setTitle("Edit Report");
+
+      const pokemonInput = new TextInputBuilder()
+        .setCustomId("pokemon")
+        .setLabel("New Pokémon (optional)")
+        .setPlaceholder("Leave blank to keep current")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false);
+
+      const routeInput = new TextInputBuilder()
+        .setCustomId("route")
+        .setLabel("New Route (optional)")
+        .setPlaceholder("Leave blank to keep current")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(pokemonInput),
+        new ActionRowBuilder().addComponents(routeInput)
+      );
+
+      return interaction.showModal(modal);
+    }
   }
 };
