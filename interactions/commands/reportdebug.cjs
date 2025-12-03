@@ -8,12 +8,12 @@ const { calculateAwardedPoints } = require("../../utils/scoring.cjs");
 const { createReportCard } = require("../../renderers/reportCard.cjs");
 
 const STAFF_ROLES = process.env.STAFF_ROLES?.split(",") || [];
-const DEBUG_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
+const REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("reportdebug")
-    .setDescription("Staff-only: test the report card renderer")
+    .setDescription("Staff-only: test the report card renderer + scheduling")
     .addStringOption(o =>
       o.setName("pokemon")
         .setDescription("Pokémon name")
@@ -30,7 +30,7 @@ module.exports = {
   async execute(client, interaction) {
     const user = interaction.user;
 
-    // Staff-only
+    // Permission check
     if (!interaction.member.roles.cache.some(r => STAFF_ROLES.includes(r.id))) {
       return interaction.reply({
         content: "❌ You do not have permission to use this command.",
@@ -39,28 +39,28 @@ module.exports = {
     }
 
     await interaction.reply({
-      content: "🛠 Rendering preview report card…",
+      content: "🛠 Generating debug report card…",
       ephemeral: true
     });
 
-    // ✔ Trainer name – match Discord's server display name behaviour
+    // Display name logic
     const member = interaction.member;
     const trainerName =
-      member?.displayName ||              // nickname/globalName/username combined
-      member?.nickname ||                 // explicit nickname
-      user.globalName ||                  // Discord global display name
-      user.username ||                    // username
-      user.tag;                           // legacy tag as final fallback
+      member?.displayName ||
+      member?.nickname ||
+      user.globalName ||
+      user.username ||
+      user.tag;
 
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
     const now = new Date();
 
-    // Rarity + label
+    // Rarity
     const rarityKey = getRarity(pokemon);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
-    // Points + rank
+    // Points + rank update
     const awarded = calculateAwardedPoints(rarityKey, now);
     const updated = await db.addPoints(
       user.id,
@@ -68,11 +68,22 @@ module.exports = {
       awarded,
       `Debug Report: ${pokemon}`
     );
-
     const lifetime = updated?.lifetime_points ?? 0;
     const trainerRank = getRankName(lifetime);
 
-    // Build report card
+    // Status always Active for new reports
+    const statusText = "Active";
+
+    // SCHEDULING LOGIC 🌙
+    const expiresAt = new Date(now);
+    expiresAt.setMinutes(59, 59, 999);
+
+    const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000; // +24h
+
+    // Unique ID used for DB + scheduler
+    const reportId = `report_${Date.now()}_${user.id}`;
+
+    // Render card
     const cardPath = await createReportCard({
       trainerName,
       trainerRank,
@@ -81,31 +92,45 @@ module.exports = {
       rarityLabel,
       points: awarded,
       location: route,
-      expired: false,
-      availabilityText: "Available until end of the hour"
+      statusText
     });
 
-    const debugChannel = client.channels.cache.get(DEBUG_CHANNEL_ID);
-    if (!debugChannel) {
+    const channel = client.channels.cache.get(REPORT_CHANNEL_ID);
+    if (!channel) {
       return interaction.followUp({
-        content: `❌ Cannot find debug channel <#${DEBUG_CHANNEL_ID}>.`,
+        content: `❌ Channel <#${REPORT_CHANNEL_ID}> not found.`,
         ephemeral: true
       });
     }
 
-    await debugChannel.send({
+    // Send card
+    const sent = await channel.send({
       content:
-        `🛠 **DEBUG REPORT CARD**\n` +
-        `Trainer: ${trainerName}\n` +
-        `Pokémon: ${pokemon}\n` +
-        `Route: ${route}\n` +
-        `Rarity: ${rarityLabel}\n` +
-        `Points: ${awarded}`,
+        `🛠 **DEBUG CARD** (expires at: ${expiresAt.toLocaleTimeString()})`,
       files: [cardPath]
     });
 
+    // Store DB row for scheduler
+    await db.createReport({
+      id: reportId,
+      guildId: interaction.guildId,
+      reporterId: user.id,
+      reporterName: trainerName,
+      pokemonName: pokemon,
+      rarityKey,
+      rarityLabel,
+      location: route,
+      status: "active",
+      messageId: sent.id,
+      channelId: sent.channelId,
+      expiresAt: expiresAt.getTime(),
+      deleteAt,
+      createdAt: now.getTime(),
+      imagePath: cardPath
+    });
+
     return interaction.followUp({
-      content: "✅ Debug card posted!",
+      content: `✅ Debug card posted — **Expires at ${expiresAt.toLocaleTimeString()}**`,
       ephemeral: true
     });
   }
