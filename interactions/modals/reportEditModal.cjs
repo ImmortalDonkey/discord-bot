@@ -1,8 +1,6 @@
 // interactions/modals/reportEditModal.cjs
-// Comprehensive patched version:
-//  - Immediate deferReply() to prevent "Unknown interaction"
-//  - Rarity-change routing fully enabled
-//  - All previous logic preserved
+// Fully patched version with correct idPrefix support
+// + safe deferReply to prevent Unknown Interaction errors
 
 const fs = require("fs");
 
@@ -10,9 +8,7 @@ const db = require("../../database.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { availableLocations } = require("../../utils/locations.cjs");
 const { createReportCard } = require("../../renderers/reportCard.cjs");
-const {
-  getChannelForRarity
-} = require("../../utils/reportChannelRouter.cjs");
+const { getChannelForRarity } = require("../../utils/reportChannelRouter.cjs");
 
 const STAFF_ROLES = (process.env.STAFF_ROLES || "")
   .split(",")
@@ -20,66 +16,49 @@ const STAFF_ROLES = (process.env.STAFF_ROLES || "")
   .filter(Boolean);
 
 module.exports = {
-  // Modal ID prefix must match editReport.cjs button ID
-  ids: ["reporteditmodal_"],
+  idPrefix: "reporteditmodal_", // 👈 required by your modal loader
 
   /**
    * @param {Client} client
    * @param {ModalSubmitInteraction} interaction
    */
   async execute(client, interaction) {
-    // 🟢 Ensure Discord doesn’t expire our modal response
-    await interaction.deferReply({ flags: 64 }).catch(() => {});
+    try {
+      await interaction.deferReply({ flags: 64 }).catch(() => {});
+    } catch {}
 
-    const customId = interaction.customId || "";
-    const reportId = customId.replace("reporteditmodal_", "");
-    if (!reportId) {
-      return interaction.followUp({ content: "❌ Invalid report ID." });
-    }
+    const fullId = interaction.customId || "";
+    const reportId = fullId.replace("reporteditmodal_", "");
 
-    // Fetch latest DB state
     const report = await db.getReport(reportId);
     if (!report) {
-      return interaction.followUp({
-        content: "❌ This report no longer exists."
-      });
+      return interaction.followUp("❌ Report no longer exists.");
     }
 
-    // Permissions
     const member = interaction.member;
     const isReporter = interaction.user.id === report.reporterId;
     const isStaff =
-      !!member &&
-      !!member.roles &&
+      member &&
       member.roles.cache.some(r => STAFF_ROLES.includes(r.id));
 
     if (!isReporter && !isStaff) {
-      return interaction.followUp({
-        content: "⛔ Only the original reporter or staff can edit this report."
-      });
+      return interaction.followUp("⛔ Not allowed to edit this report.");
     }
 
-    // Input fields
     const newPokemon = (interaction.fields.getTextInputValue("pokemon") || "").trim();
     const newRoute = (interaction.fields.getTextInputValue("route") || "").trim();
 
     if (!newPokemon && !newRoute) {
-      return interaction.followUp({
-        content: "⚠ You must change at least one field."
-      });
+      return interaction.followUp("⚠ No changes entered.");
     }
 
-    // Validate location
     if (
       newRoute &&
       !availableLocations.some(l => l.toLowerCase() === newRoute.toLowerCase())
     ) {
-      return interaction.followUp({
-        content: `❌ Invalid location: **${newRoute}**\n(Use an autocomplete option)`
-      });
+      return interaction.followUp(`❌ Invalid route: **${newRoute}**`);
     }
 
-    // Apply updates
     const patch = {};
     let rarityChanged = false;
 
@@ -90,20 +69,13 @@ module.exports = {
       patch.pokemonName = newPokemon;
       patch.rarityKey = rarityKey;
       patch.rarityLabel = rarityLabel;
-
       rarityChanged = rarityKey !== report.rarityKey;
     }
 
     if (newRoute) patch.location = newRoute;
 
     const updated = await db.updateReport(reportId, patch);
-    if (!updated) {
-      return interaction.followUp({
-        content: "❌ Database update failed."
-      });
-    }
 
-    // Re-render card
     const statusText = updated.status === "expired" ? "Expired" : "Active";
 
     const newCardPath = await createReportCard({
@@ -117,43 +89,30 @@ module.exports = {
       statusText
     });
 
-    // Remove old card PNG
     if (report.imagePath && fs.existsSync(report.imagePath)) {
       fs.unlinkSync(report.imagePath);
     }
 
-    // Channel + message update
     const oldChannelId = report.channelId;
     const oldMessageId = report.messageId;
 
     let newChannelId = oldChannelId;
     let newMessageId = oldMessageId;
 
+    const correctChannelId = getChannelForRarity(updated.rarityKey);
+
     try {
-      if (rarityChanged) {
-        const newChannelTarget = getChannelForRarity(updated.rarityKey);
-        if (newChannelTarget && newChannelTarget !== oldChannelId) {
-          const newChannel = await client.channels
-            .fetch(newChannelTarget)
-            .catch(() => null);
+      if (rarityChanged && correctChannelId && correctChannelId !== oldChannelId) {
+        const newChannel = await client.channels.fetch(correctChannelId).catch(() => null);
+        if (newChannel) {
+          const newMsg = await newChannel.send({ files: [newCardPath] });
+          newChannelId = newMsg.channelId;
+          newMessageId = newMsg.id;
 
-          if (newChannel) {
-            const newMsg = await newChannel.send({ files: [newCardPath] });
-
-            newChannelId = newMsg.channelId;
-            newMessageId = newMsg.id;
-
-            const oldChannel = await client.channels.fetch(oldChannelId).catch(() => null);
-            if (oldChannel) {
-              const oldMsg = await oldChannel.messages.fetch(oldMessageId).catch(() => null);
-              if (oldMsg) await oldMsg.delete().catch(() => {});
-            }
-          }
-        } else {
-          const ch = await client.channels.fetch(oldChannelId).catch(() => null);
-          if (ch) {
-            const msg = await ch.messages.fetch(oldMessageId).catch(() => null);
-            if (msg) await msg.edit({ files: [newCardPath] });
+          const oldChannel = await client.channels.fetch(oldChannelId).catch(() => null);
+          if (oldChannel) {
+            const oldMsg = await oldChannel.messages.fetch(oldMessageId).catch(() => null);
+            if (oldMsg) await oldMsg.delete().catch(() => {});
           }
         }
       } else {
@@ -164,21 +123,17 @@ module.exports = {
         }
       }
     } catch (err) {
-      console.error("❌ Failed to update card:", err);
+      console.error("Update error:", err);
     }
 
-    // Store new file + channel/message
     await db.updateReport(reportId, {
       imagePath: newCardPath,
       channelId: newChannelId,
       messageId: newMessageId
     });
 
-    // Final user confirmation
-    return interaction.followUp({
-      content: rarityChanged
-        ? "✏ Report updated! 📊 Rarity changed — card moved to correct channel."
-        : "✏ Report updated!"
-    });
+    return interaction.followUp(rarityChanged
+      ? "✏ Updated & moved to correct channel!"
+      : "✏ Report updated!");
   }
 };
