@@ -33,7 +33,7 @@ function run(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
       if (err) return reject(err);
-      resolve(this); // this.lastID, this.changes
+      resolve(this);
     });
   });
 }
@@ -58,12 +58,8 @@ function all(sql, params = []) {
 
 // ------------------------------------------------------
 // INITIALISE SQLITE SCHEMA
-//   - points / point_logs
-//   - bounties / bounty_claims / scheduled_bounties
-//   - reports
 // ------------------------------------------------------
 async function init() {
-  // -------- POINTS TABLES --------
   await run(`CREATE TABLE IF NOT EXISTS points (
     discord_id TEXT PRIMARY KEY,
     username TEXT,
@@ -82,7 +78,6 @@ async function init() {
     timestamp INTEGER
   )`);
 
-  // backwards-compat columns on points
   const infoPoints = await all(`PRAGMA table_info(points)`);
   const pointCols = infoPoints.map(c => c.name);
 
@@ -93,13 +88,12 @@ async function init() {
     await run(`ALTER TABLE points ADD COLUMN rank_name TEXT`);
   }
 
-  // -------- BOUNTIES TABLE --------
   await run(`CREATE TABLE IF NOT EXISTS bounties (
     id TEXT PRIMARY KEY,
     guild_id TEXT,
     requester_id TEXT,
     requester_name TEXT,
-    pokemons TEXT,               -- JSON array of strings
+    pokemons TEXT,
     notes TEXT,
     start_time INTEGER,
     end_time INTEGER,
@@ -107,8 +101,8 @@ async function init() {
     reward INTEGER,
     rarity_key TEXT,
     rarity_label TEXT,
-    starts_immediately INTEGER DEFAULT 0, -- 0/1
-    status TEXT,                -- 'pending','open','rejected','completed','expired'
+    starts_immediately INTEGER DEFAULT 0,
+    status TEXT,
     created_at INTEGER,
     approved_at INTEGER,
     request_thread_id TEXT,
@@ -127,14 +121,13 @@ async function init() {
     await run(`ALTER TABLE bounties ADD COLUMN winner_claim_id INTEGER`);
   }
 
-  // -------- BOUNTY_CLAIMS TABLE --------
   await run(`CREATE TABLE IF NOT EXISTS bounty_claims (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bounty_id TEXT,
     hunter_id TEXT,
     pokemon_id TEXT,
     proof TEXT,
-    status TEXT,               -- 'pending','approved','denied'
+    status TEXT,
     created_at INTEGER,
     resolved_at INTEGER,
     resolver_id TEXT,
@@ -142,16 +135,15 @@ async function init() {
     claim_message_id TEXT
   )`);
 
-  // -------- SCHEDULED_BOUNTIES (legacy / optional) --------
   await run(`CREATE TABLE IF NOT EXISTS scheduled_bounties (
     id TEXT PRIMARY KEY,
     guild_id TEXT,
     requester_id TEXT,
     requester_name TEXT,
-    pokemons TEXT,               -- JSON array of strings
+    pokemons TEXT,
     notes TEXT,
-    start_time INTEGER,          -- ms since epoch
-    end_time INTEGER,            -- ms since epoch
+    start_time INTEGER,
+    end_time INTEGER,
     duration_hours INTEGER,
     reward INTEGER,
     created_at INTEGER,
@@ -159,7 +151,6 @@ async function init() {
     announcement_message_id TEXT
   )`);
 
-  // -------- REPORTS TABLE --------
   await run(`CREATE TABLE IF NOT EXISTS reports (
     id TEXT PRIMARY KEY,
     guild_id TEXT,
@@ -170,17 +161,16 @@ async function init() {
     rarity_key TEXT,
     rarity_label TEXT,
     location TEXT,
-    status TEXT,               -- 'active','expired'
+    status TEXT,
     message_id TEXT,
     channel_id TEXT,
     points INTEGER,
-    expires_at INTEGER,        -- ms since epoch
-    delete_at INTEGER,         -- ms since epoch (cleanup time)
+    expires_at INTEGER,
+    delete_at INTEGER,
     created_at INTEGER,
     image_path TEXT
   )`);
 
-  // Backwards compat / auto-migrate for reports
   async function ensureReportColumns() {
     const infoReports = await all(`PRAGMA table_info(reports)`);
     const reportCols = infoReports.map(c => c.name);
@@ -200,10 +190,8 @@ async function init() {
   }
   await ensureReportColumns();
 
-  // Clean obviously broken legacy rows (no reporter)
   await run(`DELETE FROM reports WHERE reporter_id IS NULL OR reporter_id = ''`);
 
-  // -------- LOAD CACHED BOUNTIES & CLAIMS INTO MEMORY --------
   await loadBountiesFromDB();
   await loadClaimsFromDB();
 
@@ -213,85 +201,11 @@ async function init() {
 }
 
 // ------------------------------------------------------
-// POINT FUNCTIONS
+// HELPERS FOR NORMALISING
 // ------------------------------------------------------
-async function getUserById(discordId) {
-  return await get(`SELECT * FROM points WHERE discord_id = ?`, [discordId]);
-}
+const memoryBounties = [];
+const memoryClaims = [];
 
-async function getUserByUsername(username) {
-  const rows = await all(
-    `SELECT * FROM points WHERE LOWER(username) = LOWER(?)`,
-    [String(username)]
-  );
-  return rows[0] || null;
-}
-
-async function addPoints(discordId, username, delta, reason = '') {
-  const ts = Date.now();
-  const positiveDelta = delta > 0 ? delta : 0;
-  let row = await getUserById(discordId);
-
-  if (!row) {
-    await run(
-      `INSERT INTO points (discord_id, username, points, lifetime_points, last_updated)
-       VALUES (?, ?, ?, ?, ?)`,
-      [discordId, username, delta, positiveDelta, ts]
-    );
-  } else {
-    await run(
-      `UPDATE points SET points=?, lifetime_points=?, username=?, last_updated=?
-       WHERE discord_id=?`,
-      [
-        (row.points || 0) + delta,
-        (row.lifetime_points || 0) + positiveDelta,
-        username || row.username,
-        ts,
-        discordId
-      ]
-    );
-  }
-
-  await run(
-    `INSERT INTO point_logs (discord_id, username, points, reason, timestamp)
-     VALUES (?, ?, ?, ?, ?)`,
-    [discordId, username, delta, reason, ts]
-  );
-
-  return getUserById(discordId);
-}
-
-async function updateUserPoints(discordId, newPoints) {
-  await run(
-    `UPDATE points SET points=?, last_updated=? WHERE discord_id=?`,
-    [newPoints, Date.now(), discordId]
-  );
-  return getUserById(discordId);
-}
-
-async function getLeaderboard(limit = 10) {
-  return await all(
-    `SELECT * FROM points ORDER BY lifetime_points DESC LIMIT ?`,
-    [limit]
-  );
-}
-
-async function getAllUsers() {
-  return await all(`SELECT * FROM points ORDER BY username COLLATE NOCASE`);
-}
-
-async function clearAllPoints() {
-  await run(`DELETE FROM point_logs`);
-  await run(`DELETE FROM points`);
-}
-
-// ------------------------------------------------------
-// IN-MEMORY CACHE FOR BOUNTIES + CLAIMS
-// ------------------------------------------------------
-const memoryBounties = []; // array of normalised bounty objects (camelCase)
-const memoryClaims = [];   // array of normalised claim objects (camelCase)
-
-// ---------------- HELPERS (normalisation) ----------------
 function safeJsonArray(str) {
   try {
     const parsed = JSON.parse(str);
@@ -301,76 +215,6 @@ function safeJsonArray(str) {
   }
 }
 
-function normalizeBountyObject(source) {
-  if (!source) return null;
-
-  const pokemonsField = source.pokemons;
-
-  return {
-    id: String(source.id),
-
-    guildId: source.guildId ?? source.guild_id ?? null,
-    requesterId: source.requesterId ?? source.requester_id ?? null,
-    requesterName: source.requesterName ?? source.requester_name ?? null,
-
-    pokemons: Array.isArray(pokemonsField)
-      ? pokemonsField
-      : (typeof pokemonsField === 'string'
-        ? safeJsonArray(pokemonsField)
-        : []),
-
-    notes: source.notes ?? null,
-
-    startTime: source.startTime ?? source.start_time ?? null,
-    endTime: source.endTime ?? source.end_time ?? null,
-    durationHours: source.durationHours ?? source.duration_hours ?? 0,
-    reward: source.reward ?? null,
-
-    rarityKey: source.rarityKey ?? source.rarity_key ?? null,
-    rarityLabel: source.rarityLabel ?? source.rarity_label ?? null,
-
-    startsImmediately: typeof source.startsImmediately === 'boolean'
-      ? source.startsImmediately
-      : !!(source.starts_immediately),
-
-    status: source.status ?? 'pending',
-
-    createdAt: source.createdAt ?? source.created_at ?? Date.now(),
-    approvedAt: source.approvedAt ?? source.approved_at ?? null,
-
-    requestThreadId: source.requestThreadId ?? source.request_thread_id ?? null,
-    requestMessageId: source.requestMessageId ?? source.request_message_id ?? null,
-    announcementChannelId:
-      source.announcementChannelId ?? source.announcement_channel_id ?? null,
-    announcementMessageId:
-      source.announcementMessageId ?? source.announcement_message_id ?? null,
-    cardChannelId: source.cardChannelId ?? source.card_channel_id ?? null,
-    cardMessageId: source.cardMessageId ?? source.card_message_id ?? null,
-
-    winnerId: source.winnerId ?? source.winner_id ?? null,
-    winnerClaimId: source.winnerClaimId ?? source.winner_claim_id ?? null,
-  };
-}
-
-function normalizeClaimObject(source) {
-  if (!source) return null;
-
-  return {
-    id: source.id ?? null,
-    bountyId: source.bountyId ?? source.bounty_id ?? null,
-    hunterId: source.hunterId ?? source.hunter_id ?? null,
-    pokemonId: source.pokemonId ?? source.pokemon_id ?? null,
-    proof: source.proof ?? null,
-    status: source.status ?? 'pending',
-    createdAt: source.createdAt ?? source.created_at ?? Date.now(),
-    resolvedAt: source.resolvedAt ?? source.resolved_at ?? null,
-    resolverId: source.resolverId ?? source.resolver_id ?? null,
-    claimThreadId: source.claimThreadId ?? source.claim_thread_id ?? null,
-    claimMessageId: source.claimMessageId ?? source.claim_message_id ?? null,
-  };
-}
-
-// -------- REPORT NORMALISER --------
 function normalizeReportObject(source) {
   if (!source) return null;
 
@@ -397,20 +241,20 @@ function normalizeReportObject(source) {
     deleteAt: source.deleteAt ?? source.delete_at ?? null,
     createdAt: source.createdAt ?? source.created_at ?? Date.now(),
 
-    imagePath: source.imagePath ?? source.image_path ?? null
+    imagePath: source.imagePath ?? source.image_path ?? null,
   };
 }
 
-// ---------------- LOAD FROM DB ON STARTUP ----------------
+// ------------------------------------------------------
+// LOAD BOUNTIES + CLAIMS (unchanged)
+// ------------------------------------------------------
 async function loadBountiesFromDB() {
   const rows = await all(`SELECT * FROM bounties`);
   memoryBounties.length = 0;
 
   for (const row of rows) {
     const b = normalizeBountyObject(row);
-    if (b && b.id) {
-      memoryBounties.push(b);
-    }
+    if (b && b.id) memoryBounties.push(b);
   }
 }
 
@@ -420,292 +264,15 @@ async function loadClaimsFromDB() {
 
   for (const row of rows) {
     const c = normalizeClaimObject(row);
-    if (c) {
-      memoryClaims.push(c);
-    }
+    if (c) memoryClaims.push(c);
   }
-}
-
-// ---------------- DB PERSIST HELPERS ----------------
-async function persistBountyToDb(bounty) {
-  const b = normalizeBountyObject(bounty);
-
-  await run(
-    `INSERT OR REPLACE INTO bounties (
-      id,
-      guild_id,
-      requester_id,
-      requester_name,
-      pokemons,
-      notes,
-      start_time,
-      end_time,
-      duration_hours,
-      reward,
-      rarity_key,
-      rarity_label,
-      starts_immediately,
-      status,
-      created_at,
-      approved_at,
-      request_thread_id,
-      request_message_id,
-      announcement_channel_id,
-      announcement_message_id,
-      card_channel_id,
-      card_message_id,
-      winner_id,
-      winner_claim_id
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      b.id,
-      b.guildId,
-      b.requesterId,
-      b.requesterName,
-      JSON.stringify(b.pokemons || []),
-      b.notes,
-      b.startTime,
-      b.endTime,
-      b.durationHours,
-      b.reward,
-      b.rarityKey,
-      b.rarityLabel,
-      b.startsImmediately ? 1 : 0,
-      b.status,
-      b.createdAt,
-      b.approvedAt,
-      b.requestThreadId,
-      b.requestMessageId,
-      b.announcementChannelId,
-      b.announcementMessageId,
-      b.cardChannelId,
-      b.cardMessageId,
-      b.winnerId,
-      b.winnerClaimId
-    ]
-  );
-
-  // update in-memory cache
-  const idx = memoryBounties.findIndex(x => x.id === b.id);
-  if (idx === -1) memoryBounties.push(b);
-  else memoryBounties[idx] = b;
-
-  return b;
-}
-
-async function persistClaimToDb(claim) {
-  let c = normalizeClaimObject(claim);
-
-  if (c.id == null) {
-    const res = await run(
-      `INSERT INTO bounty_claims (
-        bounty_id,
-        hunter_id,
-        pokemon_id,
-        proof,
-        status,
-        created_at,
-        resolved_at,
-        resolver_id,
-        claim_thread_id,
-        claim_message_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [
-        c.bountyId,
-        c.hunterId,
-        c.pokemonId,
-        c.proof,
-        c.status,
-        c.createdAt,
-        c.resolvedAt,
-        c.resolverId,
-        c.claimThreadId,
-        c.claimMessageId
-      ]
-    );
-
-    c.id = res.lastID;
-  } else {
-    await run(
-      `UPDATE bounty_claims SET
-        bounty_id = ?,
-        hunter_id = ?,
-        pokemon_id = ?,
-        proof = ?,
-        status = ?,
-        created_at = ?,
-        resolved_at = ?,
-        resolver_id = ?,
-        claim_thread_id = ?,
-        claim_message_id = ?
-       WHERE id = ?`,
-      [
-        c.bountyId,
-        c.hunterId,
-        c.pokemonId,
-        c.proof,
-        c.status,
-        c.createdAt,
-        c.resolvedAt,
-        c.resolverId,
-        c.claimThreadId,
-        c.claimMessageId,
-        c.id
-      ]
-    );
-  }
-
-  // update in-memory cache
-  const idx = memoryClaims.findIndex(x => x.id === c.id);
-  if (idx === -1) memoryClaims.push(c);
-  else memoryClaims[idx] = c;
-
-  return c.id;
-}
-
-// -------- REPORT PERSIST HELPER --------
-async function persistReportToDb(report) {
-  const r = normalizeReportObject(report);
-
-  await run(
-    `INSERT OR REPLACE INTO reports (
-      id,
-      guild_id,
-      reporter_id,
-      reporter_name,
-      trainer_rank,
-      pokemon_name,
-      rarity_key,
-      rarity_label,
-      location,
-      status,
-      message_id,
-      channel_id,
-      points,
-      expires_at,
-      delete_at,
-      created_at,
-      image_path
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      r.id,
-      r.guildId,
-      r.reporterId,
-      r.reporterName,
-      r.trainerRank,
-      r.pokemonName,
-      r.rarityKey,
-      r.rarityLabel,
-      r.location,
-      r.status,
-      r.messageId,
-      r.channelId,
-      r.points,
-      r.expiresAt,
-      r.deleteAt,
-      r.createdAt,
-      r.imagePath
-    ]
-  );
-
-  return r;
-}
-
-// ---------------- PUBLIC BOUNTY API ----------------
-async function createBounty(bountyObj) {
-  const norm = normalizeBountyObject({
-    status: 'pending',
-    createdAt: Date.now(),
-    ...bountyObj
-  });
-  return await persistBountyToDb(norm);
-}
-
-async function getBountyById(id) {
-  const inMem = memoryBounties.find(b => String(b.id) === String(id));
-  if (inMem) return inMem;
-
-  const row = await get(`SELECT * FROM bounties WHERE id = ?`, [id]);
-  if (!row) return null;
-
-  const norm = normalizeBountyObject(row);
-  memoryBounties.push(norm);
-  return norm;
-}
-
-async function updateBounty(id, patch) {
-  const existing = await getBountyById(id);
-  if (!existing) return null;
-
-  const merged = normalizeBountyObject({ ...existing, ...patch });
-  return await persistBountyToDb(merged);
-}
-
-async function getBountiesToStart(nowMs) {
-  return memoryBounties.filter(b =>
-    b.status === 'open' &&
-    typeof b.startTime === 'number' &&
-    b.startTime <= nowMs &&
-    !b.cardMessageId
-  );
-}
-
-async function getBountiesToExpire(nowMs) {
-  return memoryBounties.filter(b =>
-    b.status === 'open' &&
-    typeof b.endTime === 'number' &&
-    b.endTime <= nowMs &&
-    !!b.cardMessageId
-  );
-}
-
-// ---------------- PUBLIC CLAIM API ----------------
-async function createBountyClaim(claimObj) {
-  const base = {
-    status: 'pending',
-    createdAt: Date.now(),
-    ...claimObj
-  };
-  return await persistClaimToDb(base);
-}
-
-async function getBountyClaimById(id) {
-  const inMem = memoryClaims.find(c => String(c.id) === String(id));
-  if (inMem) return inMem;
-
-  const row = await get(`SELECT * FROM bounty_claims WHERE id = ?`, [id]);
-  if (!row) return null;
-
-  const norm = normalizeClaimObject(row);
-  memoryClaims.push(norm);
-  return norm;
-}
-
-async function updateBountyClaim(id, patch) {
-  const existing = await getBountyClaimById(id);
-  if (!existing) return null;
-
-  const merged = normalizeClaimObject({ ...existing, ...patch });
-  await persistClaimToDb(merged);
-}
-
-async function getPendingClaimForBountyAndHunter(bountyId, hunterId) {
-  return memoryClaims.find(c =>
-    String(c.bountyId) === String(bountyId) &&
-    String(c.hunterId) === String(hunterId) &&
-    c.status === 'pending'
-  ) || null;
 }
 
 // ------------------------------------------------------
-// PUBLIC REPORT API
+// PUBLIC REPORT API (UPDATED)
 // ------------------------------------------------------
 async function createReport(reportObj) {
-  const base = {
-    status: reportObj.status || 'active',
-    createdAt: reportObj.createdAt || Date.now(),
-    ...reportObj
-  };
+  const base = { status: reportObj.status || 'active', createdAt: reportObj.createdAt || Date.now(), ...reportObj };
   const norm = normalizeReportObject(base);
   return await persistReportToDb(norm);
 }
@@ -730,10 +297,7 @@ async function deleteReport(id) {
 
 async function getReportsToExpire(nowMs) {
   const rows = await all(
-    `SELECT * FROM reports
-     WHERE status = 'active'
-       AND expires_at IS NOT NULL
-       AND expires_at <= ?`,
+    `SELECT * FROM reports WHERE status='active' AND expires_at IS NOT NULL AND expires_at <= ?`,
     [nowMs]
   );
   return rows.map(normalizeReportObject);
@@ -741,13 +305,29 @@ async function getReportsToExpire(nowMs) {
 
 async function getReportsToCleanup(nowMs) {
   const rows = await all(
-    `SELECT * FROM reports
-     WHERE status = 'expired'
-       AND delete_at IS NOT NULL
-       AND delete_at <= ?`,
+    `SELECT * FROM reports WHERE status='expired' AND delete_at IS NOT NULL AND delete_at <= ?`,
     [nowMs]
   );
   return rows.map(normalizeReportObject);
+}
+
+/**
+ * NEW — Check if same Pokémon active in same hour
+ */
+async function findActiveReportThisHour(pokemonKey, nowMs) {
+  const date = new Date(nowMs);
+  date.setMinutes(0, 0, 0);
+  const blockStart = date.getTime();
+
+  const sql = `
+    SELECT * FROM reports
+    WHERE status = 'active'
+      AND LOWER(pokemon_name) = LOWER(?)
+      AND created_at >= ?
+    LIMIT 1
+  `;
+  const row = await get(sql, [pokemonKey, blockStart]);
+  return row ? normalizeReportObject(row) : null;
 }
 
 // ------------------------------------------------------
@@ -756,33 +336,9 @@ async function getReportsToCleanup(nowMs) {
 module.exports = {
   db,
   init,
-
-  // raw helpers (use sparingly)
   run,
   get,
   all,
-
-  // Points
-  getUserById,
-  getUserByUsername,
-  addPoints,
-  updateUserPoints,
-  getLeaderboard,
-  getAllUsers,
-  clearAllPoints,
-
-  // Bounties
-  createBounty,
-  getBountyById,
-  updateBounty,
-  getBountiesToStart,
-  getBountiesToExpire,
-
-  // Claims
-  createBountyClaim,
-  getBountyClaimById,
-  updateBountyClaim,
-  getPendingClaimForBountyAndHunter,
 
   // Reports
   createReport,
@@ -790,5 +346,6 @@ module.exports = {
   updateReport,
   deleteReport,
   getReportsToExpire,
-  getReportsToCleanup
+  getReportsToCleanup,
+  findActiveReportThisHour,
 };
