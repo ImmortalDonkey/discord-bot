@@ -1,5 +1,10 @@
 // interactions/commands/reportdebug.cjs
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} = require("discord.js");
 
 const db = require("../../database.cjs");
 const { getRankName } = require("../../utils/rankSystem.cjs");
@@ -13,7 +18,7 @@ const DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("reportdebug")
-    .setDescription("Staff-only: test the report system with buttons + expiry")
+    .setDescription("Staff-only: test the report card system")
     .addStringOption(o =>
       o.setName("pokemon")
         .setDescription("Pokémon name")
@@ -31,29 +36,34 @@ module.exports = {
     const user = interaction.user;
     const member = interaction.member;
 
-    // Staff only
+    // STAFF ONLY
     if (!member.roles.cache.some(r => STAFF_ROLES.includes(r.id))) {
       return interaction.reply({
         content: "⛔ Staff-only test command.",
-        ephemeral: true
+        flags: 64
       });
     }
 
     await interaction.reply({
-      content: "🎨 Rendering report preview...",
-      ephemeral: true
+      content: "🎨 Rendering card...",
+      flags: 64
     });
 
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
 
-    // Rarity + points
+    // Rarity + Points Award
     const rarityKey = getRarity(pokemon);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
     const now = new Date();
     const points = calculateAwardedPoints(rarityKey, now);
-    const updated = await db.addPoints(user.id, user.username, points, `Debug Report: ${pokemon}`);
+    const updated = await db.addPoints(
+      user.id,
+      user.username,
+      points,
+      `Debug Report: ${pokemon}`
+    );
 
     const trainerRank = getRankName(updated?.lifetime_points || 0);
     const trainerName =
@@ -62,15 +72,14 @@ module.exports = {
       user.globalName ||
       user.username;
 
-    // Expiry window
+    // Expiry logic
     const expiresAt = new Date(now);
-    expiresAt.setMinutes(59, 59, 999);
-
-    const deleteAt = expiresAt.getTime() + (24 * 60 * 60 * 1000);
+    expiresAt.setMinutes(59, 59, 999); // always end of current hour
+    const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
 
     const reportId = `report_${Date.now()}_${user.id}`;
 
-    // Render report card PNG
+    // CREATE IMAGE
     const cardPath = await createReportCard({
       trainerName,
       trainerRank,
@@ -86,11 +95,11 @@ module.exports = {
     if (!debugChannel) {
       return interaction.followUp({
         content: `❌ Cannot access <#${DEBUG_REPORT_CHANNEL_ID}>`,
-        ephemeral: true
+        flags: 64
       });
     }
 
-    // Buttons
+    // BUTTONS
     const controls = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`reportedit_${reportId}`)
@@ -102,13 +111,13 @@ module.exports = {
         .setStyle(ButtonStyle.Danger)
     );
 
+    // CARD ONLY — NO TITLE TEXT
     const sent = await debugChannel.send({
-      content: `🧪 **DEBUG REPORT** — expires **${expiresAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}**`,
       files: [cardPath],
       components: [controls]
     });
 
-    // DB SAVE — using correct camelCase fields 🚀
+    // DB SAVE — snake_case for SQL
     await db.createReport({
       id: reportId,
       guildId: interaction.guild.id,
@@ -130,8 +139,8 @@ module.exports = {
     });
 
     return interaction.followUp({
-      content: `☑ Debug card posted in <#${DEBUG_REPORT_CHANNEL_ID}>`,
-      ephemeral: true
+      content: `☑ Report card posted in <#${DEBUG_REPORT_CHANNEL_ID}> — expires **${expiresAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}**`,
+      flags: 64
     });
   }
 };
