@@ -296,38 +296,52 @@ function safeJsonArray(str) {
 
 function normalizeBountyObject(source) {
   if (!source) return null;
+
   const pokemonsField = source.pokemons;
+
   return {
     id: String(source.id),
+
     guildId: source.guildId ?? source.guild_id ?? null,
-    requesterId: source.requesterId ?? source.request_id ?? null,
-    requesterName: source.requester_name ?? source.requesterName ?? null,
+    requesterId: source.requesterId ?? source.requester_id ?? null,
+    requesterName: source.requesterName ?? source.requester_name ?? null,
+
     pokemons: Array.isArray(pokemonsField)
       ? pokemonsField
       : (typeof pokemonsField === 'string'
         ? safeJsonArray(pokemonsField)
         : []),
+
     notes: source.notes ?? null,
-    startTime: source.start_time ?? source.startTime ?? null,
-    endTime: source.end_time ?? source.endTime ?? null,
-    durationHours: source.duration_hours ?? source.durationHours ?? 0,
+
+    startTime: source.startTime ?? source.start_time ?? null,
+    endTime: source.endTime ?? source.end_time ?? null,
+    durationHours: source.durationHours ?? source.duration_hours ?? 0,
     reward: source.reward ?? null,
-    rarityKey: source.rarity_key ?? source.rarityKey ?? null,
-    rarityLabel: source.rarity_label ?? source.rarityLabel ?? null,
+
+    rarityKey: source.rarityKey ?? source.rarity_key ?? null,
+    rarityLabel: source.rarityLabel ?? source.rarity_label ?? null,
+
     startsImmediately: typeof source.startsImmediately === 'boolean'
       ? source.startsImmediately
-      : !!source.starts_immediately,
+      : !!(source.starts_immediately),
+
     status: source.status ?? 'pending',
-    createdAt: source.created_at ?? Date.now(),
-    approvedAt: source.approved_at ?? null,
-    requestThreadId: source.request_thread_id ?? null,
-    requestMessageId: source.request_message_id ?? null,
-    announcementChannelId: source.announcement_channel_id ?? null,
-    announcementMessageId: source.announcement_message_id ?? null,
-    cardChannelId: source.card_channel_id ?? null,
-    cardMessageId: source.card_message_id ?? null,
-    winnerId: source.winner_id ?? null,
-    winnerClaimId: source.winner_claim_id ?? null
+
+    createdAt: source.createdAt ?? source.created_at ?? Date.now(),
+    approvedAt: source.approvedAt ?? source.approved_at ?? null,
+
+    requestThreadId: source.requestThreadId ?? source.request_thread_id ?? null,
+    requestMessageId: source.requestMessageId ?? source.request_message_id ?? null,
+    announcementChannelId:
+      source.announcementChannelId ?? source.announcement_channel_id ?? null,
+    announcementMessageId:
+      source.announcementMessageId ?? source.announcement_message_id ?? null,
+    cardChannelId: source.cardChannelId ?? source.card_channel_id ?? null,
+    cardMessageId: source.cardMessageId ?? source.card_message_id ?? null,
+
+    winnerId: source.winnerId ?? source.winner_id ?? null,
+    winnerClaimId: source.winnerClaimId ?? source.winner_claim_id ?? null
   };
 }
 
@@ -335,19 +349,20 @@ function normalizeClaimObject(source) {
   if (!source) return null;
   return {
     id: source.id ?? null,
-    bountyId: source.bounty_id ?? source.bountyId ?? null,
-    hunterId: source.hunter_id ?? source.hunterId ?? null,
-    pokemonId: source.pokemon_id ?? source.pokemonId ?? null,
+    bountyId: source.bountyId ?? source.bounty_id ?? null,
+    hunterId: source.hunterId ?? source.hunter_id ?? null,
+    pokemonId: source.pokemonId ?? source.pokemon_id ?? null,
     proof: source.proof ?? null,
     status: source.status ?? 'pending',
-    createdAt: source.created_at ?? Date.now(),
-    resolvedAt: source.resolved_at ?? null,
-    resolverId: source.resolver_id ?? null,
-    claimThreadId: source.claim_thread_id ?? null,
-    claimMessageId: source.claim_message_id ?? null
+    createdAt: source.createdAt ?? source.created_at ?? Date.now(),
+    resolvedAt: source.resolvedAt ?? source.resolved_at ?? null,
+    resolverId: source.resolverId ?? source.resolver_id ?? null,
+    claimThreadId: source.claimThreadId ?? source.claim_thread_id ?? null,
+    claimMessageId: source.claimMessageId ?? source.claim_message_id ?? null
   };
 }
 
+// -------- REPORT NORMALISER --------
 function normalizeReportObject(source) {
   if (!source) return null;
 
@@ -378,6 +393,7 @@ function normalizeReportObject(source) {
   };
 }
 
+// ---------------- LOAD FROM DB ON STARTUP ----------------
 async function loadBountiesFromDB() {
   const rows = await all(`SELECT * FROM bounties`);
   memoryBounties.length = 0;
@@ -400,6 +416,7 @@ async function loadClaimsFromDB() {
   }
 }
 
+// ---------------- DB PERSIST HELPERS ----------------
 async function persistBountyToDb(bounty) {
   const b = normalizeBountyObject(bounty);
   await run(
@@ -530,6 +547,7 @@ async function persistClaimToDb(claim) {
   return c.id;
 }
 
+// -------- REPORT PERSIST HELPER --------
 async function persistReportToDb(report) {
   const r = normalizeReportObject(report);
   await run(
@@ -573,6 +591,94 @@ async function persistReportToDb(report) {
     ]
   );
   return r;
+}
+
+// ---------------- PUBLIC BOUNTY API ----------------
+async function createBounty(bountyObj) {
+  const norm = normalizeBountyObject({
+    status: 'pending',
+    createdAt: Date.now(),
+    ...bountyObj
+  });
+  return await persistBountyToDb(norm);
+}
+
+async function getBountyById(id) {
+  const inMem = memoryBounties.find(b => String(b.id) === String(id));
+  if (inMem) return inMem;
+
+  const row = await get(`SELECT * FROM bounties WHERE id = ?`, [id]);
+  if (!row) return null;
+
+  const norm = normalizeBountyObject(row);
+  memoryBounties.push(norm);
+  return norm;
+}
+
+async function updateBounty(id, patch) {
+  const existing = await getBountyById(id);
+  if (!existing) return null;
+
+  const merged = normalizeBountyObject({ ...existing, ...patch });
+  return await persistBountyToDb(merged);
+}
+
+async function getBountiesToStart(nowMs) {
+  return memoryBounties.filter(b =>
+    b.status === 'open' &&
+    typeof b.startTime === 'number' &&
+    b.startTime <= nowMs &&
+    !b.cardMessageId
+  );
+}
+
+async function getBountiesToExpire(nowMs) {
+  return memoryBounties.filter(b =>
+    b.status === 'open' &&
+    typeof b.endTime === 'number' &&
+    b.endTime <= nowMs &&
+    !!b.cardMessageId
+  );
+}
+
+// ---------------- PUBLIC CLAIM API ----------------
+async function createBountyClaim(claimObj) {
+  const base = {
+    status: 'pending',
+    createdAt: Date.now(),
+    ...claimObj
+  };
+  return await persistClaimToDb(base);
+}
+
+async function getBountyClaimById(id) {
+  const inMem = memoryClaims.find(c => String(c.id) === String(id));
+  if (inMem) return inMem;
+
+  const row = await get(`SELECT * FROM bounty_claims WHERE id = ?`, [id]);
+  if (!row) return null;
+
+  const norm = normalizeClaimObject(row);
+  memoryClaims.push(norm);
+  return norm;
+}
+
+async function updateBountyClaim(id, patch) {
+  const existing = await getBountyClaimById(id);
+  if (!existing) return null;
+
+  const merged = normalizeClaimObject({ ...existing, ...patch });
+  await persistClaimToDb(merged);
+}
+
+async function getPendingClaimForBountyAndHunter(bountyId, hunterId) {
+  return (
+    memoryClaims.find(c =>
+      String(c.bountyId) === String(bountyId) &&
+      String(c.hunterId) === String(hunterId) &&
+      c.status === 'pending'
+    ) || null
+  );
 }
 
 // ------------------------------------------------------
@@ -628,9 +734,6 @@ async function getReportsToCleanup(nowMs) {
   return rows.map(normalizeReportObject);
 }
 
-// ------------------------------------------------------
-// 🔥 INSERTED NEW FUNCTION HERE
-// ------------------------------------------------------
 /**
  * DB check: has this Pokémon already been reported this hour?
  * Returns the active report row (normalised) or null.
@@ -695,5 +798,5 @@ module.exports = {
   deleteReport,
   getReportsToExpire,
   getReportsToCleanup,
-  findActiveReportThisHour // ✔️ ADDED HERE
+  findActiveReportThisHour
 };
