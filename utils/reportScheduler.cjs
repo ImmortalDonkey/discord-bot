@@ -1,131 +1,101 @@
 // utils/reportScheduler.cjs
-// Handles automatic report expiry & cleanup
-// Normalized camelCase everywhere
+// Expire & cleanup reports using normalised camelCase fields
 
 const fs = require("fs");
 const db = require("../database.cjs");
 const { createReportCard } = require("../renderers/reportCard.cjs");
 
 /**
- * Expire reports at end of their active hour.
- * → Remove buttons
- * → Re-render card (Status: Expired)
- * → Update DB with deleteAt timestamp
+ * Expire reports whose hour has ended
+ * Re-render → update message → update DB
  */
 async function expireDueReports(client, nowMs) {
   const dueReports = await db.getReportsToExpire(nowMs);
   if (!dueReports.length) return;
 
-  console.log(`⏳ [ReportScheduler] Expiring ${dueReports.length} report(s)...`);
+  console.log(`⏳ Expiring ${dueReports.length} report(s)...`);
 
   for (const r of dueReports) {
     try {
-      const {
-        id,
-        channelId,
-        messageId,
-        imagePath,
-        reporterName,
-        trainerRank,
-        pokemonName,
-        rarityKey,
-        rarityLabel,
-        points,
-        location
-      } = r;
-
-      const channel = await client.channels.fetch(channelId).catch(() => null);
+      const channel = await client.channels.fetch(r.channelId).catch(() => null);
       if (!channel) {
-        console.warn(`⚠ Channel missing for report ${id}`);
+        console.warn("⚠ Channel missing for report", r.id);
         continue;
       }
 
-      const msg = await channel.messages.fetch(messageId).catch(() => null);
-      if (!msg) {
-        console.warn(`⚠ Message missing for report ${id}`);
+      const oldMsg = await channel.messages.fetch(r.messageId).catch(() => null);
+      if (!oldMsg) {
+        console.warn("⚠ Message missing for report", r.id);
         continue;
       }
 
-      const updatedCardPath = await createReportCard({
-        trainerName,
-        trainerRank: trainerRank || "Trainer",
-        pokemonName,
-        rarityKey,
-        rarityLabel,
-        points,
-        location,
-        statusText: "Expired"
+      // Re-render card with EXPIRED status
+      const newCardPath = await createReportCard({
+        trainerName: r.reporterName,
+        trainerRank: r.trainerRank || "Trainer",
+        pokemonName: r.pokemonName,
+        rarityKey: r.rarityKey,       // keeps the same outline colour
+        rarityLabel: r.rarityLabel,
+        points: r.points,
+        location: r.location,
+        statusText: "EXPIRED"         // <- your chosen label
       });
 
-      // Replace message card & REMOVE BUTTONS
-      await msg.edit({
-        files: [updatedCardPath],
-        components: [] // button removal
+      // Update message → new image, remove buttons
+      await oldMsg.edit({
+        files: [newCardPath],
+        components: []                // remove Edit/Delete buttons
       });
 
-      // Delete previous PNG from disk
-      if (imagePath && fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
+      // Delete old local PNG
+      if (r.imagePath && fs.existsSync(r.imagePath)) {
+        fs.unlinkSync(r.imagePath);
       }
 
-      // Update DB status and schedule cleanup in 24h
-      const deleteAt = nowMs + 24 * 60 * 60 * 1000;
-      await db.updateReport(id, {
+      // Update DB
+      await db.updateReport(r.id, {
         status: "expired",
-        imagePath: updatedCardPath,
-        deleteAt
+        imagePath: newCardPath
       });
 
-      console.log(`✔ Expired report ${id}`);
-
+      console.log(`✔ Report expired: ${r.id}`);
     } catch (err) {
-      console.error(`❌ Expire error (${r.id}):`, err);
+      console.error(`❌ Expire error for ${r.id}:`, err);
     }
   }
 }
 
-
 /**
- * Auto-delete expired reports older than 24h
- * → Delete message
- * → Delete local image
- * → Remove from DB
+ * Delete expired reports older than 24 hours
  */
 async function cleanupReports(client, nowMs) {
   const stale = await db.getReportsToCleanup(nowMs);
   if (!stale.length) return;
 
-  console.log(`🗑 [ReportScheduler] Cleaning ${stale.length} stale report(s)...`);
+  console.log(`🗑 Cleaning ${stale.length} stale report(s)...`);
 
   for (const r of stale) {
     try {
-      const { id, channelId, messageId, imagePath } = r;
-
-      const channel = await client.channels.fetch(channelId).catch(() => null);
+      const channel = await client.channels.fetch(r.channelId).catch(() => null);
       if (channel) {
-        const msg = await channel.messages.fetch(messageId).catch(() => null);
+        const msg = await channel.messages.fetch(r.messageId).catch(() => null);
         if (msg) await msg.delete().catch(() => {});
       }
 
-      // Delete saved card image
-      if (imagePath && fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
+      if (r.imagePath && fs.existsSync(r.imagePath)) {
+        fs.unlinkSync(r.imagePath);
       }
 
-      // Delete DB row
-      await db.deleteReport(id);
-
-      console.log(`✔ Deleted stale report ${id}`);
-
+      await db.deleteReport(r.id);
+      console.log(`✔ Deleted stale report ${r.id}`);
     } catch (err) {
       console.error(`❌ Cleanup error for ${r.id}:`, err);
     }
   }
 }
 
-
 /**
- * Public entry — called every 60 seconds from index.cjs
+ * Called from index.cjs on interval (e.g. every 60s)
  */
 async function runReportScheduler(client) {
   const nowMs = Date.now();
