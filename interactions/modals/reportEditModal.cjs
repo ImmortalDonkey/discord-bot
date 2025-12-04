@@ -1,6 +1,4 @@
 // interactions/modals/reportEditModal.cjs
-// Handles modal submit from "Edit Report"
-
 const db = require("../../database.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { availableLocations } = require("../../utils/locations.cjs");
@@ -8,68 +6,69 @@ const { createReportCard } = require("../../renderers/reportCard.cjs");
 const fs = require("fs");
 
 module.exports = {
-  // Registration format required by modal loader
+  // This ensures the handler gets called for every modal ID that starts like this:
   ids: ["reporteditmodal_"],
 
   async execute(client, interaction) {
+    // Must acknowledge immediately to prevent “Unknown interaction”
+    await interaction.deferReply({ ephemeral: true });
+
     const customId = interaction.customId;
     const reportId = customId.replace("reporteditmodal_", "");
 
     const report = await db.getReport(reportId);
     if (!report) {
-      return interaction.reply({
-        content: "❌ This report no longer exists.",
-        ephemeral: true
-      });
+      return interaction.editReply("❌ This report no longer exists.");
     }
 
-    // Permission → original reporter only
+    // Permissions — reporter only OR staff in future extension
     if (interaction.user.id !== report.reporterId) {
-      return interaction.reply({
-        content: "⛔ Only the original reporter can edit this report.",
-        ephemeral: true
-      });
+      return interaction.editReply("⛔ Only the original reporter can edit this report.");
     }
 
-    const newPokemon = interaction.fields.getTextInputValue("pokemon")?.trim();
-    const newRoute = interaction.fields.getTextInputValue("route")?.trim();
+    // Extract user input
+    const newPokemonRaw = interaction.fields.getTextInputValue("pokemon")?.trim();
+    const newRouteRaw = interaction.fields.getTextInputValue("route")?.trim();
+
+    const newPokemon = newPokemonRaw && newPokemonRaw.length ? newPokemonRaw : null;
+    const newRoute = newRouteRaw && newRouteRaw.length ? newRouteRaw : null;
 
     if (!newPokemon && !newRoute) {
-      return interaction.reply({
-        content: "⚠ You must change at least one field.",
-        ephemeral: true
-      });
+      return interaction.editReply("⚠ Please change at least one field.");
     }
 
-    // Validate route input against known locations
-    if (newRoute &&
+    // ROUTE VALIDATION (case-insensitive)
+    if (
+      newRoute &&
       !availableLocations.some(
         loc => loc.toLowerCase() === newRoute.toLowerCase()
       )
     ) {
-      return interaction.reply({
-        content: `❌ **${newRoute}** is not a valid location.\nPlease use autocomplete locations.`,
-        ephemeral: true
-      });
+      return interaction.editReply(
+        `❌ Invalid location: **${newRoute}**\n` +
+        "Please use one of the autocomplete suggestions."
+      );
     }
 
+    // Build update patch using proper camelCase fields
     const patch = {};
 
-    // Only change relevant fields — do not recalc points or trainer rank!
     if (newPokemon) {
       const rarityKey = getRarity(newPokemon);
       patch.pokemonName = newPokemon;
       patch.rarityKey = rarityKey;
       patch.rarityLabel = getRarityDisplayLabel(rarityKey);
+      // No points change on edit (intentional)
     }
 
     if (newRoute) {
       patch.location = newRoute;
     }
 
+    // Save update to DB
     const updated = await db.updateReport(reportId, patch);
 
-    // Re-render updated card only (no text!)
+    // Re-render report card with **updated** info
     const newCardPath = await createReportCard({
       trainerName: updated.reporterName,
       trainerRank: updated.trainerRank,
@@ -81,25 +80,30 @@ module.exports = {
       statusText: updated.status === "expired" ? "Expired" : "Active"
     });
 
-    // Delete the old local file if exists
+    // Remove old image file
     if (report.imagePath && fs.existsSync(report.imagePath)) {
       fs.unlinkSync(report.imagePath);
     }
 
-    await db.updateReport(reportId, { imagePath: newCardPath });
+    // Update new image path in DB
+    await db.updateReport(reportId, {
+      imagePath: newCardPath
+    });
 
-    // Edit Discord message — replace ONLY image
+    // Update message in Discord
     try {
       const channel = await client.channels.fetch(updated.channelId);
       const msg = await channel.messages.fetch(updated.messageId);
-      await msg.edit({ files: [newCardPath] });
+
+      await msg.edit({
+        files: [newCardPath]
+      });
+
     } catch (err) {
-      console.error(`❌ Failed to update report card image:`, err);
+      console.error("❌ Failed to update message:", err);
+      return interaction.editReply("⚠ Card updated in database, but Discord message failed to update.");
     }
 
-    return interaction.reply({
-      content: "✏ Report updated successfully!",
-      ephemeral: true
-    });
+    return interaction.editReply("✏ Report updated successfully!");
   }
 };
