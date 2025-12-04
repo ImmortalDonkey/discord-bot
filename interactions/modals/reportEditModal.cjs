@@ -1,7 +1,7 @@
 // interactions/modals/reportEditModal.cjs
+// Handles in-place + re-routed updates for edited report cards
 
 const fs = require("fs");
-
 const db = require("../../database.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { availableLocations } = require("../../utils/locations.cjs");
@@ -10,23 +10,16 @@ const {
   getChannelForRarity
 } = require("../../utils/reportChannelRouter.cjs");
 
-// Staff roles (same pattern as other staff checks)
+// Staff-allowed editing
 const STAFF_ROLES = (process.env.STAFF_ROLES || "")
   .split(",")
   .map(r => r.trim())
   .filter(Boolean);
 
 module.exports = {
-  // 🔥 Correct identifier for modal handling
-  ids: ["reporteditmodal_"],
+  idPrefix: "reporteditmodal_",
 
-  /**
-   * @param {Client} client
-   * @param {ModalSubmitInteraction} interaction
-   * @param {string} reportId
-   */
   async execute(client, interaction, reportId) {
-    // Load the latest report from DB
     const report = await db.getReport(reportId);
     if (!report) {
       return interaction.reply({
@@ -35,13 +28,13 @@ module.exports = {
       });
     }
 
-    // Permissions check — original reporter OR staff
     const member = interaction.member;
     const isReporter = interaction.user.id === report.reporterId;
     const isStaff =
       !!member &&
       !!member.roles &&
       member.roles.cache.some(r => STAFF_ROLES.includes(r.id));
+
     if (!isReporter && !isStaff) {
       return interaction.reply({
         content: "⛔ Only the original reporter or staff can edit this report.",
@@ -49,12 +42,9 @@ module.exports = {
       });
     }
 
-    // Input fields
-    const newPokemonRaw = interaction.fields.getTextInputValue("pokemon") || "";
-    const newRouteRaw = interaction.fields.getTextInputValue("route") || "";
-
-    const newPokemon = newPokemonRaw.trim();
-    const newRoute = newRouteRaw.trim();
+    // Get modal inputs
+    const newPokemon = interaction.fields.getTextInputValue("pokemon")?.trim() || "";
+    const newRoute = interaction.fields.getTextInputValue("route")?.trim() || "";
 
     if (!newPokemon && !newRoute) {
       return interaction.reply({
@@ -66,17 +56,15 @@ module.exports = {
     // Route validation
     if (
       newRoute &&
-      !availableLocations.some(
-        l => l.toLowerCase() === newRoute.toLowerCase()
-      )
+      !availableLocations.some(l => l.toLowerCase() === newRoute.toLowerCase())
     ) {
       return interaction.reply({
-        content: `❌ Invalid location: **${newRoute}**\n(Please use autocomplete suggestions)`,
+        content: `❌ Invalid location: **${newRoute}**\n(Please use autocomplete)`,
         ephemeral: true
       });
     }
 
-    // Build DB patch — detect rarity change
+    // Build DB patch
     const patch = {};
     let rarityChanged = false;
 
@@ -93,17 +81,16 @@ module.exports = {
 
     if (newRoute) patch.location = newRoute;
 
-    // Save patch to DB
     const updated = await db.updateReport(reportId, patch);
     if (!updated) {
       return interaction.reply({
-        content: "❌ Failed to update the report in DB.",
+        content: "❌ Failed to update report database entry.",
         ephemeral: true
       });
     }
 
-    // Re-render card
     const statusText = updated.status === "expired" ? "Expired" : "Active";
+
     const newCardPath = await createReportCard({
       trainerName: updated.reporterName,
       trainerRank: updated.trainerRank || "Trainer",
@@ -115,74 +102,89 @@ module.exports = {
       statusText
     });
 
-    // Clean old image
-    if (report.imagePath && fs.existsSync(report.imagePath)) {
-      try {
-        fs.unlinkSync(report.imagePath);
-      } catch (err) {
-        console.warn("⚠ Failed to delete old report image:", err);
-      }
-    }
-
-    // Routing logic
     const oldChannelId = report.channelId;
     const oldMessageId = report.messageId;
+
     let newChannelId = oldChannelId;
     let newMessageId = oldMessageId;
 
     try {
       if (rarityChanged) {
-        const routedChannelId = getChannelForRarity(updated.rarityKey);
+        const routedId = getChannelForRarity(updated.rarityKey);
 
-        if (routedChannelId && routedChannelId !== oldChannelId) {
-          // New channel
-          const newChannel = await client.channels.fetch(routedChannelId).catch(() => null);
-          if (newChannel) {
-            const newMsg = await newChannel.send({ files: [newCardPath] });
-            newChannelId = newChannel.id;
+        if (routedId && routedId !== oldChannelId) {
+          const routedChannel = await client.channels.fetch(routedId).catch(() => null);
+          if (routedChannel) {
+            const newMsg = await routedChannel.send({
+              files: [newCardPath]
+            });
+
+            newChannelId = routedChannel.id;
             newMessageId = newMsg.id;
 
-            // Remove old message
             const oldChannel = await client.channels.fetch(oldChannelId).catch(() => null);
             if (oldChannel) {
               const oldMsg = await oldChannel.messages.fetch(oldMessageId).catch(() => null);
               if (oldMsg) await oldMsg.delete().catch(() => {});
             }
+          } else {
+            console.warn("⚠ Channel not found, fallback editing in place.");
+            const channel = await client.channels.fetch(oldChannelId).catch(() => null);
+            if (channel) {
+              const msg = await channel.messages.fetch(oldMessageId).catch(() => null);
+              if (msg) {
+                await msg.edit({ files: [newCardPath] }).catch(console.error);
+              }
+            }
           }
         } else {
-          // Fallback edit in same channel
-          const ch = await client.channels.fetch(oldChannelId).catch(() => null);
-          if (ch) {
-            const msg = await ch.messages.fetch(oldMessageId).catch(() => null);
+          const channel = await client.channels.fetch(oldChannelId).catch(() => null);
+          if (channel) {
+            const msg = await channel.messages.fetch(oldMessageId).catch(() => null);
             if (msg) await msg.edit({ files: [newCardPath] });
           }
         }
       } else {
-        // In-place edit
-        const ch = await client.channels.fetch(oldChannelId).catch(() => null);
-        if (ch) {
-          const msg = await ch.messages.fetch(oldMessageId).catch(() => null);
-          if (msg) await msg.edit({ files: [newCardPath] });
+        const channel = await client.channels.fetch(oldChannelId).catch(() => null);
+        if (channel) {
+          const msg = await channel.messages.fetch(oldMessageId).catch(() => null);
+          if (msg) {
+            await msg.edit({ files: [newCardPath] })
+              .then(() => {
+                if (report.imagePath && fs.existsSync(report.imagePath)) {
+                  fs.unlinkSync(report.imagePath);
+                }
+              })
+              .catch(async err => {
+                console.error("❌ Edit failed, fallback sending new:", err);
+                const newMsg = await channel.send({ files: [newCardPath] });
+                newChannelId = channel.id;
+                newMessageId = newMsg.id;
+              });
+          } else {
+            const newMsg = await channel.send({ files: [newCardPath] });
+            newChannelId = channel.id;
+            newMessageId = newMsg.id;
+          }
         }
       }
     } catch (err) {
-      console.error("❌ Failed to move/edit card:", err);
+      console.error("❌ Message update error:", err);
     }
 
-    // Save final metadata
     await db.updateReport(reportId, {
       imagePath: newCardPath,
       channelId: newChannelId,
       messageId: newMessageId
     });
 
-    // Response
+    let extra = "";
+    if (rarityChanged) {
+      extra = "\n\n📊 Rarity changed — card re-routed.";
+    }
+
     return interaction.reply({
-      content:
-        "✏ Report updated!" +
-        (rarityChanged
-          ? "\n\n📊 Rarity changed — card moved to correct channel."
-          : ""),
+      content: "✏ Report updated!" + extra,
       ephemeral: true
     });
   }
