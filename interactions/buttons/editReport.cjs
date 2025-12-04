@@ -10,7 +10,14 @@ const {
 } = require("discord.js");
 const fs = require("fs");
 
+// Staff roles from env (same pattern as /editpoints, /claim, etc.)
+const STAFF_ROLES = (process.env.STAFF_ROLES || "")
+  .split(",")
+  .map(r => r.trim())
+  .filter(Boolean);
+
 module.exports = {
+  // Button IDs handled here
   ids: ["reportedit_", "reportdelete_"],
 
   async execute(client, interaction) {
@@ -29,6 +36,7 @@ module.exports = {
       return;
     }
 
+    // Always work with the normalised report object (camelCase fields)
     const report = await db.getReport(reportId);
     if (!report) {
       return interaction.reply({
@@ -37,34 +45,47 @@ module.exports = {
       });
     }
 
-    // Permission check
-    if (interaction.user.id !== report.reporterId) {
+    // Permission: original reporter OR staff (STAFF_ROLES)
+    const member = interaction.member;
+    const isReporter = interaction.user.id === report.reporterId;
+    const isStaff =
+      !!member &&
+      !!member.roles &&
+      member.roles.cache.some(r => STAFF_ROLES.includes(r.id));
+
+    if (!isReporter && !isStaff) {
       return interaction.reply({
-        content: "⛔ Only the original reporter can modify this report.",
+        content: "⛔ Only the original reporter or staff can modify this report.",
         ephemeral: true
       });
     }
 
-    // DELETE
+    // ─────────────────────────────────────────────
+    // DELETE BRANCH
+    // ─────────────────────────────────────────────
     if (action === "delete") {
       try {
-        const channel = await client.channels.fetch(report.channel_id).catch(() => null);
+        // Use normalised field names from database.cjs
+        const channel = await client.channels.fetch(report.channelId).catch(() => null);
         if (channel) {
-          const message = await channel.messages.fetch(report.message_id).catch(() => null);
-          if (message) await message.delete().catch(() => {});
+          const message = await channel.messages.fetch(report.messageId).catch(() => null);
+          if (message) {
+            await message.delete().catch(() => {});
+          }
         }
 
-        if (report.image_path && fs.existsSync(report.image_path)) {
-          fs.unlinkSync(report.image_path);
+        // Delete the local PNG (Discord keeps its own CDN copy if message still existed)
+        if (report.imagePath && fs.existsSync(report.imagePath)) {
+          fs.unlinkSync(report.imagePath);
         }
 
+        // Remove row from DB
         await db.deleteReport(reportId);
 
         return interaction.reply({
           content: "🗑 Report deleted successfully.",
           ephemeral: true
         });
-
       } catch (err) {
         console.error("❌ Delete error:", err);
         return interaction.reply({
@@ -74,16 +95,20 @@ module.exports = {
       }
     }
 
-    // EDIT → Show Modal
+    // ─────────────────────────────────────────────
+    // EDIT BRANCH → Show Modal
+    // ─────────────────────────────────────────────
     if (action === "edit") {
       const modal = new ModalBuilder()
         .setCustomId(`reporteditmodal_${reportId}`)
         .setTitle("Edit Report");
 
+      // Free-text, but validated later in reportEditModal.cjs against
+      // the same lists as your /report autocomplete.
       const pokemonInput = new TextInputBuilder()
         .setCustomId("pokemon")
         .setLabel("New Pokémon (optional)")
-        .setPlaceholder(report.pokemon_name || "Keep current")
+        .setPlaceholder(report.pokemonName || "Keep current")
         .setStyle(TextInputStyle.Short)
         .setRequired(false);
 
