@@ -6,9 +6,9 @@ const modalHandlers = [];
 
 /**
  * Load all modal handlers from interactions/modals.
- * Each module must export:
- *   - ids: array of strings (prefixes or exact)
- *   - execute(client, interaction)
+ * Supports:
+ *   - ids: [] exact or prefix match
+ *   - idPrefix: "prefix_" dynamic handlers (e.g. reporteditmodal_)
  */
 function initModalHandlers(client) {
   const modalsDir = path.join(__dirname, '..', 'interactions', 'modals');
@@ -26,9 +26,13 @@ function initModalHandlers(client) {
     try {
       const mod = require(fullPath);
 
-      if (!mod || !Array.isArray(mod.ids) || typeof mod.execute !== 'function') {
+      const hasExecute = typeof mod.execute === 'function';
+      const hasIds = Array.isArray(mod.ids);
+      const hasPrefix = typeof mod.idPrefix === 'string';
+
+      if (!hasExecute || (!hasIds && !hasPrefix)) {
         console.warn(
-          `⚠ Skipping modal file "${file}" – missing ids[] or execute().`
+          `⚠ Skipping modal file "${file}" – missing ids[] or idPrefix or execute().`
         );
         continue;
       }
@@ -44,27 +48,39 @@ function initModalHandlers(client) {
 /**
  * Route modal interactions.
  * Matches:
- *   - exact ID match
- *   - underscore prefix IDs (endsWith("_"))
- *   - pipe prefix IDs (endsWith("|"))
+ *   - exact ID match via ids:[]
+ *   - underscore prefix ids:[…_]
+ *   - pipe prefix ids:[…|]
+ *   - idPrefix dynamic routed modals
  */
 async function handleModalInteraction(client, interaction) {
   const id = interaction.customId;
+  let handler = null;
+  let dynamicId = null;
 
-  const handler = modalHandlers.find(mod =>
-    mod.ids.some(prefix => {
-      // exact match
-      if (id === prefix) return true;
+  for (const mod of modalHandlers) {
+    // 🔹 If module uses dynamic prefix (e.g. reporteditmodal_)
+    if (typeof mod.idPrefix === 'string' && id.startsWith(mod.idPrefix)) {
+      handler = mod;
+      dynamicId = id.slice(mod.idPrefix.length);
+      break;
+    }
 
-      // prefix match: underscore style
-      if (prefix.endsWith("_") && id.startsWith(prefix)) return true;
+    // 🔹 If module uses ids: []
+    if (Array.isArray(mod.ids)) {
+      const matched = mod.ids.some(prefix => {
+        if (id === prefix) return true;
+        if (prefix.endsWith("_") && id.startsWith(prefix)) return true;
+        if (prefix.endsWith("|") && id.startsWith(prefix)) return true;
+        return false;
+      });
 
-      // prefix match: pipe style
-      if (prefix.endsWith("|") && id.startsWith(prefix)) return true;
-
-      return false;
-    })
-  );
+      if (matched) {
+        handler = mod;
+        break;
+      }
+    }
+  }
 
   if (!handler) {
     console.warn(`⚠ No modal handler for "${id}".`);
@@ -72,11 +88,15 @@ async function handleModalInteraction(client, interaction) {
   }
 
   try {
-    await handler.execute(client, interaction);
+    // Dynamic prefix handlers receive the ID suffix
+    if (dynamicId !== null) {
+      await handler.execute(client, interaction, dynamicId);
+    } else {
+      await handler.execute(client, interaction);
+    }
   } catch (err) {
     console.error(`❌ Modal handler error (${id}):`, err);
 
-    // fallback error reply if nothing was sent
     if (!interaction.deferred && !interaction.replied) {
       await interaction
         .reply({
