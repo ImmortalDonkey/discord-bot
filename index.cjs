@@ -28,12 +28,9 @@ const {
 
 const handleAutocompleteInteraction = require('./handlers/autocompleteHandler.cjs');
 
-// NEW — SQLite-based bounty scheduler
+// Schedulers
 const { startBountyScheduler } = require('./utils/bountyScheduler.cjs');
-
-// NEW — report scheduler (for /report cards)
 const { runReportScheduler } = require('./utils/reportScheduler.cjs');
-
 
 // ──────────────────────────────────────
 // DISCORD CLIENT
@@ -47,20 +44,10 @@ const client = new Client({
 });
 
 // ──────────────────────────────────────
-// REMOVE OLD IN-MEMORY BOUNTY STORAGE
-// (these are now entirely SQLite-based)
+// REMOVE OLD MEMORY STORAGE
 // ──────────────────────────────────────
 client.playerLocations = new Map();
 client.pendingReports = new Map();
-
-// ❌ REMOVED:
-// client.pendingBounties
-// client.activeBounties
-// client.bountyClaims
-//
-// No longer used. ALL bounty storage now lives in SQLite.
-// Scheduler + modal + button handlers read from database only.
-
 
 // ──────────────────────────────────────
 // RARITY HELPERS (unchanged)
@@ -116,14 +103,12 @@ client.getRarityDisplayLabel = function(key) {
   return 'Common';
 };
 
-
 // ──────────────────────────────────────
 // READY EVENT
 // ──────────────────────────────────────
 client.once('ready', async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 
-  // SQLite
   try {
     await db.init();
     console.log('✅ Database initialised');
@@ -131,14 +116,12 @@ client.once('ready', async () => {
     console.error('❌ DB init failed:', err);
   }
 
-  // Google Sheets (non-bounty)
   try {
     await initGoogleSheet();
   } catch (err) {
     console.error('⚠ Sheets init failed:', err);
   }
 
-  // Load all handlers
   try {
     initCommandHandlers(client);
     initButtonHandlers(client);
@@ -148,7 +131,7 @@ client.once('ready', async () => {
     console.error('❌ Handler init failed:', err);
   }
 
-  // Start the NEW SQLite bounty scheduler
+  // Start bounty scheduler
   try {
     startBountyScheduler(client);
     console.log('⏱️ Bounty scheduler online');
@@ -156,59 +139,51 @@ client.once('ready', async () => {
     console.error('❌ Failed to start bounty scheduler:', err);
   }
 
-  // Start report scheduler loop (runs every 60 seconds)
-  try {
-    setInterval(() => {
-      runReportScheduler(client).catch(err => {
-        console.error('❌ Report scheduler error:', err);
-      });
-    }, 60 * 1000);
+  // ──────────────────────────────────────
+  // 🔔 PRECISE TOP-OF-MINUTE report scheduler
+  // ──────────────────────────────────────
+  function scheduleReports() {
+    const now = new Date();
+    const msToNextMinute = (60 - now.getSeconds()) * 1000;
 
-    console.log('⏱️ Report scheduler online');
-  } catch (err) {
-    console.error('❌ Failed to start report scheduler:', err);
+    setTimeout(() => {
+      setInterval(() => {
+        runReportScheduler(client).catch(err =>
+          console.error('❌ Report scheduler error:', err)
+        );
+      }, 60 * 1000);
+
+      runReportScheduler(client).catch(err =>
+        console.error('❌ Report scheduler error:', err)
+      );
+    }, msToNextMinute);
   }
+
+  scheduleReports();
+  console.log('⏱ Report scheduler aligned and online');
 });
 
-
 // ──────────────────────────────────────
-// INTERACTION HANDLING
+// INTERACTIONS
 // ──────────────────────────────────────
 client.on('interactionCreate', async interaction => {
   try {
-    if (interaction.isAutocomplete()) {
-      return handleAutocompleteInteraction(interaction);
-    }
-    if (interaction.isButton()) {
-      return handleButtonInteraction(client, interaction);
-    }
-    if (interaction.isModalSubmit()) {
-      return handleModalInteraction(client, interaction);
-    }
-    if (interaction.isChatInputCommand()) {
-      return handleCommandInteraction(client, interaction);
-    }
+    if (interaction.isAutocomplete()) return handleAutocompleteInteraction(interaction);
+    if (interaction.isButton()) return handleButtonInteraction(client, interaction);
+    if (interaction.isModalSubmit()) return handleModalInteraction(client, interaction);
+    if (interaction.isChatInputCommand()) return handleCommandInteraction(client, interaction);
   } catch (err) {
     console.error('❌ Interaction error:', err);
-
-    const payload = {
-      content: '❌ Error while processing interaction.',
-      ephemeral: true
-    };
-
+    const payload = { content: '❌ Error while processing interaction.', ephemeral: true };
     try {
-      if (interaction.replied || interaction.deferred) {
-        await interaction.followUp(payload);
-      } else {
-        await interaction.reply(payload);
-      }
+      if (interaction.replied || interaction.deferred) await interaction.followUp(payload);
+      else await interaction.reply(payload);
     } catch {}
   }
 });
 
-
 // ──────────────────────────────────────
-// LOGIN + EXPRESS HEARTBEAT
+// LOGIN + HEARTBEAT
 // ──────────────────────────────────────
 client.login(process.env.DISCORD_TOKEN);
 
