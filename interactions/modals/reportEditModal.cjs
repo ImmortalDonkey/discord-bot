@@ -1,15 +1,19 @@
 // interactions/modals/reportEditModal.cjs
+// Handles modal submit from "Edit Report"
 
 const db = require("../../database.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
-const { createReportCard } = require("../../renderers/reportCard.cjs");
 const { availableLocations } = require("../../utils/locations.cjs");
+const { createReportCard } = require("../../renderers/reportCard.cjs");
 const fs = require("fs");
 
 module.exports = {
-  idPrefix: "reporteditmodal_",
+  // Registration format required by modal loader
+  ids: ["reporteditmodal_"],
 
-  async execute(client, interaction, reportId) {
+  async execute(client, interaction) {
+    const customId = interaction.customId;
+    const reportId = customId.replace("reporteditmodal_", "");
 
     const report = await db.getReport(reportId);
     if (!report) {
@@ -19,7 +23,7 @@ module.exports = {
       });
     }
 
-    // Permission check
+    // Permission → original reporter only
     if (interaction.user.id !== report.reporterId) {
       return interaction.reply({
         content: "⛔ Only the original reporter can edit this report.",
@@ -32,27 +36,31 @@ module.exports = {
 
     if (!newPokemon && !newRoute) {
       return interaction.reply({
-        content: "⚠ Please change at least one field.",
+        content: "⚠ You must change at least one field.",
         ephemeral: true
       });
     }
 
-    // Validate Route
-    if (newRoute && !availableLocations.some(l => l.toLowerCase() === newRoute.toLowerCase())) {
+    // Validate route input against known locations
+    if (newRoute &&
+      !availableLocations.some(
+        loc => loc.toLowerCase() === newRoute.toLowerCase()
+      )
+    ) {
       return interaction.reply({
-        content: `❌ Invalid location: **${newRoute}**\n(Please use autocomplete suggestions)`,
+        content: `❌ **${newRoute}** is not a valid location.\nPlease use autocomplete locations.`,
         ephemeral: true
       });
     }
 
     const patch = {};
 
+    // Only change relevant fields — do not recalc points or trainer rank!
     if (newPokemon) {
       const rarityKey = getRarity(newPokemon);
-      patch.pokemon_name = newPokemon;
-      patch.rarity_key = rarityKey;
-      patch.rarity_label = getRarityDisplayLabel(rarityKey);
-      // 🚫 No points awarded again for edits
+      patch.pokemonName = newPokemon;
+      patch.rarityKey = rarityKey;
+      patch.rarityLabel = getRarityDisplayLabel(rarityKey);
     }
 
     if (newRoute) {
@@ -61,41 +69,36 @@ module.exports = {
 
     const updated = await db.updateReport(reportId, patch);
 
-    // Render updated card (status stays same)
-    const statusText = updated.status === "expired" ? "Expired" : "Active";
+    // Re-render updated card only (no text!)
     const newCardPath = await createReportCard({
       trainerName: updated.reporterName,
-      trainerRank: updated.trainerRank, // Does not change here
+      trainerRank: updated.trainerRank,
       pokemonName: updated.pokemonName,
       rarityKey: updated.rarityKey,
       rarityLabel: updated.rarityLabel,
       points: updated.points,
       location: updated.location,
-      statusText
+      statusText: updated.status === "expired" ? "Expired" : "Active"
     });
 
-    // Replace image path in DB
+    // Delete the old local file if exists
     if (report.imagePath && fs.existsSync(report.imagePath)) {
       fs.unlinkSync(report.imagePath);
     }
 
-    await db.updateReport(reportId, { image_path: newCardPath });
+    await db.updateReport(reportId, { imagePath: newCardPath });
 
-    // Edit only the file — no plaintext!
+    // Edit Discord message — replace ONLY image
     try {
       const channel = await client.channels.fetch(updated.channelId);
       const msg = await channel.messages.fetch(updated.messageId);
-
-      await msg.edit({
-        files: [newCardPath]
-      });
-
+      await msg.edit({ files: [newCardPath] });
     } catch (err) {
-      console.error("❌ Failed to update message:", err);
+      console.error(`❌ Failed to update report card image:`, err);
     }
 
     return interaction.reply({
-      content: "✏ Report updated!",
+      content: "✏ Report updated successfully!",
       ephemeral: true
     });
   }
