@@ -1,109 +1,253 @@
 // interactions/modals/reportEditModal.cjs
+
+const fs = require("fs");
+
 const db = require("../../database.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { availableLocations } = require("../../utils/locations.cjs");
 const { createReportCard } = require("../../renderers/reportCard.cjs");
-const fs = require("fs");
+const {
+  getChannelForRarity
+} = require("../../utils/reportChannelRouter.cjs");
+
+// Staff roles (same pattern as other staff checks)
+const STAFF_ROLES = (process.env.STAFF_ROLES || "")
+  .split(",")
+  .map(r => r.trim())
+  .filter(Boolean);
 
 module.exports = {
-  // This ensures the handler gets called for every modal ID that starts like this:
-  ids: ["reporteditmodal_"],
+  idPrefix: "reporteditmodal_", // must match button customId prefix
 
-  async execute(client, interaction) {
-    // Must acknowledge immediately to prevent “Unknown interaction”
-    await interaction.deferReply({ ephemeral: true });
-
-    const customId = interaction.customId;
-    const reportId = customId.replace("reporteditmodal_", "");
-
+  /**
+   * @param {Client} client
+   * @param {ModalSubmitInteraction} interaction
+   * @param {string} reportId
+   */
+  async execute(client, interaction, reportId) {
+    // Load the latest report state from DB
     const report = await db.getReport(reportId);
     if (!report) {
-      return interaction.editReply("❌ This report no longer exists.");
+      return interaction.reply({
+        content: "❌ This report no longer exists.",
+        ephemeral: true
+      });
     }
 
-    // Permissions — reporter only OR staff in future extension
-    if (interaction.user.id !== report.reporterId) {
-      return interaction.editReply("⛔ Only the original reporter can edit this report.");
+    // ─────────────────────────────────────────────
+    // PERMISSION: reporter OR staff (option C)
+    // ─────────────────────────────────────────────
+    const member = interaction.member;
+    const isReporter = interaction.user.id === report.reporterId;
+    const isStaff =
+      !!member &&
+      !!member.roles &&
+      member.roles.cache.some(r => STAFF_ROLES.includes(r.id));
+
+    if (!isReporter && !isStaff) {
+      return interaction.reply({
+        content: "⛔ Only the original reporter or staff can edit this report.",
+        ephemeral: true
+      });
     }
 
-    // Extract user input
-    const newPokemonRaw = interaction.fields.getTextInputValue("pokemon")?.trim();
-    const newRouteRaw = interaction.fields.getTextInputValue("route")?.trim();
+    // ─────────────────────────────────────────────
+    // READ INPUTS
+    // ─────────────────────────────────────────────
+    const newPokemonRaw = interaction.fields.getTextInputValue("pokemon") || "";
+    const newRouteRaw = interaction.fields.getTextInputValue("route") || "";
 
-    const newPokemon = newPokemonRaw && newPokemonRaw.length ? newPokemonRaw : null;
-    const newRoute = newRouteRaw && newRouteRaw.length ? newRouteRaw : null;
+    const newPokemon = newPokemonRaw.trim();
+    const newRoute = newRouteRaw.trim();
 
     if (!newPokemon && !newRoute) {
-      return interaction.editReply("⚠ Please change at least one field.");
+      return interaction.reply({
+        content: "⚠ Please change at least one field.",
+        ephemeral: true
+      });
     }
 
-    // ROUTE VALIDATION (case-insensitive)
+    // Validate Route against availableLocations
     if (
       newRoute &&
       !availableLocations.some(
-        loc => loc.toLowerCase() === newRoute.toLowerCase()
+        l => l.toLowerCase() === newRoute.toLowerCase()
       )
     ) {
-      return interaction.editReply(
-        `❌ Invalid location: **${newRoute}**\n` +
-        "Please use one of the autocomplete suggestions."
-      );
+      return interaction.reply({
+        content: `❌ Invalid location: **${newRoute}**\n(Please use autocomplete suggestions)`,
+        ephemeral: true
+      });
     }
 
-    // Build update patch using proper camelCase fields
+    // ─────────────────────────────────────────────
+    // BUILD PATCH (no points recalculation)
+    // ─────────────────────────────────────────────
     const patch = {};
+    let rarityChanged = false;
 
     if (newPokemon) {
       const rarityKey = getRarity(newPokemon);
+      const rarityLabel = getRarityDisplayLabel(rarityKey);
+
       patch.pokemonName = newPokemon;
       patch.rarityKey = rarityKey;
-      patch.rarityLabel = getRarityDisplayLabel(rarityKey);
-      // No points change on edit (intentional)
+      patch.rarityLabel = rarityLabel;
+
+      if (rarityKey !== report.rarityKey) {
+        rarityChanged = true;
+      }
     }
 
     if (newRoute) {
       patch.location = newRoute;
     }
 
-    // Save update to DB
+    // Apply DB update (without touching channel/message/image yet)
     const updated = await db.updateReport(reportId, patch);
+    if (!updated) {
+      return interaction.reply({
+        content: "❌ Failed to update the report in the database.",
+        ephemeral: true
+      });
+    }
 
-    // Re-render report card with **updated** info
+    // ─────────────────────────────────────────────
+    // RE-RENDER CARD
+    // ─────────────────────────────────────────────
+    const statusText = updated.status === "expired" ? "Expired" : "Active";
+
     const newCardPath = await createReportCard({
       trainerName: updated.reporterName,
-      trainerRank: updated.trainerRank,
+      trainerRank: updated.trainerRank || "Trainer",
       pokemonName: updated.pokemonName,
       rarityKey: updated.rarityKey,
       rarityLabel: updated.rarityLabel,
       points: updated.points,
       location: updated.location,
-      statusText: updated.status === "expired" ? "Expired" : "Active"
+      statusText
     });
 
-    // Remove old image file
+    // Delete OLD image on disk (if any)
     if (report.imagePath && fs.existsSync(report.imagePath)) {
-      fs.unlinkSync(report.imagePath);
+      try {
+        fs.unlinkSync(report.imagePath);
+      } catch (err) {
+        console.warn("⚠ Failed to delete old report image:", err);
+      }
     }
 
-    // Update new image path in DB
+    // ─────────────────────────────────────────────
+    // ROUTING: did rarity change → move to correct channel?
+    // ─────────────────────────────────────────────
+    const oldChannelId = report.channelId;
+    const oldMessageId = report.messageId;
+
+    let newChannelId = oldChannelId;
+    let newMessageId = oldMessageId;
+
+    try {
+      if (rarityChanged) {
+        // Find the configured channel for the *new* rarity
+        const routedChannelId = getChannelForRarity(updated.rarityKey);
+        if (routedChannelId && routedChannelId !== oldChannelId) {
+          // Attempt to send NEW message in proper channel
+          const newChannel = await client.channels
+            .fetch(routedChannelId)
+            .catch(() => null);
+
+          if (newChannel) {
+            const newMsg = await newChannel.send({
+              files: [newCardPath]
+            });
+
+            newChannelId = newChannel.id;
+            newMessageId = newMsg.id;
+
+            // Try to delete old message
+            const oldChannel = await client.channels
+              .fetch(oldChannelId)
+              .catch(() => null);
+            if (oldChannel) {
+              const oldMsg = await oldChannel.messages
+                .fetch(oldMessageId)
+                .catch(() => null);
+              if (oldMsg) {
+                await oldMsg.delete().catch(() => {});
+              }
+            }
+          } else {
+            // Fallback: channel configured but not found → just edit in place
+            const fallbackChannel = await client.channels
+              .fetch(oldChannelId)
+              .catch(() => null);
+            if (fallbackChannel) {
+              const msg = await fallbackChannel.messages
+                .fetch(oldMessageId)
+                .catch(() => null);
+              if (msg) {
+                await msg.edit({
+                  files: [newCardPath]
+                });
+              }
+            }
+          }
+        } else {
+          // Rarity changed but mapping is same / missing → simple in-place edit
+          const channel = await client.channels
+            .fetch(oldChannelId)
+            .catch(() => null);
+          if (channel) {
+            const msg = await channel.messages
+              .fetch(oldMessageId)
+              .catch(() => null);
+            if (msg) {
+              await msg.edit({
+                files: [newCardPath]
+              });
+            }
+          }
+        }
+      } else {
+        // Rarity unchanged → in-place edit
+        const channel = await client.channels
+          .fetch(oldChannelId)
+          .catch(() => null);
+        if (channel) {
+          const msg = await channel.messages
+            .fetch(oldMessageId)
+            .catch(() => null);
+          if (msg) {
+            await msg.edit({
+              files: [newCardPath]
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("❌ Failed to apply channel/message update:", err);
+    }
+
+    // ─────────────────────────────────────────────
+    // FINAL DB UPDATE: new image + potential channel/message change
+    // ─────────────────────────────────────────────
     await db.updateReport(reportId, {
-      imagePath: newCardPath
+      imagePath: newCardPath,
+      channelId: newChannelId,
+      messageId: newMessageId
     });
 
-    // Update message in Discord
-    try {
-      const channel = await client.channels.fetch(updated.channelId);
-      const msg = await channel.messages.fetch(updated.messageId);
-
-      await msg.edit({
-        files: [newCardPath]
-      });
-
-    } catch (err) {
-      console.error("❌ Failed to update message:", err);
-      return interaction.editReply("⚠ Card updated in database, but Discord message failed to update.");
+    // ─────────────────────────────────────────────
+    // REPLY
+    // ─────────────────────────────────────────────
+    let extra = "";
+    if (rarityChanged) {
+      extra = "\n\n📊 Rarity changed — the card has been re-routed to the correct channel (if configured).";
     }
 
-    return interaction.editReply("✏ Report updated successfully!");
+    return interaction.reply({
+      content: "✏ Report updated!" + extra,
+      ephemeral: true
+    });
   }
 };
