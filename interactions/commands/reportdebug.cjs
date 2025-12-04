@@ -12,6 +12,9 @@ const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { calculateAwardedPoints } = require("../../utils/scoring.cjs");
 const { createReportCard } = require("../../renderers/reportCard.cjs");
 
+// 🔹 LIMITER IMPORT
+const { checkReportAllowed } = require("../../utils/reportLimiter.cjs");
+
 const STAFF_ROLES = process.env.STAFF_ROLES?.split(",") || [];
 const DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
 
@@ -44,13 +47,37 @@ module.exports = {
       });
     }
 
+    const pokemon = interaction.options.getString("pokemon");
+    const route = interaction.options.getString("route");
+
+    // 🔹 LIMITER ADDED BELOW — BEFORE ANYTHING ELSE
+    const limit = await checkReportAllowed(pokemon);
+    if (!limit.allowed) {
+      const reset = limit.nextResetLabel || "later";
+
+      // If a current report exists in DB, link it
+      if (limit.activeReport) {
+        const r = limit.activeReport;
+        return interaction.reply({
+          content:
+            `⚠️ A report for **${pokemon}** is already active this hour!\n` +
+            `🔗 Jump to card: https://discord.com/channels/${r.guildId}/${r.channelId}/${r.messageId}\n\n` +
+            `Try again ${reset}.`,
+          flags: 64
+        });
+      }
+
+      return interaction.reply({
+        content: `⚠️ Already reported this hour. Try again ${reset}.`,
+        flags: 64
+      });
+    }
+    // 🔹 END LIMIT CHECK
+
     await interaction.reply({
       content: "🎨 Rendering card...",
       flags: 64
     });
-
-    const pokemon = interaction.options.getString("pokemon");
-    const route = interaction.options.getString("route");
 
     // Rarity + Points Award
     const rarityKey = getRarity(pokemon);
@@ -72,9 +99,9 @@ module.exports = {
       user.globalName ||
       user.username;
 
-    // Expiry logic
+    // Expiry logic — end of current hour
     const expiresAt = new Date(now);
-    expiresAt.setMinutes(59, 59, 999); // always end of current hour
+    expiresAt.setMinutes(59, 59, 999);
     const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
 
     const reportId = `report_${Date.now()}_${user.id}`;
@@ -111,13 +138,11 @@ module.exports = {
         .setStyle(ButtonStyle.Danger)
     );
 
-    // CARD ONLY — NO TITLE TEXT
     const sent = await debugChannel.send({
       files: [cardPath],
       components: [controls]
     });
 
-    // DB SAVE — snake_case for SQL
     await db.createReport({
       id: reportId,
       guildId: interaction.guild.id,
@@ -139,7 +164,7 @@ module.exports = {
     });
 
     return interaction.followUp({
-      content: `☑ Report card posted in <#${DEBUG_REPORT_CHANNEL_ID}> — expires **${expiresAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}**`,
+      content: `☑ Debug posted — expires **${expiresAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}**`,
       flags: 64
     });
   }
