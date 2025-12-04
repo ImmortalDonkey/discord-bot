@@ -1,4 +1,5 @@
 // interactions/commands/reportdebug.cjs
+
 const {
   SlashCommandBuilder,
   ActionRowBuilder,
@@ -11,9 +12,10 @@ const { getRankName } = require("../../utils/rankSystem.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { calculateAwardedPoints } = require("../../utils/scoring.cjs");
 const { createReportCard } = require("../../renderers/reportCard.cjs");
-
-// 🔹 LIMITER IMPORT
-const { checkReportAllowed } = require("../../utils/reportLimiter.cjs");
+const {
+  getChannelForRarity,
+  getRoleForRarity
+} = require("../../utils/reportChannelRouter.cjs");
 
 const STAFF_ROLES = process.env.STAFF_ROLES?.split(",") || [];
 const DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
@@ -23,13 +25,15 @@ module.exports = {
     .setName("reportdebug")
     .setDescription("Staff-only: test the report card system")
     .addStringOption(o =>
-      o.setName("pokemon")
+      o
+        .setName("pokemon")
         .setDescription("Pokémon name")
         .setRequired(true)
         .setAutocomplete(true)
     )
     .addStringOption(o =>
-      o.setName("route")
+      o
+        .setName("route")
         .setDescription("Route / Location")
         .setRequired(true)
         .setAutocomplete(true)
@@ -38,6 +42,7 @@ module.exports = {
   async execute(client, interaction) {
     const user = interaction.user;
     const member = interaction.member;
+    const guild = interaction.guild;
 
     // STAFF ONLY
     if (!member.roles.cache.some(r => STAFF_ROLES.includes(r.id))) {
@@ -47,66 +52,50 @@ module.exports = {
       });
     }
 
-    const pokemon = interaction.options.getString("pokemon");
-    const route = interaction.options.getString("route");
-
-    // 🔹 LIMITER ADDED BELOW — BEFORE ANYTHING ELSE
-    const limit = await checkReportAllowed(pokemon);
-    if (!limit.allowed) {
-      const reset = limit.nextResetLabel || "later";
-
-      // If a current report exists in DB, link it
-      if (limit.activeReport) {
-        const r = limit.activeReport;
-        return interaction.reply({
-          content:
-            `⚠️ A report for **${pokemon}** is already active this hour!\n` +
-            `🔗 Jump to card: https://discord.com/channels/${r.guildId}/${r.channelId}/${r.messageId}\n\n` +
-            `Try again ${reset}.`,
-          flags: 64
-        });
-      }
-
-      return interaction.reply({
-        content: `⚠️ Already reported this hour. Try again ${reset}.`,
-        flags: 64
-      });
-    }
-    // 🔹 END LIMIT CHECK
-
     await interaction.reply({
       content: "🎨 Rendering card...",
       flags: 64
     });
 
-    // Rarity + Points Award
+    const pokemon = interaction.options.getString("pokemon");
+    const route = interaction.options.getString("route");
+
+    // ──────────────────────────────
+    // RARITY + POINTS
+    // ──────────────────────────────
     const rarityKey = getRarity(pokemon);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
     const now = new Date();
     const points = calculateAwardedPoints(rarityKey, now);
-    const updated = await db.addPoints(
+
+    const updatedUser = await db.addPoints(
       user.id,
       user.username,
       points,
       `Debug Report: ${pokemon}`
     );
 
-    const trainerRank = getRankName(updated?.lifetime_points || 0);
+    const trainerRank = getRankName(updatedUser?.lifetime_points || 0);
     const trainerName =
       member.displayName ||
       member.nickname ||
       user.globalName ||
       user.username;
 
-    // Expiry logic — end of current hour
+    // ──────────────────────────────
+    // EXPIRY WINDOW
+    // ──────────────────────────────
     const expiresAt = new Date(now);
+    // Always end of current hour  :59:59.999
     expiresAt.setMinutes(59, 59, 999);
     const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
 
     const reportId = `report_${Date.now()}_${user.id}`;
 
-    // CREATE IMAGE
+    // ──────────────────────────────
+    // BUILD CARD IMAGE
+    // ──────────────────────────────
     const cardPath = await createReportCard({
       trainerName,
       trainerRank,
@@ -118,15 +107,46 @@ module.exports = {
       statusText: "Active"
     });
 
-    const debugChannel = client.channels.cache.get(DEBUG_REPORT_CHANNEL_ID);
-    if (!debugChannel) {
+    // ──────────────────────────────
+    // ROUTE TO CORRECT RARITY CHANNEL
+    // ──────────────────────────────
+    let targetChannel = null;
+    let targetChannelId = null;
+
+    // Try router first
+    const routedChannelId = getChannelForRarity(rarityKey);
+
+    if (routedChannelId) {
+      targetChannel = await guild.channels
+        .fetch(routedChannelId)
+        .catch(() => null);
+      targetChannelId = routedChannelId;
+    }
+
+    // Fallback: debug-only card channel
+    if (!targetChannel && DEBUG_REPORT_CHANNEL_ID) {
+      targetChannel = await guild.channels
+        .fetch(DEBUG_REPORT_CHANNEL_ID)
+        .catch(() => null);
+      targetChannelId = DEBUG_REPORT_CHANNEL_ID;
+    }
+
+    if (!targetChannel) {
       return interaction.followUp({
-        content: `❌ Cannot access <#${DEBUG_REPORT_CHANNEL_ID}>`,
+        content:
+          "❌ No valid report channel found. Please configure rarity channels or REPORT_CARD_CHANNEL_ID.",
         flags: 64
       });
     }
 
-    // BUTTONS
+    // Role ping from router (if configured)
+    const roleId = getRoleForRarity(rarityKey);
+    const mentions = [`<@${user.id}>`];
+    if (roleId) mentions.push(`<@&${roleId}>`);
+
+    // ──────────────────────────────
+    // BUTTONS (Edit / Delete)
+    // ──────────────────────────────
     const controls = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`reportedit_${reportId}`)
@@ -138,14 +158,21 @@ module.exports = {
         .setStyle(ButtonStyle.Danger)
     );
 
-    const sent = await debugChannel.send({
+    // ──────────────────────────────
+    // SEND CARD MESSAGE
+    // ──────────────────────────────
+    const sent = await targetChannel.send({
+      content: mentions.join(" "),
       files: [cardPath],
       components: [controls]
     });
 
+    // ──────────────────────────────
+    // DB SAVE
+    // ──────────────────────────────
     await db.createReport({
       id: reportId,
-      guildId: interaction.guild.id,
+      guildId: guild.id,
       reporterId: user.id,
       reporterName: trainerName,
       pokemonName: pokemon,
@@ -163,8 +190,11 @@ module.exports = {
       createdAt: now.getTime()
     });
 
+    // ──────────────────────────────
+    // CONFIRMATION BACK TO STAFF
+    // ──────────────────────────────
     return interaction.followUp({
-      content: `☑ Debug posted — expires **${expiresAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}**`,
+      content: `☑ Report card posted in <#${targetChannelId}> — expires **${expiresAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}**`,
       flags: 64
     });
   }
