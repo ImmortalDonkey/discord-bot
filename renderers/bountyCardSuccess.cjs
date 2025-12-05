@@ -1,4 +1,3 @@
-// renderers/bountyCardSuccess.cjs
 const fs = require("fs");
 const path = require("path");
 const { createCanvas, loadImage } = require("canvas");
@@ -251,36 +250,38 @@ async function createBountySuccessCard(options) {
     bottomBoxY + bottomBoxHeight / 2 + 45
   );
 
-  // SPRITES (full 1–3 logic from cardRenderer)
-  const spriteRowWidth = imageSize;
-  const spriteGap = 30;
-  const spriteCount = Math.min(3, pokemonList.length);
-  const spriteNames = pokemonList.slice(0, 3);
+  // SPRITES MATCH ACTIVE CARD
+  const spritePokemon = pokemonList.slice(0, 3);
+  if (spritePokemon.length > 0) {
+    const maxSprites = 3;
+    const spriteRowWidth = imageSize;
+    const spriteGap = 30;
+    const spriteSize =
+      (spriteRowWidth - spriteGap * (maxSprites - 1)) / maxSprites;
 
-  const spriteSize =
-    (spriteRowWidth - spriteGap * (spriteCount - 1)) / spriteCount;
+    const spriteY = CARD_HEIGHT - MARGIN - spriteSize;
 
-  const spriteY = CARD_HEIGHT - MARGIN - spriteSize;
+    let spriteXs = [];
 
-  let spriteXs = [];
+    if (spritePokemon.length === 1) {
+      const totalWidth = spriteSize;
+      const startX = rightX + (spriteRowWidth - totalWidth) / 2;
+      spriteXs = [startX];
+    } else if (spritePokemon.length === 2) {
+      const totalWidth = spriteSize * 2 + spriteGap;
+      const startX = rightX + (spriteRowWidth - totalWidth) / 2;
+      spriteXs = [startX, startX + spriteSize + spriteGap];
+    } else {
+      spriteXs = [
+        rightX,
+        rightX + spriteSize + spriteGap,
+        rightX + (spriteSize + spriteGap) * 2
+      ];
+    }
 
-  if (spriteCount === 1) {
-    const totalW = spriteSize;
-    spriteXs = [rightX + (spriteRowWidth - totalW) / 2];
-  } else if (spriteCount === 2) {
-    const totalW = spriteSize * 2 + spriteGap;
-    const startX = rightX + (spriteRowWidth - totalW) / 2;
-    spriteXs = [startX, startX + spriteSize + spriteGap];
-  } else {
-    spriteXs = [
-      rightX,
-      rightX + spriteSize + spriteGap,
-      rightX + (spriteSize + spriteGap) * 2
-    ];
-  }
-
-  for (let i = 0; i < spriteCount; i++) {
-    await drawSpriteBox(ctx, spriteXs[i], spriteY, spriteSize, spriteNames[i]);
+    for (let i = 0; i < spritePokemon.length; i++) {
+      await drawSpriteBox(ctx, spriteXs[i], spriteY, spriteSize, spritePokemon[i]);
+    }
   }
 
   const buffer = canvas.toBuffer("image/png");
