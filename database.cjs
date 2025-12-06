@@ -624,8 +624,9 @@ async function updateBounty(id, patch) {
 }
 
 async function getBountiesToStart(nowMs) {
+  // 🔧 PATCH: start only *scheduled* bounties whose start time has arrived
   return memoryBounties.filter(b =>
-    b.status === 'open' &&
+    b.status === 'scheduled' &&
     typeof b.startTime === 'number' &&
     b.startTime <= nowMs &&
     !b.cardMessageId
