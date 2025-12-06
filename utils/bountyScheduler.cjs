@@ -28,13 +28,11 @@ try {
  * ----------------------------------------------------------- */
 function normalize(b) {
   if (!b) return null;
-
   return {
     id: b.id,
     guildId: b.guild_id || b.guildId,
     requesterId: b.requester_id || b.requesterId,
     requesterName: b.requester_name || b.requesterName,
-
     pokemons: Array.isArray(b.pokemons)
       ? b.pokemons
       : typeof b.pokemons === "string"
@@ -42,21 +40,17 @@ function normalize(b) {
       : b.pokemons_json
       ? JSON.parse(b.pokemons_json)
       : [],
-
     notes: b.notes,
     startTime: b.start_time || b.startTime,
     endTime: b.end_time || b.endTime,
     durationHours: b.duration_hours || b.durationHours,
     reward: b.reward,
-
     rarityKey: b.rarity_key || b.rarityKey,
     rarityLabel: b.rarity_label || b.rarityLabel,
-
     startsImmediately:
       b.starts_immediately === 1 ||
       b.startsImmediately === 1 ||
       b.starts_immediately === true,
-
     status: b.status,
     requestThreadId: b.request_thread_id || b.requestThreadId,
     announcementChannelId: b.announcement_channel_id || b.announcementChannelId,
@@ -67,7 +61,7 @@ function normalize(b) {
 }
 
 /* -----------------------------------------------------------
- * Post ACTIVE bounty card  (NO PINNING)
+ * Post ACTIVE bounty card (NO PINNING)
  * ----------------------------------------------------------- */
 async function postBountyCard(client, raw) {
   const bounty = normalize(raw);
@@ -155,17 +149,16 @@ function startBountyScheduler(client) {
     const now = Date.now();
 
     try {
-      /* ----------------------------
-       * Start scheduled bounties
-       * ---------------------------- */
+      /* Start scheduled bounties */
       const toStart = await db.getBountiesToStart(now);
 
       for (const raw of toStart) {
         try {
           const bounty = normalize(raw);
 
--          if (bounty.status === "open") continue; // ❌ blocks scheduled
 +          console.log(`🚀 Scheduler: Activating bounty ${bounty.id}`);
+
+-          if (bounty.status === "open") continue; // ❌ removed
 
           await postBountyCard(client, bounty);
           await db.updateBounty(bounty.id, { status: "open" });
@@ -175,9 +168,7 @@ function startBountyScheduler(client) {
         }
       }
 
-      /* ----------------------------
-       * Expire bounties
-       * ---------------------------- */
+      /* Expire bounties */
       const toExpire = await db.getBountiesToExpire(now);
 
       for (const raw of toExpire) {
@@ -185,7 +176,7 @@ function startBountyScheduler(client) {
           const bounty = normalize(raw);
           const guild = client.guilds.cache.get(bounty.guildId);
 
-          console.log(`⛔ Scheduler: Expiring bounty ${bounty.id}`);
++          console.log(`⛔ Scheduler: Expiring bounty ${bounty.id}`);
 
           if (bounty.cardMessageId) {
             const ch = guild.channels.cache.get(bounty.cardChannelId);
@@ -204,11 +195,9 @@ function startBountyScheduler(client) {
           console.error("❌ Error expiring bounty:", err);
         }
       }
-
     } catch (err) {
       console.error("❌ Scheduler tick failed:", err);
     }
-
   }, INTERVAL);
 }
 
