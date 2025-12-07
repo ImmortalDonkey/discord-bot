@@ -88,7 +88,9 @@ async function init() {
   if (!pointCols.includes('rank_name')) {
     await run(`ALTER TABLE points ADD COLUMN rank_name TEXT`);
   }
-
+if (!pointCols.includes('completed_bounties')) {
+    await run(`ALTER TABLE points ADD COLUMN completed_bounties INTEGER DEFAULT 0`);
+}
   // -------- BOUNTIES TABLE --------
   await run(`CREATE TABLE IF NOT EXISTS bounties (
     id TEXT PRIMARY KEY,
