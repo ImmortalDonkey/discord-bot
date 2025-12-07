@@ -5,9 +5,9 @@
 //
 // - 4:3 aspect ratio: 2400 x 1800
 // - Top 15 players by lifetime_points
-// - Shows completed_bounties (from points.completed_bounties)
 // - Uses server nickname with fallback to stored username
-// - Rank → Poké Ball badge mapping (image if present, otherwise simple fallback)
+// - Shows completed_bounties (points.completed_bounties)
+// - Rank → Poké Ball badge mapping (image if present, otherwise text fallback)
 
 const { createCanvas, loadImage } = require("canvas");
 const path = require("path");
@@ -20,31 +20,31 @@ const CARD_WIDTH = 2400;
 const CARD_HEIGHT = 1800;
 const PADDING = 80;
 
-// Badge image folder (must be next to this file)
+// Badge image folder (must be under /renderers)
 const BADGE_DIR = path.join(__dirname, "rank-badges");
 
 // Rank → badge filename mapping (must match your actual filenames)
 const RANK_BADGE_FILES = {
   "Rookie Trainer": "poke-ball.png",
-  "Trainer": "great-ball.png",
+  Trainer: "great-ball.png",
   "Ace Trainer": "ultra-ball.png",
   "Gym Challenger": "premier-ball.png",
   "Gym Leader": "master-ball.png",
   "Elite Four": "beast-ball.png",
-  "Champion": "cherish-ball.png",
-  "Master": "vortex-ball.png"
+  Champion: "cherish-ball.png",
+  Master: "vortex-ball.png"
 };
 
 // Very simple text fallback if no image
 const RANK_BADGE_FALLBACK = {
   "Rookie Trainer": "P",
-  "Trainer": "G",
+  Trainer: "G",
   "Ace Trainer": "U",
   "Gym Challenger": "Pr",
   "Gym Leader": "M",
   "Elite Four": "B",
-  "Champion": "C",
-  "Master": "V"
+  Champion: "C",
+  Master: "V"
 };
 
 function getBadgeFileForRank(rankName) {
@@ -93,6 +93,39 @@ function fillTruncatedText(ctx, text, x, y, maxWidth) {
     trimmed = trimmed.slice(0, -1);
   }
   ctx.fillText(trimmed + "…", x, y);
+}
+
+/**
+ * Safely resolve a display name for a user from guild + DB row.
+ * - Prefer guild nickname
+ * - Then global name
+ * - Then username from Discord
+ * - Then username stored in DB
+ */
+async function resolveDisplayName(guild, userRow) {
+  let displayName = userRow.username || "Unknown";
+
+  if (!guild || !userRow.discord_id) {
+    return displayName;
+  }
+
+  try {
+    let member = guild.members.cache.get(userRow.discord_id);
+    if (!member) {
+      // Per-user fetch to avoid heavy full-guild fetch
+      member = await guild.members.fetch(userRow.discord_id).catch(() => null);
+    }
+
+    if (member) {
+      if (member.nickname) return member.nickname;
+      if (member.user?.globalName) return member.user.globalName;
+      if (member.user?.username) return member.user.username;
+    }
+  } catch {
+    // ignore – fall back to stored username
+  }
+
+  return displayName;
 }
 
 /**
@@ -146,9 +179,9 @@ async function createLeaderboardCard(guild) {
   // Column setup
   const headerY = innerY + 230;
   const firstRowY = headerY + 90;
-  const rowHeight = 90; // 15 rows fit nicely in 1800px height
+  const rowHeight = 90; // 15 rows
 
-  // Column X positions for:
+  // Column X positions:
   // # | Trainer (badge+name) | Rank | Points | Bounties
   const colRankNumX = innerX + 60;          // "#"
   const colTrainerBadgeX = innerX + 220;    // badge box
@@ -179,13 +212,6 @@ async function createLeaderboardCard(guild) {
   ctx.lineTo(innerX + innerW - 40, headerY + 20);
   ctx.stroke();
 
-  // 🔹 Ensure all members are fetched so nicknames resolve properly
-  try {
-    await guild.members.fetch();
-  } catch (err) {
-    console.warn("⚠️ Failed to fetch full member list for leaderboard.", err);
-  }
-
   // Fetch leaderboard data (top 15)
   const rows = await db.getLeaderboard(15);
 
@@ -197,25 +223,12 @@ async function createLeaderboardCard(guild) {
     const user = rows[i];
     const rowY = firstRowY + i * rowHeight;
 
-    // Resolve display name with nickname fallback
-    let displayName = user.username || "Unknown";
-    try {
-      const member =
-        guild.members.cache.get(user.discord_id) || null;
-      if (member?.nickname) {
-        displayName = member.nickname;
-      } else if (member?.user?.globalName) {
-        displayName = member.user.globalName;
-      } else if (member?.user?.username) {
-        displayName = member.user.username;
-      }
-    } catch {
-      // fall back to DB username
-    }
-
     const lifetimePoints = user.lifetime_points || 0;
     const completedBounties = user.completed_bounties || 0;
     const rankName = getRankName(lifetimePoints);
+
+    // Resolve nickname / display name
+    const displayName = await resolveDisplayName(guild, user);
 
     // Zebra row background
     if (i % 2 === 0) {
@@ -233,10 +246,10 @@ async function createLeaderboardCard(guild) {
       ctx.restore();
     }
 
-    // # column (no emoji, just coloured text)
+    // # column
     ctx.textAlign = "left";
     ctx.font = "bold 45px Sans";
-    if (i === 0) ctx.fillStyle = "#facc15"; // gold-ish
+    if (i === 0) ctx.fillStyle = "#facc15";
     else if (i === 1) ctx.fillStyle = "#e5e7eb";
     else if (i === 2) ctx.fillStyle = "#cbd5f5";
     else ctx.fillStyle = "#e5e7eb";
