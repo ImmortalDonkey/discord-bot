@@ -2,8 +2,8 @@
 //
 // Staff-only debug command to render the leaderboard PNG.
 // /leaderboarddebug [page]
-// page: 1 → ranks #1–10 (default)
-// page: 2 → ranks #11–20
+//   page: 1 → ranks #1–10 (default)
+//   page: 2 → ranks #11–20
 
 const {
   SlashCommandBuilder,
@@ -24,7 +24,7 @@ module.exports = {
     .addIntegerOption(option =>
       option
         .setName("page")
-        .setDescription("Leaderboard page: 1 (ranks 1–10) or 2 (ranks 11–20)")
+        .setDescription("Page: 1 (ranks 1–10) or 2 (ranks 11–20)")
         .setMinValue(1)
         .setMaxValue(2)
     ),
