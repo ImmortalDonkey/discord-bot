@@ -1,12 +1,5 @@
-Absolutely — here is a complete, single-file, long-term architecture reference for your project, rewritten cleanly and fully consolidated.
 
-This is now the definitive ARCHITECTURE.md for your bot.
-It includes all core systems, updated design decisions, naming conventions, and current flow logic — everything needed to confidently maintain and expand the bot over time.
-
-
----
-
-📌 ARCHITECTURE.md
+ARCHITECTURE.md
 
 Roaming Companion & Bounty System — Full Project Structure & Data Flow
 
@@ -16,20 +9,21 @@ Author: ImmortalDonkey
 
 ---
 
-1️⃣ — Vision & Purpose
+Vision & Purpose
 
 This Discord bot powers the Roamers Union community for Pokémon Vortex gameplay automation:
 
-✔ Tracks roaming Pokémon sightings
-✔ Handles points economy + rank system
-✔ Enables bounty hunting with approvals + rewards
-✔ Makes staff operations efficient with modals, threads & PNG cards
-✔ Designed to run 24/7 on Raspberry Pi Zero 2 W
+Tracks roaming Pokémon sightings
+Handles points economy + rank system
+Enables bounty hunting with approvals + rewards
+Makes staff operations efficient with modals, threads & PNG cards
+Designed to run 24/7
 
 
 ---
 
-2️⃣ — Tech Overview
+
+Tech Overview
 
 Layer	Technology
 
@@ -45,45 +39,362 @@ Code Style	camelCase in JS / snake_case in DB
 
 ---
 
-3️⃣ — Core Features
-
-Feature	Description
-
-🐾 Roaming Reports	Real-time reporting of Pokémon spawns, with rarity routing and per-hour restrictions
-⭐ Points & Ranks	Earn points → lifetime total → automatic rank tiers
-🎯 Bounty System	Players request hunts, staff approve, hunters claim completion
-📍 Player Locations	Tracks who is hunting where to avoid conflicts
-🖼 Card Rendering	PNG art for bounty and report messages
-🔔 Scheduling	Auto-start & auto-expire timed bounties
 
 
+Core Features
 
----
+Real-time reporting of Pokémon spawns
 
-4️⃣ — Folder & Module Structure
+Points based on rarity & Timing
 
-project-root/
-├── index.cjs                  # Main bot, event handlers, scheduler init
-├── deploy-commands.cjs        # Slash command deploy utility
-├── database.cjs               # SQLite layer + in-memory caches
-│
-├── interactions/
-│   ├── commands/              # Slash commands
-│   ├── buttons/               # Button interaction handlers
-│   ├── modals/                # Modal submission handlers
-│   └── autocomplete/          # Autocomplete providers
-│
-├── utils/                     # Logic/helper layer below commands
-│
-├── renderers/                 # PNG card generation
-│
-├── sprites/                   # Pokémon art on Pi (ignored in git)
-└── data/                      # SQLite DB file (ignored in git)
+Points redemable for PKD
+
+Ranks	 based on lifetime points
+
+Automatic rank tiers
+
+Bounty system 
+
+In-game player location tracking
+
+Card Rendering	PNG art for bounty and report messages
+
+Scheduling	Auto-start & auto-expire timed bounties and reports
+
 
 
 ---
 
-5️⃣ — Naming Conventions
+
+Folder & Module Structure
+
+── ARCHITECTURE.md
+├── cards
+│   └── report_1764188678151_219914193695014912.png
+├── data
+│   ├── bot_backup.db
+│   └── bot.db
+├── database.cjs
+├── deploy-commands.cjs
+├── discord-bot-backup-20251122-0102.zip
+├── handlers
+│   ├── autocompleteHandler.cjs
+│   ├── buttonHandler.cjs
+│   ├── commandHandler.cjs
+│   └── modalHandler.cjs
+├── index.cjs
+├── interactions
+│   ├── autocomplete
+│   ├── buttons
+│   ├── commands
+│   └── modals
+├── node_modules
+│   ├── abbrev
+│   ├── accepts
+│   ├── agent-base
+│   ├── agentkeepalive
+│   ├── aggregate-error
+│   ├── ansi-regex
+│   ├── aproba
+│   ├── are-we-there-yet
+│   ├── array-flatten
+│   ├── asynckit
+│   ├── axios
+│   ├── balanced-match
+│   ├── base64-js
+│   ├── bignumber.js
+│   ├── bindings
+│   ├── bl
+│   ├── body-parser
+│   ├── brace-expansion
+│   ├── buffer
+│   ├── buffer-equal-constant-time
+│   ├── bytes
+│   ├── cacache
+│   ├── call-bind-apply-helpers
+│   ├── call-bound
+│   ├── canvas
+│   ├── chownr
+│   ├── clean-stack
+│   ├── color-support
+│   ├── combined-stream
+│   ├── concat-map
+│   ├── console-control-strings
+│   ├── content-disposition
+│   ├── content-type
+│   ├── cookie
+│   ├── cookie-signature
+│   ├── data-uri-to-buffer
+│   ├── debug
+│   ├── decompress-response
+│   ├── deep-extend
+│   ├── delayed-stream
+│   ├── delegates
+│   ├── depd
+│   ├── destroy
+│   ├── detect-libc
+│   ├── discord-api-types
+│   ├── @discordjs
+│   ├── discord.js
+│   ├── dotenv
+│   ├── dunder-proto
+│   ├── ecdsa-sig-formatter
+│   ├── ee-first
+│   ├── emoji-regex
+│   ├── encodeurl
+│   ├── end-of-stream
+│   ├── env-paths
+│   ├── err-code
+│   ├── escape-html
+│   ├── es-define-property
+│   ├── es-errors
+│   ├── es-object-atoms
+│   ├── es-set-tostringtag
+│   ├── etag
+│   ├── expand-template
+│   ├── express
+│   ├── extend
+│   ├── fast-deep-equal
+│   ├── fetch-blob
+│   ├── file-uri-to-path
+│   ├── finalhandler
+│   ├── follow-redirects
+│   ├── form-data
+│   ├── formdata-polyfill
+│   ├── forwarded
+│   ├── fresh
+│   ├── fs-constants
+│   ├── fs-minipass
+│   ├── fs.realpath
+│   ├── function-bind
+│   ├── @gar
+│   ├── gauge
+│   ├── gaxios
+│   ├── gcp-metadata
+│   ├── get-intrinsic
+│   ├── get-proto
+│   ├── github-from-package
+│   ├── glob
+│   ├── google-auth-library
+│   ├── google-logging-utils
+│   ├── google-spreadsheet
+│   ├── gopd
+│   ├── graceful-fs
+│   ├── gtoken
+│   ├── hasown
+│   ├── has-symbols
+│   ├── has-tostringtag
+│   ├── has-unicode
+│   ├── http-cache-semantics
+│   ├── http-errors
+│   ├── http-proxy-agent
+│   ├── https-proxy-agent
+│   ├── humanize-ms
+│   ├── iconv-lite
+│   ├── ieee754
+│   ├── imurmurhash
+│   ├── indent-string
+│   ├── infer-owner
+│   ├── inflight
+│   ├── inherits
+│   ├── ini
+│   ├── ip-address
+│   ├── ipaddr.js
+│   ├── isexe
+│   ├── is-fullwidth-code-point
+│   ├── is-lambda
+│   ├── is-stream
+│   ├── json-bigint
+│   ├── jwa
+│   ├── jws
+│   ├── lodash
+│   ├── lodash.snakecase
+│   ├── lru-cache
+│   ├── magic-bytes.js
+│   ├── make-dir
+│   ├── make-fetch-happen
+│   ├── @mapbox
+│   ├── math-intrinsics
+│   ├── media-typer
+│   ├── merge-descriptors
+│   ├── methods
+│   ├── mime
+│   ├── mime-db
+│   ├── mime-types
+│   ├── mimic-response
+│   ├── minimatch
+│   ├── minimist
+│   ├── minipass
+│   ├── minipass-collect
+│   ├── minipass-fetch
+│   ├── minipass-flush
+│   ├── minipass-pipeline
+│   ├── minipass-sized
+│   ├── minizlib
+│   ├── mkdirp
+│   ├── mkdirp-classic
+│   ├── ms
+│   ├── nan
+│   ├── napi-build-utils
+│   ├── negotiator
+│   ├── node-abi
+│   ├── node-addon-api
+│   ├── node-domexception
+│   ├── node-fetch
+│   ├── node-gyp
+│   ├── nopt
+│   ├── @npmcli
+│   ├── npmlog
+│   ├── object-assign
+│   ├── object-inspect
+│   ├── once
+│   ├── on-finished
+│   ├── parseurl
+│   ├── path-is-absolute
+│   ├── path-to-regexp
+│   ├── p-map
+│   ├── prebuild-install
+│   ├── promise-inflight
+│   ├── promise-retry
+│   ├── proxy-addr
+│   ├── proxy-from-env
+│   ├── pump
+│   ├── qs
+│   ├── range-parser
+│   ├── raw-body
+│   ├── rc
+│   ├── readable-stream
+│   ├── retry
+│   ├── rimraf
+│   ├── safe-buffer
+│   ├── safer-buffer
+│   ├── @sapphire
+│   ├── semver
+│   ├── send
+│   ├── serve-static
+│   ├── set-blocking
+│   ├── setprototypeof
+│   ├── side-channel
+│   ├── side-channel-list
+│   ├── side-channel-map
+│   ├── side-channel-weakmap
+│   ├── signal-exit
+│   ├── simple-concat
+│   ├── simple-get
+│   ├── smart-buffer
+│   ├── socks
+│   ├── socks-proxy-agent
+│   ├── sqlite3
+│   ├── ssri
+│   ├── statuses
+│   ├── string_decoder
+│   ├── string-width
+│   ├── strip-ansi
+│   ├── strip-json-comments
+│   ├── tar
+│   ├── tar-fs
+│   ├── tar-stream
+│   ├── toidentifier
+│   ├── @tootallnate
+│   ├── tr46
+│   ├── tslib
+│   ├── ts-mixer
+│   ├── tunnel-agent
+│   ├── type-is
+│   ├── @types
+│   ├── undici
+│   ├── undici-types
+│   ├── unique-filename
+│   ├── unique-slug
+│   ├── unpipe
+│   ├── util-deprecate
+│   ├── utils-merge
+│   ├── uuid
+│   ├── vary
+│   ├── @vladfrangu
+│   ├── webidl-conversions
+│   ├── web-streams-polyfill
+│   ├── whatwg-url
+│   ├── which
+│   ├── wide-align
+│   ├── wrappy
+│   ├── ws
+│   └── yallist
+├── package.json
+├── package-lock.json
+├── README.md
+├── renderers
+│   ├── bountyCardEndFailed.cjs
+│   ├── bountyCardSuccess.cjs
+│   ├── card-images
+│   ├── cardRenderer.cjs
+│   ├── report-bg
+│   ├── reportCard.cjs
+│   └── report-images
+├── sprites
+│   ├── Ancient Alakazam.png
+│   ├── Ancient Gengar.png
+│   ├── Ancient Jigglypuff.png
+│   ├── Bombirdier.png
+│   ├── Bramblin.png
+│   ├── Clone Blastoise.png
+│   ├── Clone Charizard.png
+│   ├── Clone Venusaur.png
+│   ├── Crystal Onix.png
+│   ├── Cyclizar.png
+│   ├── Dialga (Primal).png
+│   ├── Entei.png
+│   ├── Gimmighoul (Roaming).png
+│   ├── Glastrier.png
+│   ├── Golden Sudowoodo.png
+│   ├── Gouging Fire.png
+│   ├── Iron Boulder.png
+│   ├── Iron Crown.png
+│   ├── Iron Leaves.png
+│   ├── Koraidon.png
+│   ├── Latias.png
+│   ├── Latios.png
+│   ├── Meta Groudon.png
+│   ├── Mewtwo (Shadow).png
+│   ├── Miraidon.png
+│   ├── Pink Rhyhorn.png
+│   ├── Raging Bolt.png
+│   ├── Raikou.png
+│   ├── Rayquaza (Illusion).png
+│   ├── Reddy.png
+│   ├── Snorlax (Snowman).png
+│   ├── Spectrier.png
+│   ├── Suicune.png
+│   ├── Varoom.png
+│   ├── Walking Wake.png
+│   ├── XD001.png
+│   ├── Z2.png
+│   └── Zygarde (Cell).png
+└── utils
+    ├── bountyScheduler.cjs
+    ├── channelResolver.cjs
+    ├── googleSheets.cjs
+    ├── locationData.cjs
+    ├── locations.cjs
+    ├── locationStorage.cjs
+    ├── logger.cjs
+    ├── pendingStore.cjs
+    ├── points.cjs
+    ├── rankSystem.cjs
+    ├── rarity.cjs
+    ├── reportChannelRouter.cjs
+    ├── reportLimiter.cjs
+    ├── reportLogic.cjs
+    ├── reportScheduler.cjs
+    ├── reportValidator.cjs
+    ├── roleSync.cjs
+    ├── scoring.cjs
+    └── timeUtils.cjs
+
+
+---
+
+Naming Conventions
 
 DB Schema	JS Code	Bridge
 
@@ -99,20 +410,44 @@ rarity_key	rarityKey
 reporter_id	reporterId
 
 
-📌 Rule: All patches to DB functions must use camelCase.
+Rule: All patches to DB functions must use camelCase.
 Normalization handles the conversion automatically.
 
 
 ---
 
-6️⃣ — Systems Breakdown
+Commands:
 
-6.1 Roaming Reports
+Roaming Reports
 
-🔹 Player uses /report pokemon:<autocomplete> route:<autocomplete>
-🔹 Routing based on rarity:
+Player uses /report pokemon:<autocomplete> route:<autocomplete>
 
-Rarity	Channel	Role Ping	Base Points
+Bot renderes png based on route name and pokemon and posts it to the relevant channel
+
+
+Routing to channel based on rarity:
+
+	
+# Channels
+CHANNEL_ROAMERMONTH=1435690836242202726
+CHANNEL_PARADOX=1435654854235390032
+CHANNEL_LEGENDARY=1435661851307413595
+CHANNEL_RARE=1435661851307413595
+CHANNEL_COMMON=1435661913764794399
+
+Role Ping always
+
+ROLE_BOUNTY_HUNTER=1435680732575174797
+
+Role ping based on rarity
+
+ROLE_ROAMERMONTH=1435719395996340315
+ROLE_PARADOX=1435669555891671113
+ROLE_LEGENDARY=1435659457312063620
+ROLE_RARE=1435659457312063620
+ROLE_COMMON=1435669340497383464
+
+Base Points
 
 paradox	CHANNEL_PARADOX	ROLE_PARADOX	200
 roamerMonth	CHANNEL_ROAMER_OF_MONTH	Ping	30
@@ -120,7 +455,7 @@ legendary / rare	CHANNEL_RARE	Ping	20
 common	No ping	1	
 
 
-⏱ Time-based point scaling
+Time-based point scaling
 
 00-29 min → 100%
 
@@ -131,22 +466,16 @@ common	No ping	1
 50-59 → 10%
 
 
-⛔ Duplicate protection:
+Duplicate protection:
 A Pokémon may only be reported once per hour globally.
 
-🧠 Current implementation:
+When report expires, the card is re-rendered with the status changed to "Expired"
 
-Production /report uses in-memory maps only
-
-Debug /reportdebug writes to DB + renders PNG card
-
-
-📌 Future goal: Migrate full reporting to SQLite DB.
 
 
 ---
 
-6.2 Points & Rank System
+Points & Rank System
 
 Stored in DB	Derived at runtime
 
@@ -167,7 +496,7 @@ Staff Commands:
 
 ---
 
-6.3 Claims & PKD Redemption
+Claims & PKD Redemption
 
 User: /mypoints → personal profile embed
 Then: /claim <points> → creates claim thread
@@ -207,7 +536,7 @@ Displays active routes & hunters using /activeroutes
 
 ---
 
-6.5 Bounty System
+Bounty System
 
 Workflow:
 
@@ -243,9 +572,9 @@ PNG files saved local-only on Pi.
 
 ---
 
-7️⃣ — Data Model Summary
+Data Model Summary
 
-🎯 Full table schemas + how code uses them:
+Full table schemas + how code uses them:
 
 TABLE: points
 
@@ -291,7 +620,7 @@ temporary report maps for /report
 
 ---
 
-8️⃣ — Scheduler Architecture
+ Scheduler Architecture
 
 Runs inside index.cjs with interval loop:
 
@@ -331,15 +660,7 @@ Not tracked in git (ignored via .gitignore).
 
 ---
 
-🔟 — Permissions & Roles
-
-Staff actions granted by:
-
-Permissions: ManageGuild OR
-
-Role names defined via .env as STAFF_ROLES OR
-
-Includes “Admin Team”
+Permissions & Roles
 
 
 Players must have:
@@ -350,7 +671,7 @@ ROLE_BOUNTY_HUNTER (or name match) for bounty request access
 
 ---
 
-1️⃣1️⃣ — Environment Variables
+Environment Variables
 
 These define routing and roles:
 
@@ -373,7 +694,7 @@ REPORT_CARD_CHANNEL_ID	Staff debug report cards
 
 ---
 
-🧩 Module Dependency Structure
+Module Dependency Structure
 
 Slash Commands → Utils → (DB + Cache) → Renderer → Discord Output
              ↘ Buttons / Modals ↗
@@ -393,22 +714,26 @@ Renderer	Visuals only
 
 ---
 
-1️⃣3️⃣ — Future Improvements Roadmap
+Future Improvements Roadmap
 
 Priority	Task
 
-🔥	Convert /report from memory → DB-backed
-⚙️	Merge legacy location utils → canonical store
-🛡	Improve staff permission checks (configurable)
-📦	Migrate sprites to remote CDN to lighten Pi load
-🧪	Expand /reportedit safety & audits
-📊	Add analytics for roaming spawn popularity
+Only allow exact name from list of route and pokemon names to avoid card not pulling sprites 
+
+Merge legacy location utils → canonical store
+
+Improve staff permission checks (configurable)
+
+Migrate sprites to remote CDN to lighten Pi load
+
+Expand /reportedit safety & audits
+Add analytics for roaming spawn popularity
 
 
 
 ---
 
-🧠 Key Rules for Contributions
+ Key Rules for Contributions
 
 ✔ ALWAYS camelCase in JavaScript
 ✔ ONLY snake_case in SQLite tables
