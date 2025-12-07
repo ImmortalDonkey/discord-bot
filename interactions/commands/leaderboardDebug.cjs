@@ -1,11 +1,18 @@
 // interactions/commands/leaderboarddebug.cjs
+//
+// Staff-only debug command that renders the leaderboard as a PNG card.
+//
+// Uses:
+// - database.cjs for leaderboard data
+// - renderers/leaderboardCard.cjs for PNG
+// - STAFF_ROLES from .env for access control
+
 const {
   SlashCommandBuilder,
   PermissionFlagsBits
 } = require("discord.js");
 
 const db = require("../../database.cjs");
-const { getRankName } = require("../../utils/rankSystem.cjs");
 const { createLeaderboardCard } = require("../../renderers/leaderboardCard.cjs");
 
 // ENV: comma-separated staff roles
@@ -13,36 +20,23 @@ const STAFF_ROLES = process.env.STAFF_ROLES
   ? process.env.STAFF_ROLES.split(",")
   : [];
 
+/**
+ * Check if the member has any of the staff roles defined in .env STAFF_ROLES
+ */
 function userIsStaff(member) {
   if (!member) return false;
-  return STAFF_ROLES.some(roleId => member.roles.cache.has(roleId));
-}
-
-// Rank badge mapping (TEMP text icons)
-const RANK_BADGES = {
-  "Rookie Trainer": "⚪",
-  "Trainer": "🔵",
-  "Ace Trainer": "🟡",
-  "Gym Challenger": "⚪",
-  "Gym Leader": "🟥",
-  "Elite Four": "🟪",
-  "Champion": "❤️",
-  "Master": "🌀"
-};
-
-function getBadge(rank) {
-  return RANK_BADGES[rank] || "⚪";
+  if (!STAFF_ROLES.length) return false;
+  return STAFF_ROLES.some((roleId) => member.roles.cache.has(roleId));
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("leaderboarddebug")
-    .setDescription("Debug leaderboard with card rendering — Staff Only")
+    .setDescription("Debug the leaderboard PNG card (Staff only)")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(client, interaction) {
-
-    // Staff role enforcement (architecture rule)
+    // Staff only, according to architecture
     if (!userIsStaff(interaction.member)) {
       return interaction.reply({
         content: "🚫 Only staff members can use this command.",
@@ -50,21 +44,27 @@ module.exports = {
       });
     }
 
-    await interaction.deferReply({ ephemeral: false });
-
-    const guild = interaction.guild;
-    const list = await db.getLeaderboard(10);
-
-    if (!list || list.length === 0) {
-      return interaction.editReply("No leaderboard data available yet.");
+    // Quick check if there is any data
+    const rows = await db.getLeaderboard(1);
+    if (!rows || rows.length === 0) {
+      return interaction.reply({
+        content: "No leaderboard data available yet.",
+        ephemeral: true
+      });
     }
 
-    // Render the card
-    const buffer = await createLeaderboardCard(guild);
+    // Render PNG card
+    const buffer = await createLeaderboardCard(interaction.guild);
 
-    // Send the PNG card
-    return interaction.editReply({
-      files: [{ attachment: buffer, name: "leaderboard.png" }]
+    // IMPORTANT: send *only* an attachment.
+    // No embeds, no URLs → gives Discord best chance to show the full image inline.
+    return interaction.reply({
+      files: [
+        {
+          attachment: buffer,
+          name: `leaderboard_${Date.now()}.png`
+        }
+      ]
     });
   }
 };
