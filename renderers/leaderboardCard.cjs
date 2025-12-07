@@ -3,10 +3,11 @@
 // Renders a PNG leaderboard card with columns:
 // # | Trainer | Rank | Points | Bounties | Badge
 //
-// - Uses lifetime_points for ranking
+// - 4:3 aspect ratio: 2400 x 1800
+// - Top 15 players by lifetime_points
 // - Shows completed_bounties
 // - Uses server nickname with fallback to stored username
-// - Rank → Poké Ball badge mapping (image if present, otherwise emoji/text)
+// - Rank → Poké Ball badge mapping (image if present, otherwise emoji)
 // - Top 3 get 🥇 🥈 🥉 in the # column
 
 const { createCanvas, loadImage } = require("canvas");
@@ -15,15 +16,15 @@ const fs = require("fs");
 const db = require("../database.cjs");
 const { getRankName } = require("../utils/rankSystem.cjs");
 
-// Card size (similar vibe to bounty cards)
+// 4:3 aspect
 const CARD_WIDTH = 2400;
-const CARD_HEIGHT = 1400;
+const CARD_HEIGHT = 1800;
 const PADDING = 80;
 
 // Badge image folder (you'll add PNGs here later)
 const BADGE_DIR = path.join(__dirname, "rank-badges");
 
-// Mapping rank → badge filename (without worrying if they exist yet)
+// Mapping rank → badge filename (you'll create these PNGs)
 const RANK_BADGE_FILES = {
   "Rookie Trainer": "pokeball.png",
   "Trainer": "greatball.png",
@@ -35,7 +36,7 @@ const RANK_BADGE_FILES = {
   "Master": "vortexball.png"
 };
 
-// Fallback emoji for badges if image is missing
+// Fallback emoji if badge image is missing
 const RANK_BADGE_EMOJI = {
   "Rookie Trainer": "⚪",
   "Trainer": "🔵",
@@ -144,18 +145,18 @@ async function createLeaderboardCard(guild) {
   ctx.fillText("Ranked by lifetime points", innerX + 40, innerY + 120);
 
   // Column setup
-  const headerY = innerY + 220;
-  const firstRowY = headerY + 80;
-  const rowHeight = 90;
+  const headerY = innerY + 230;
+  const firstRowY = headerY + 90;
+  const rowHeight = 90; // 15 rows fit nicely in 1800px height
 
   // Column X positions for:
   // # | Trainer | Rank | Points | Bounties | Badge
   const colRankNumX = innerX + 60;
-  const colTrainerX = innerX + 200;
-  const colRankNameX = innerX + 800;
+  const colTrainerX = innerX + 220;
+  const colRankNameX = innerX + 840;
   const colPointsX = innerX + 1350;
-  const colBountiesX = innerX + 1700;
-  const colBadgeX = innerX + 2050;
+  const colBountiesX = innerX + 1720;
+  const colBadgeX = innerX + 2060;
 
   // Column headers
   ctx.fillStyle = "#38bdf8"; // sky-400
@@ -177,8 +178,8 @@ async function createLeaderboardCard(guild) {
   ctx.lineTo(innerX + innerW - 40, headerY + 20);
   ctx.stroke();
 
-  // Fetch leaderboard data (top 10)
-  const rows = await db.getLeaderboard(10);
+  // Fetch leaderboard data (top 15)
+  const rows = await db.getLeaderboard(15);
 
   ctx.font = "45px Sans";
   ctx.fillStyle = "#e5e7eb";
@@ -200,7 +201,7 @@ async function createLeaderboardCard(guild) {
       drawRoundedRect(
         ctx,
         innerX + 30,
-        rowY - rowHeight + 20,
+        rowY - rowHeight + 25,
         innerW - 60,
         rowHeight - 10,
         20
@@ -234,9 +235,9 @@ async function createLeaderboardCard(guild) {
     const maxRankWidth = colPointsX - colRankNameX - 40;
     fillTruncatedText(ctx, rankName, colRankNameX, rowY, maxRankWidth);
 
-    // Points (right-aligned number-ish)
+    // Points (right-ish aligned)
     ctx.textAlign = "right";
-    ctx.fillStyle = "#fbbf24";
+    ctx.fillStyle = "#fbbf24"; // amber
     ctx.fillText(String(lifetimePoints), colPointsX + 120, rowY);
 
     // Bounties completed
@@ -253,25 +254,23 @@ async function createLeaderboardCard(guild) {
     if (badgePath) {
       try {
         const img = await loadImage(badgePath);
-        const size = 70;
+        const size = 75;
         const bx = colBadgeX;
         const by = rowY - size + 20;
 
         ctx.save();
-        drawRoundedRect(ctx, bx - 10, by - 10, size + 20, size + 20, 16);
+        drawRoundedRect(ctx, bx - 12, by - 12, size + 24, size + 24, 18);
         ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
         ctx.fill();
         ctx.restore();
 
         ctx.drawImage(img, bx, by, size, size);
       } catch {
-        // fallback emoji
         ctx.textAlign = "left";
         ctx.fillStyle = "#e5e7eb";
         ctx.fillText(getBadgeEmojiForRank(rankName), colBadgeX, rowY);
       }
     } else {
-      // No image available → use emoji
       ctx.textAlign = "left";
       ctx.fillStyle = "#e5e7eb";
       ctx.fillText(getBadgeEmojiForRank(rankName), colBadgeX, rowY);
