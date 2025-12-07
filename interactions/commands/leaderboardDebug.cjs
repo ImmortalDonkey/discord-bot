@@ -10,7 +10,7 @@ const {
   AttachmentBuilder
 } = require("discord.js");
 
-const { createLeaderboardCard } = require("../../renderers/leaderboardCard.cjs");
+const { createLeaderboardCards } = require("../../renderers/leaderboardCard.cjs");
 
 const STAFF_ROLES = (process.env.STAFF_ROLES || "")
   .split(",")
