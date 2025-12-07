@@ -5,10 +5,9 @@
 //
 // - 4:3 aspect ratio: 2400 x 1800
 // - Top 15 players by lifetime_points
-// - Shows completed_bounties
+// - Shows completed_bounties (from points.completed_bounties)
 // - Uses server nickname with fallback to stored username
-// - Rank → Poké Ball badge mapping (image if present, otherwise emoji)
-// - Top 3 get 🥇 🥈 🥉 in the # column
+// - Rank → Poké Ball badge mapping (image if present, otherwise simple fallback)
 
 const { createCanvas, loadImage } = require("canvas");
 const path = require("path");
@@ -21,39 +20,39 @@ const CARD_WIDTH = 2400;
 const CARD_HEIGHT = 1800;
 const PADDING = 80;
 
-// Badge image folder (you'll add PNGs here later)
+// Badge image folder (must be next to this file)
 const BADGE_DIR = path.join(__dirname, "rank-badges");
 
-// Mapping rank → badge filename (you'll create these PNGs)
+// Rank → badge filename mapping (must match your actual filenames)
 const RANK_BADGE_FILES = {
-  "Rookie Trainer": "pokeball.png",
-  "Trainer": "greatball.png",
-  "Ace Trainer": "ultraball.png",
-  "Gym Challenger": "premierball.png",
-  "Gym Leader": "masterball.png",
-  "Elite Four": "beastball.png",
-  "Champion": "cherishball.png",
-  "Master": "vortexball.png"
+  "Rookie Trainer": "poke-ball.png",
+  "Trainer": "great-ball.png",
+  "Ace Trainer": "ultra-ball.png",
+  "Gym Challenger": "premier-ball.png",
+  "Gym Leader": "master-ball.png",
+  "Elite Four": "beast-ball.png",
+  "Champion": "cherish-ball.png",
+  "Master": "vortex-ball.png"
 };
 
-// Fallback emoji if badge image is missing
-const RANK_BADGE_EMOJI = {
-  "Rookie Trainer": "⚪",
-  "Trainer": "🔵",
-  "Ace Trainer": "🟡",
-  "Gym Challenger": "⚪",
-  "Gym Leader": "🟥",
-  "Elite Four": "🟪",
-  "Champion": "❤️",
-  "Master": "🌀"
+// Very simple text fallback if no image
+const RANK_BADGE_FALLBACK = {
+  "Rookie Trainer": "P",
+  "Trainer": "G",
+  "Ace Trainer": "U",
+  "Gym Challenger": "Pr",
+  "Gym Leader": "M",
+  "Elite Four": "B",
+  "Champion": "C",
+  "Master": "V"
 };
 
 function getBadgeFileForRank(rankName) {
   return RANK_BADGE_FILES[rankName] || null;
 }
 
-function getBadgeEmojiForRank(rankName) {
-  return RANK_BADGE_EMOJI[rankName] || "⚪";
+function getBadgeFallbackForRank(rankName) {
+  return RANK_BADGE_FALLBACK[rankName] || "";
 }
 
 function fileExistsSafe(fullPath) {
@@ -211,16 +210,15 @@ async function createLeaderboardCard(guild) {
       ctx.restore();
     }
 
-    // # column with medals
+    // # column (no emoji, just coloured text)
     ctx.textAlign = "left";
-    ctx.fillStyle = "#e5e7eb";
     ctx.font = "bold 45px Sans";
+    if (i === 0) ctx.fillStyle = "#facc15"; // gold-ish
+    else if (i === 1) ctx.fillStyle = "#e5e7eb"; // light
+    else if (i === 2) ctx.fillStyle = "#cbd5f5"; // subtle
+    else ctx.fillStyle = "#e5e7eb";
 
-    let rankLabel = `#${i + 1}`;
-    if (i === 0) rankLabel = "🥇 #1";
-    else if (i === 1) rankLabel = "🥈 #2";
-    else if (i === 2) rankLabel = "🥉 #3";
-
+    const rankLabel = `#${i + 1}`;
     ctx.fillText(rankLabel, colRankNumX, rowY);
 
     // Trainer (truncate if too long)
@@ -244,7 +242,7 @@ async function createLeaderboardCard(guild) {
     ctx.fillStyle = "#a5b4fc"; // indigo-300
     ctx.fillText(String(completedBounties), colBountiesX + 100, rowY);
 
-    // Badge (image if present, else emoji)
+    // Badge (image if present, else simple text fallback)
     const badgeFile = getBadgeFileForRank(rankName);
     const badgePath =
       badgeFile && fileExistsSafe(path.join(BADGE_DIR, badgeFile))
@@ -266,14 +264,18 @@ async function createLeaderboardCard(guild) {
 
         ctx.drawImage(img, bx, by, size, size);
       } catch {
+        // fallback text
         ctx.textAlign = "left";
         ctx.fillStyle = "#e5e7eb";
-        ctx.fillText(getBadgeEmojiForRank(rankName), colBadgeX, rowY);
+        ctx.font = "bold 40px Sans";
+        ctx.fillText(getBadgeFallbackForRank(rankName), colBadgeX, rowY);
       }
     } else {
+      // fallback text
       ctx.textAlign = "left";
       ctx.fillStyle = "#e5e7eb";
-      ctx.fillText(getBadgeEmojiForRank(rankName), colBadgeX, rowY);
+      ctx.font = "bold 40px Sans";
+      ctx.fillText(getBadgeFallbackForRank(rankName), colBadgeX, rowY);
     }
   }
 
