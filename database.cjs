@@ -67,7 +67,8 @@ async function init() {
     points INTEGER DEFAULT 0,
     last_updated INTEGER,
     lifetime_points INTEGER DEFAULT 0,
-    rank_name TEXT
+    rank_name TEXT,
+    completed_bounties INTEGER DEFAULT 0
   )`);
 
   await run(`CREATE TABLE IF NOT EXISTS point_logs (
@@ -88,9 +89,10 @@ async function init() {
   if (!pointCols.includes('rank_name')) {
     await run(`ALTER TABLE points ADD COLUMN rank_name TEXT`);
   }
-if (!pointCols.includes('completed_bounties')) {
+  if (!pointCols.includes('completed_bounties')) {
     await run(`ALTER TABLE points ADD COLUMN completed_bounties INTEGER DEFAULT 0`);
-}
+  }
+
   // -------- BOUNTIES TABLE --------
   await run(`CREATE TABLE IF NOT EXISTS bounties (
     id TEXT PRIMARY KEY,
@@ -278,6 +280,23 @@ async function getAllUsers() {
 async function clearAllPoints() {
   await run(`DELETE FROM point_logs`);
   await run(`DELETE FROM points`);
+}
+
+// ⭐ NEW: completed bounty helpers ⭐
+async function incrementCompletedBounties(discordId, amount = 1) {
+  await run(
+    `UPDATE points
+     SET completed_bounties = COALESCE(completed_bounties, 0) + ?
+     WHERE discord_id = ?`,
+    [amount, discordId]
+  );
+}
+
+async function getTotalCompletedBounties() {
+  const row = await get(
+    `SELECT SUM(completed_bounties) AS total FROM points`
+  );
+  return row && row.total ? row.total : 0;
 }
 
 // ------------------------------------------------------
@@ -626,7 +645,6 @@ async function updateBounty(id, patch) {
 }
 
 async function getBountiesToStart(nowMs) {
-  // 🔧 PATCH: start only *scheduled* bounties whose start time has arrived
   return memoryBounties.filter(b =>
     b.status === 'scheduled' &&
     typeof b.startTime === 'number' &&
@@ -737,10 +755,6 @@ async function getReportsToCleanup(nowMs) {
   return rows.map(normalizeReportObject);
 }
 
-/**
- * DB check: has this Pokémon already been reported this hour?
- * Returns the active report row (normalised) or null.
- */
 async function findActiveReportThisHour(pokemonName, nowMs = Date.now()) {
   const name = String(pokemonName || "").toLowerCase();
   if (!name) return null;
@@ -780,6 +794,8 @@ module.exports = {
   getLeaderboard,
   getAllUsers,
   clearAllPoints,
+  incrementCompletedBounties,
+  getTotalCompletedBounties,
 
   // Bounties
   createBounty,
