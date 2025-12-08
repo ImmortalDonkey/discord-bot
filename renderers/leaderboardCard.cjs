@@ -1,9 +1,9 @@
 // renderers/leaderboardCard.cjs
 //
 // Top 10 leaderboard card
-// All cells semi-transparent with white-shadow black text
-// Title remains solid white
-// Background: /renderers/leaderboard-bg/leaderboard-card.png
+// Title card = solid white
+// Table header + rows = semi-transparent (0.35 opacity)
+// Text = black with white glow for readability
 
 const { createCanvas, loadImage } = require("canvas");
 const path = require("path");
@@ -36,9 +36,8 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Apply white shadow + black fill for readability
 function applyTextStyle(ctx) {
-  ctx.fillStyle = "#000000"; // black text
+  ctx.fillStyle = "#000000";
   ctx.shadowColor = "rgba(255,255,255,0.95)";
   ctx.shadowBlur = 12;
   ctx.shadowOffsetX = 0;
@@ -47,8 +46,9 @@ function applyTextStyle(ctx) {
 
 async function resolveDisplayName(guild, row) {
   try {
-    let member = guild.members.cache.get(row.discord_id) ||
+    const member = guild.members.cache.get(row.discord_id) ||
       await guild.members.fetch(row.discord_id).catch(() => null);
+
     if (member) {
       return member.nickname ||
         member.user?.globalName ||
@@ -67,9 +67,13 @@ async function drawBackground(ctx) {
   }
   const img = await loadImage(BG_PATH);
   const scale = Math.max(CARD_WIDTH / img.width, CARD_HEIGHT / img.height);
-  const drawW = img.width * scale;
-  const drawH = img.height * scale;
-  ctx.drawImage(img, (CARD_WIDTH - drawW) / 2, (CARD_HEIGHT - drawH) / 2, drawW, drawH);
+  ctx.drawImage(
+    img,
+    (CARD_WIDTH - img.width * scale) / 2,
+    (CARD_HEIGHT - img.height * scale) / 2,
+    img.width * scale,
+    img.height * scale
+  );
 }
 
 async function createLeaderboardCard(guild) {
@@ -77,7 +81,7 @@ async function createLeaderboardCard(guild) {
   const ctx = canvas.getContext("2d");
   await drawBackground(ctx);
 
-  // ---- Title card (solid white) ----
+  // ---- Title (solid background) ----
   const title = "Top Hunters Leaderboard";
   ctx.font = "bold 90px Sans";
   const titleW = ctx.measureText(title).width + 200;
@@ -86,8 +90,7 @@ async function createLeaderboardCard(guild) {
   const titleY = PADDING;
 
   drawRoundedRect(ctx, titleX, titleY, titleW, titleH, 10);
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
+  ctx.fillStyle = "#ffffff"; ctx.fill();
   ctx.lineWidth = 4; ctx.strokeStyle = "#dc2626"; ctx.stroke();
 
   ctx.textAlign = "center";
@@ -122,38 +125,35 @@ async function createLeaderboardCard(guild) {
     bounties: (col4 + col5) / 2
   };
 
-  // ---- Header row (now same opacity as rows) ----
+  // ---- Header row (0.35 opacity) ----
   drawRoundedRect(ctx, tableX, headersY, tableW, rowH, radius);
-  ctx.fillStyle = "rgba(255,255,255,0.45)"; // reduced opacity - 10%
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
   ctx.fill();
   ctx.lineWidth = 4; ctx.strokeStyle = borderCol; ctx.stroke();
 
   applyTextStyle(ctx);
   ctx.font = "bold 58px Sans";
-
   ctx.fillText("Trainer", X.trainer, headersY + rowH / 2);
   ctx.fillText("Rank", X.rank, headersY + rowH / 2);
   ctx.fillText("Points", X.points, headersY + rowH / 2);
   ctx.fillText("Bounties", X.bounties, headersY + rowH / 2);
 
-  const list = await db.getLeaderboard(10);
-
+  const rows = await db.getLeaderboard(10);
   ctx.font = "bold 52px Sans";
 
-  for (let i = 0; i < list.length; i++) {
-    const user = list[i];
+  for (let i = 0; i < rows.length; i++) {
+    const user = rows[i];
     const y = firstRowY + i * (rowH + rowGap);
     const center = y + rowH / 2;
+
     const name = await resolveDisplayName(guild, user);
     const rankText = getRankName(user.lifetime_points);
 
-    // Row card — same opacity as header
+    // ---- Row cards (0.35 opacity) ----
     drawRoundedRect(ctx, tableX, y, tableW, rowH, radius);
-    ctx.fillStyle = "rgba(255,255,255,0.45)";
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
     ctx.fill();
-    ctx.strokeStyle = borderCol;
-    ctx.lineWidth = 4;
-    ctx.stroke();
+    ctx.strokeStyle = borderCol; ctx.stroke();
 
     applyTextStyle(ctx);
     ctx.fillText(`#${i + 1}`, X.pos, center);
