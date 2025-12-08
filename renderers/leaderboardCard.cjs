@@ -7,9 +7,11 @@
 // - Shows 10 players per page
 //   page 1 → ranks #1–10
 //   page 2 → ranks #11–20
-// - White background with thin grid lines
-// - Badge icon appears inside the Rank column, just before the rank name
-// - Uses server nickname with fallback to stored username
+// - Background image:
+//     /renderers/leaderboard-bg/leaderboard-card.png
+// - Each row is its own white card with red outline, with vertical
+//   separator lines for the segments.
+// - All text is black + bold.
 
 const { createCanvas, loadImage } = require("canvas");
 const path = require("path");
@@ -21,6 +23,9 @@ const { getRankName } = require("../utils/rankSystem.cjs");
 const CARD_WIDTH = 2400;
 const CARD_HEIGHT = 1800;
 const PADDING = 80;
+
+// Background image location (relative to this file)
+const BG_PATH = path.join(__dirname, "leaderboard-bg", "leaderboard-card.png");
 
 // Badge image folder: /renderers/rank-badges
 const BADGE_DIR = path.join(__dirname, "rank-badges");
@@ -129,6 +134,31 @@ async function resolveDisplayName(guild, userRow) {
 }
 
 /**
+ * Draw the background image, scaled to "cover" the canvas.
+ */
+async function drawBackground(ctx) {
+  if (!fileExistsSafe(BG_PATH)) {
+    // fallback: plain white
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+    return;
+  }
+
+  const img = await loadImage(BG_PATH);
+  const scale = Math.max(
+    CARD_WIDTH / img.width,
+    CARD_HEIGHT / img.height
+  );
+
+  const drawW = img.width * scale;
+  const drawH = img.height * scale;
+  const dx = (CARD_WIDTH - drawW) / 2;
+  const dy = (CARD_HEIGHT - drawH) / 2;
+
+  ctx.drawImage(img, dx, dy, drawW, drawH);
+}
+
+/**
  * Create the leaderboard card.
  * @param {Guild} guild  Discord guild (for nickname lookup)
  * @param {number} page  1 → ranks 1–10, 2 → ranks 11–20
@@ -141,34 +171,21 @@ async function createLeaderboardCard(guild, page = 1) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // White background
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  // ---- Background ----
+  await drawBackground(ctx);
 
-  // Inner rounded card
+  // ---- Title + page indicator ----
   const innerX = PADDING;
   const innerY = PADDING;
   const innerW = CARD_WIDTH - PADDING * 2;
-  const innerH = CARD_HEIGHT - PADDING * 2;
 
-  ctx.save();
-  drawRoundedRect(ctx, innerX, innerY, innerW, innerH, 40);
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = "#9ca3af"; // gray-400
-  ctx.stroke();
-  ctx.restore();
-
-  // Title
-  ctx.fillStyle = "#111827"; // gray-900
+  ctx.fillStyle = "#000000";
   ctx.font = "bold 80px Sans";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillText("Top Hunters Leaderboard", innerX + 50, innerY + 40);
 
   // Page indicator (top-right)
-  ctx.fillStyle = "#6b7280"; // gray-500
   ctx.font = "bold 36px Sans";
   ctx.textAlign = "right";
   ctx.fillText(
@@ -177,16 +194,11 @@ async function createLeaderboardCard(guild, page = 1) {
     innerY + 55
   );
 
-  // Table geometry
+  // ---- Table / row geometry (for inner lines) ----
   const tableX = innerX + 40;
-  const tableY = innerY + 170;
   const tableW = innerW - 80;
-  const headerRowHeight = 80;
-  const rowHeight = 95;
-  const visibleRows = 10;
-  const tableH = headerRowHeight + visibleRows * rowHeight;
 
-  // Column boundaries (grid):
+  // Column boundaries:
   // # | Trainer | Rank | Points | Bounties
   const col0 = tableX; // left border
   const col1 = tableX + 120; // after "#"
@@ -195,73 +207,47 @@ async function createLeaderboardCard(guild, page = 1) {
   const col4 = tableX + 1850; // after Points
   const col5 = tableX + tableW; // right border
 
-  // Column label positions (center of each col segment)
   const colRankNumCenterX = (col0 + col1) / 2;
   const colTrainerCenterX = (col1 + col2) / 2;
   const colRankCenterX = (col2 + col3) / 2;
   const colPointsCenterX = (col3 + col4) / 2;
   const colBountiesCenterX = (col4 + col5) / 2;
 
-  // Draw table outer border
-  ctx.save();
-  drawRoundedRect(ctx, tableX, tableY, tableW, tableH, 20);
-  ctx.strokeStyle = "#d1d5db"; // gray-300
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.restore();
+  // Header labels (in free space above first row)
+  const rowsTopY = innerY + 220; // first row top
+  const headerCenterY = rowsTopY - 45;
 
-  // Grid lines (thin)
-  ctx.strokeStyle = "#e5e7eb"; // gray-200
-  ctx.lineWidth = 1.5;
-
-  // Vertical column lines
-  ctx.beginPath();
-  [col1, col2, col3, col4].forEach(x => {
-    ctx.moveTo(x, tableY);
-    ctx.lineTo(x, tableY + tableH);
-  });
-  ctx.stroke();
-
-  // Horizontal lines for header + each row
-  ctx.beginPath();
-  // header bottom
-  const headerBottomY = tableY + headerRowHeight;
-  ctx.moveTo(tableX, headerBottomY);
-  ctx.lineTo(tableX + tableW, headerBottomY);
-  // row lines
-  for (let i = 1; i <= visibleRows; i++) {
-    const y = headerBottomY + i * rowHeight;
-    ctx.moveTo(tableX, y);
-    ctx.lineTo(tableX + tableW, y);
-  }
-  ctx.stroke();
-
-  // Column headers
-  ctx.fillStyle = "#111827"; // gray-900
+  ctx.fillStyle = "#000000";
   ctx.font = "bold 46px Sans";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-
-  const headerCenterY = tableY + headerRowHeight / 2;
   ctx.fillText("#", colRankNumCenterX, headerCenterY);
   ctx.fillText("Trainer", colTrainerCenterX, headerCenterY);
   ctx.fillText("Rank", colRankCenterX, headerCenterY);
   ctx.fillText("Points", colPointsCenterX, headerCenterY);
   ctx.fillText("Bounties", colBountiesCenterX, headerCenterY);
 
-  // Get leaderboard (top 20, then slice per page)
+  // ---- Fetch leaderboard data ----
   const allRows = await db.getLeaderboard(20);
   const startIndex = (pageNum - 1) * 10;
   const endIndex = startIndex + 10;
   const rows = allRows.slice(startIndex, endIndex);
 
-  // Row fonts
-  ctx.font = "40px Sans";
+  // ---- Row cards ----
+  const rowHeight = 95;
+  const rowGap = 15; // between row cards
+  const rowRadius = 6;
+  const rowBorderWidth = 4;
+  const rowBorderColor = "#dc2626"; // red-600
+  const colLineColor = "#e5e7eb"; // light gray for internal separators
+
   ctx.textBaseline = "middle";
 
   for (let i = 0; i < rows.length; i++) {
     const user = rows[i];
-    const rowCenterY = headerBottomY + rowHeight * (i + 0.5);
+    const rowTopY = rowsTopY + i * (rowHeight + rowGap);
+    const rowBottomY = rowTopY + rowHeight;
+    const rowCenterY = rowTopY + rowHeight / 2;
 
     const globalRankNumber = startIndex + i + 1;
     const lifetimePoints = user.lifetime_points || 0;
@@ -271,20 +257,38 @@ async function createLeaderboardCard(guild, page = 1) {
     // Display name (nickname)
     const displayName = await resolveDisplayName(guild, user);
 
+    // --- Row card box (rounded white with red outline) ---
+    ctx.save();
+    drawRoundedRect(ctx, tableX, rowTopY, tableW, rowHeight, rowRadius);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.lineWidth = rowBorderWidth;
+    ctx.strokeStyle = rowBorderColor;
+    ctx.stroke();
+    ctx.restore();
+
+    // --- Internal vertical lines (segment separators) ---
+    ctx.save();
+    ctx.strokeStyle = colLineColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    [col1, col2, col3, col4].forEach((x) => {
+      ctx.moveTo(x, rowTopY);
+      ctx.lineTo(x, rowBottomY);
+    });
+    ctx.stroke();
+    ctx.restore();
+
+    // --- Text styles ---
+    ctx.fillStyle = "#000000";
+    ctx.font = "bold 40px Sans";
+
     // --- # column ---
     ctx.textAlign = "center";
-    ctx.fillStyle =
-      globalRankNumber === 1
-        ? "#b45309" // special colour for #1
-        : "#111827";
-
-    ctx.font = "bold 40px Sans";
     ctx.fillText(`#${globalRankNumber}`, colRankNumCenterX, rowCenterY);
 
     // --- Trainer column ---
     ctx.textAlign = "center";
-    ctx.font = "40px Sans";
-    ctx.fillStyle = "#111827";
     const trainerMaxWidth = col2 - col1 - 40;
     fillTruncatedText(
       ctx,
@@ -296,11 +300,9 @@ async function createLeaderboardCard(guild, page = 1) {
     );
 
     // --- Rank column (badge + rank name) ---
-    // Layout inside the Rank column segment
     const rankColLeft = col2;
     const rankColRight = col3;
     const rankInnerPadding = 30;
-
     const badgeSize = 52;
     const badgeCenterY = rowCenterY;
     const badgeX = rankColLeft + rankInnerPadding + badgeSize / 2;
@@ -323,7 +325,7 @@ async function createLeaderboardCard(guild, page = 1) {
         ctx.beginPath();
         ctx.arc(badgeX, badgeCenterY, badgeSize / 2, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = "#111827";
+        ctx.fillStyle = "#000000";
         ctx.font = "bold 28px Sans";
         ctx.textAlign = "center";
         ctx.fillText(getBadgeFallbackForRank(rankName), badgeX, badgeCenterY);
@@ -334,7 +336,7 @@ async function createLeaderboardCard(guild, page = 1) {
       ctx.beginPath();
       ctx.arc(badgeX, badgeCenterY, badgeSize / 2, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#111827";
+      ctx.fillStyle = "#000000";
       ctx.font = "bold 28px Sans";
       ctx.textAlign = "center";
       ctx.fillText(getBadgeFallbackForRank(rankName), badgeX, badgeCenterY);
@@ -342,22 +344,20 @@ async function createLeaderboardCard(guild, page = 1) {
 
     // Rank name text to the right of badge
     const rankTextX = badgeX + badgeSize / 2 + 18;
-    const rankMaxWidth =
-      rankColRight - rankTextX - rankInnerPadding;
+    const rankMaxWidth = rankColRight - rankTextX - rankInnerPadding;
 
     ctx.textAlign = "left";
-    ctx.font = "38px Sans";
-    ctx.fillStyle = "#111827";
+    ctx.font = "bold 38px Sans";
+    ctx.fillStyle = "#000000";
     fillTruncatedText(ctx, rankName, rankTextX, rowCenterY, rankMaxWidth, "left");
 
     // --- Points ---
     ctx.textAlign = "center";
-    ctx.font = "40px Sans";
-    ctx.fillStyle = "#b45309"; // amber-ish
+    ctx.font = "bold 40px Sans";
+    ctx.fillStyle = "#000000";
     ctx.fillText(String(lifetimePoints), colPointsCenterX, rowCenterY);
 
     // --- Bounties ---
-    ctx.fillStyle = "#2563eb"; // blue-600
     ctx.fillText(String(completedBounties), colBountiesCenterX, rowCenterY);
   }
 
