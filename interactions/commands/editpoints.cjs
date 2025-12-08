@@ -4,7 +4,7 @@ const {
 } = require('discord.js');
 
 const db = require('../../database.cjs');
-const { updateRank, getRankName } = require('../../utils/rankSystem.cjs');
+const { getRankName } = require('../../utils/rankSystem.cjs');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -27,7 +27,8 @@ module.exports = {
           { name: 'Add Lifetime', value: 'add_lifetime' },
           { name: 'Remove Lifetime', value: 'remove_lifetime' },
           { name: 'Add Both', value: 'add_both' },
-          { name: 'Remove Both', value: 'remove_both' }
+          { name: 'Remove Both', value: 'remove_both' },
+          { name: 'Reset Both to Zero', value: 'reset_both' }
         )
     )
     .addIntegerOption(option =>
@@ -45,9 +46,11 @@ module.exports = {
     const amount = interaction.options.getInteger('amount') || 0;
     const reason = interaction.options.getString('reason') || 'Manual adjustment';
 
-    // STAFF CHECK (authoritative)
+    // -------- STAFF CHECK --------
     const allowedRoles = (process.env.STAFF_ROLES || '')
-      .split(',').map(r => r.trim());
+      .split(',')
+      .map(x => x.trim());
+
     const isStaff = interaction.member.roles.cache.some(r =>
       allowedRoles.includes(r.id)
     );
@@ -59,11 +62,12 @@ module.exports = {
       });
     }
 
-    const record = await db.getUserById(user.id);
-    const currentPoints = record?.points || 0;
-    const currentLifetime = record?.lifetime_points || 0;
+    const row = await db.getUserById(user.id);
 
-    // VIEW
+    const currentPoints = row?.points || 0;
+    const currentLifetime = row?.lifetime_points || 0;
+
+    // -------- VIEW ONLY --------
     if (action === 'view') {
       return interaction.reply({
         embeds: [
@@ -71,9 +75,9 @@ module.exports = {
             .setColor('Blue')
             .setTitle(`📊 Points for ${user.username}`)
             .addFields(
+              { name: 'Rank', value: getRankName(currentLifetime), inline: true },
               { name: 'Current Points', value: `${currentPoints}`, inline: true },
-              { name: 'Lifetime Points', value: `${currentLifetime}`, inline: true },
-              { name: 'Rank', value: getRankName(currentLifetime), inline: true }
+              { name: 'Lifetime Points', value: `${currentLifetime}`, inline: true }
             )
             .setTimestamp()
         ],
@@ -81,78 +85,70 @@ module.exports = {
       });
     }
 
-    if (amount <= 0) {
-      return interaction.reply({
-        content: '❌ Amount must be greater than 0.',
-        flags: 64
-      });
+    if (
+      ['add_current', 'remove_current', 'set_current',
+       'add_lifetime', 'remove_lifetime',
+       'add_both', 'remove_both'].includes(action)
+      && amount <= 0
+    ) {
+      return interaction.reply({ content: '❌ Amount must be greater than 0.', flags: 64 });
     }
 
+    // -------- MODIFY VALUES --------
     let newCurrent = currentPoints;
     let newLifetime = currentLifetime;
-    let lifetimeChanged = false;
 
     switch (action) {
       case 'add_current':
-        newCurrent = currentPoints + amount;
-        await db.updateUserPoints(user.id, newCurrent);
+        newCurrent += amount;
         break;
-
       case 'remove_current':
         newCurrent = Math.max(0, currentPoints - amount);
-        await db.updateUserPoints(user.id, newCurrent);
         break;
-
       case 'set_current':
         newCurrent = Math.max(0, amount);
-        await db.updateUserPoints(user.id, newCurrent);
         break;
-
       case 'add_lifetime':
-        newLifetime = currentLifetime + amount;
-        lifetimeChanged = true;
-        await db.addLifetimePoints(user.id, amount);
+        newLifetime += amount;
         break;
-
       case 'remove_lifetime':
         newLifetime = Math.max(0, currentLifetime - amount);
-        lifetimeChanged = true;
-        await db.updateLifetimePoints(user.id, newLifetime);
         break;
-
       case 'add_both':
-        newCurrent = currentPoints + amount;
-        newLifetime = currentLifetime + amount;
-        lifetimeChanged = true;
-        await db.updateUserPoints(user.id, newCurrent);
-        await db.addLifetimePoints(user.id, amount);
+        newCurrent += amount;
+        newLifetime += amount;
         break;
-
       case 'remove_both':
         newCurrent = Math.max(0, currentPoints - amount);
         newLifetime = Math.max(0, currentLifetime - amount);
-        lifetimeChanged = true;
-        await db.updateUserPoints(user.id, newCurrent);
-        await db.updateLifetimePoints(user.id, newLifetime);
+        break;
+      case 'reset_both':
+        newCurrent = 0;
+        newLifetime = 0;
         break;
     }
 
-    if (lifetimeChanged) {
-      await updateRank(user.id, interaction.guild);
-    }
+    // Save new values ⬇
+    await db.updateUserPoints(user.id, newCurrent);
+    await db.updateLifetimePoints(user.id, newLifetime);
 
-    await db.addPointLog(user.id, amount * (action.includes('remove') ? -1 : 1), reason, interaction.user.id);
+    // Update rank in DB
+    const rank = getRankName(newLifetime);
+    await db.run(
+      `UPDATE points SET rank_name=? WHERE discord_id=?`,
+      [rank, user.id]
+    );
 
     const updated = await db.getUserById(user.id);
 
     const embed = new EmbedBuilder()
       .setColor('Gold')
-      .setTitle(`🛠 Points Updated for ${user.username}`)
+      .setTitle(`🛠 Updated Points for ${user.username}`)
       .addFields(
         { name: 'Action', value: action, inline: true },
         { name: 'Current Points', value: `${updated.points}`, inline: true },
         { name: 'Lifetime Points', value: `${updated.lifetime_points}`, inline: true },
-        { name: 'Rank', value: getRankName(updated.lifetime_points), inline: true },
+        { name: 'Rank', value: updated.rank_name || rank, inline: true },
         { name: 'Reason', value: reason, inline: false }
       )
       .setTimestamp();
