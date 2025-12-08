@@ -1,9 +1,7 @@
 // interactions/commands/leaderboardDebug.cjs
 //
-// Staff-only debug command to render the leaderboard PNG.
-// /leaderboarddebug [page]
-// page: 1 → ranks #1–10 (default)
-// page: 2 → ranks #11–20
+// Staff-only debug command to render the Top 10 leaderboard PNG.
+// This version has NO paging logic — always shows ranks #1–10 only.
 
 const {
   SlashCommandBuilder,
@@ -20,14 +18,7 @@ const STAFF_ROLES = (process.env.STAFF_ROLES || "")
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("leaderboarddebug")
-    .setDescription("Render the Top Hunters leaderboard card (staff only)")
-    .addIntegerOption(option =>
-      option
-        .setName("page")
-        .setDescription("Leaderboard page: 1 (ranks 1–10) or 2 (ranks 11–20)")
-        .setMinValue(1)
-        .setMaxValue(2)
-    ),
+    .setDescription("Render the Top 10 leaderboard card (staff only)"),
 
   async execute(client, interaction) {
     try {
@@ -47,14 +38,12 @@ module.exports = {
         });
       }
 
-      const page = interaction.options.getInteger("page") || 1;
-
-      const buffer = await createLeaderboardCard(interaction.guild, page);
+      // Always produce Top 10
+      const buffer = await createLeaderboardCard(interaction.guild);
       const attachment = new AttachmentBuilder(buffer, {
-        name: `top-hunters-leaderboard-page${page}.png`
+        name: `top-hunters-leaderboard.png`
       });
 
-      // Image only, no embed, to bypass preview mode
       await interaction.editReply({ files: [attachment] });
     } catch (err) {
       console.error("❌ Failed to render leaderboard card:", err);
