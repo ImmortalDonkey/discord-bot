@@ -1,9 +1,5 @@
 // renderers/leaderboardCard.cjs
-//
 // Top 10 leaderboard card
-// Title card = solid white
-// Table header + rows = semi-transparent (0.35 opacity)
-// Table text = black with bold white outline
 
 const { createCanvas, loadImage } = require("canvas");
 const path = require("path");
@@ -36,15 +32,12 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Style for table/header text: white outline + black fill
 function applyTextStyle(ctx) {
-  ctx.fillStyle = "#000000";      // black fill
-  ctx.strokeStyle = "#ffffff";    // white outline
-  ctx.lineWidth = 6;              // bold outline
-  ctx.shadowColor = "transparent";
+  ctx.fillStyle = "#000000";    
+  ctx.strokeStyle = "#ffffff";  
+  ctx.lineWidth = 6;
+  ctx.shadowColor = "transparent"; 
   ctx.shadowBlur = 0;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 0;
 }
 
 async function resolveDisplayName(guild, row) {
@@ -63,21 +56,14 @@ async function resolveDisplayName(guild, row) {
 }
 
 async function drawBackground(ctx) {
-  if (!fileExistsSafe(BG_PATH)) {
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-    return;
-  }
   const img = await loadImage(BG_PATH);
   const scale = Math.max(CARD_WIDTH / img.width, CARD_HEIGHT / img.height);
-  const drawW = img.width * scale;
-  const drawH = img.height * scale;
   ctx.drawImage(
     img,
-    (CARD_WIDTH - drawW) / 2,
-    (CARD_HEIGHT - drawH) / 2,
-    drawW,
-    drawH
+    (CARD_WIDTH - img.width * scale) / 2,
+    (CARD_HEIGHT - img.height * scale) / 2,
+    img.width * scale,
+    img.height * scale
   );
 }
 
@@ -86,7 +72,7 @@ async function createLeaderboardCard(guild) {
   const ctx = canvas.getContext("2d");
   await drawBackground(ctx);
 
-  // ---- Title (solid white background, no outline on text) ----
+  // Title
   const title = "Top Hunters Leaderboard";
   ctx.font = "bold 90px Sans";
   const titleW = ctx.measureText(title).width + 200;
@@ -101,13 +87,12 @@ async function createLeaderboardCard(guild) {
   ctx.strokeStyle = "#dc2626";
   ctx.stroke();
 
+  ctx.fillStyle = "#000000";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = "#000000";
   ctx.fillText(title, titleX + titleW / 2, titleY + titleH / 2);
 
-  // ---- Table geometry ----
+  // Table
   const tableX = PADDING;
   const tableW = CARD_WIDTH - PADDING * 2;
   const rowH = 120;
@@ -118,9 +103,10 @@ async function createLeaderboardCard(guild) {
   const headersY = titleY + titleH + 50;
   const firstRowY = headersY + rowH + rowGap;
 
+  // Adjusted Trainer column width (shift columns right)
   const col0 = tableX;
-  const col1 = tableX + 140;
-  const col2 = tableX + 1020;
+  const col1 = tableX + 130; // slightly narrower
+  const col2 = tableX + 950; // narrower for trainer name
   const col3 = tableX + 1540;
   const col4 = tableX + 1940;
   const col5 = tableX + tableW;
@@ -133,80 +119,63 @@ async function createLeaderboardCard(guild) {
     bounties: (col4 + col5) / 2
   };
 
-  // ---- Header row (0.35 opacity) ----
+  // HEADER BOX opacity 0.25
   drawRoundedRect(ctx, tableX, headersY, tableW, rowH, radius);
-  ctx.fillStyle = "rgba(255,255,255,0.35)";
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
   ctx.fill();
   ctx.lineWidth = 4;
   ctx.strokeStyle = borderCol;
   ctx.stroke();
 
+  // Header text (1px bigger)
   applyTextStyle(ctx);
-  ctx.font = "bold 58px Sans";
+  ctx.font = "bold 59px Sans";
   ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  // Position column header intentionally blank
-  ctx.strokeText("", X.pos, headersY + rowH / 2);
-  ctx.fillText("", X.pos, headersY + rowH / 2);
-
   ctx.strokeText("Trainer", X.trainer, headersY + rowH / 2);
   ctx.fillText("Trainer", X.trainer, headersY + rowH / 2);
-
   ctx.strokeText("Rank", X.rank, headersY + rowH / 2);
   ctx.fillText("Rank", X.rank, headersY + rowH / 2);
-
   ctx.strokeText("Points", X.points, headersY + rowH / 2);
   ctx.fillText("Points", X.points, headersY + rowH / 2);
-
   ctx.strokeText("Bounties", X.bounties, headersY + rowH / 2);
   ctx.fillText("Bounties", X.bounties, headersY + rowH / 2);
 
-  // ---- Data rows ----
+  // Rows
   const rows = await db.getLeaderboard(10);
-  ctx.font = "bold 52px Sans";
+  ctx.font = "bold 53px Sans"; // 1px bigger
 
   for (let i = 0; i < rows.length; i++) {
-    const user = rows[i];
     const y = firstRowY + i * (rowH + rowGap);
     const center = y + rowH / 2;
 
-    const name = await resolveDisplayName(guild, user);
-    const rankText = getRankName(user.lifetime_points);
-
-    // Row background (0.35 opacity)
     drawRoundedRect(ctx, tableX, y, tableW, rowH, radius);
-    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.fillStyle = "rgba(255,255,255,0.25)";
     ctx.fill();
     ctx.lineWidth = 4;
     ctx.strokeStyle = borderCol;
     ctx.stroke();
 
-    applyTextStyle(ctx);
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
+    const user = rows[i];
+    const name = await resolveDisplayName(guild, user);
+    const rName = getRankName(user.lifetime_points);
 
-    // Position
+    applyTextStyle(ctx);
+
+    ctx.textAlign = "center";
     ctx.strokeText(`#${i + 1}`, X.pos, center);
     ctx.fillText(`#${i + 1}`, X.pos, center);
 
-    // Trainer
     ctx.strokeText(name, X.trainer, center);
     ctx.fillText(name, X.trainer, center);
 
-    // Rank
-    ctx.strokeText(rankText, X.rank, center);
-    ctx.fillText(rankText, X.rank, center);
+    ctx.strokeText(rName, X.rank, center);
+    ctx.fillText(rName, X.rank, center);
 
-    // Points
-    const pointsStr = String(user.lifetime_points);
-    ctx.strokeText(pointsStr, X.points, center);
-    ctx.fillText(pointsStr, X.points, center);
+    ctx.strokeText(String(user.lifetime_points), X.points, center);
+    ctx.fillText(String(user.lifetime_points), X.points, center);
 
-    // Bounties
-    const bountiesStr = String(user.completed_bounties);
-    ctx.strokeText(bountiesStr, X.bounties, center);
-    ctx.fillText(bountiesStr, X.bounties, center);
+    ctx.strokeText(String(user.completed_bounties), X.bounties, center);
+    ctx.fillText(String(user.completed_bounties), X.bounties, center);
   }
 
   return canvas.toBuffer("image/png");
