@@ -1,10 +1,6 @@
 // renderers/leaderboardCard.cjs
 //
-// FINAL VERSION — Increased transparency only
-//
-// Shows Top 10 only
-// White cards w/red outline for title + header + rows
-// Background: /renderers/leaderboard-bg/leaderboard-card.png
+// Version: Solid title + header, 40% row box opacity, removed "#" header
 
 const { createCanvas, loadImage } = require("canvas");
 const path = require("path");
@@ -12,15 +8,13 @@ const fs = require("fs");
 const db = require("../database.cjs");
 const { getRankName } = require("../utils/rankSystem.cjs");
 
-// 4:3 resolution
 const CARD_WIDTH = 2400;
 const CARD_HEIGHT = 1800;
-const PADDING = 80; // margin around entire design
+const PADDING = 80;
 
-// Background location
 const BG_PATH = path.join(__dirname, "leaderboard-bg", "leaderboard-card.png");
 
-// Badge Icons
+// Badge icons folder
 const BADGE_DIR = path.join(__dirname, "rank-badges");
 
 const RANK_BADGE_FILES = {
@@ -101,7 +95,7 @@ async function createLeaderboardCard(guild) {
   const ctx = canvas.getContext("2d");
   await drawBackground(ctx);
 
-  // Title card
+  // --- Title Card (100% white)
   const title = "Top Hunters Leaderboard";
   ctx.font = "bold 90px Sans";
   const titleW = ctx.measureText(title).width + 200;
@@ -111,17 +105,21 @@ async function createLeaderboardCard(guild) {
 
   ctx.save();
   drawRoundedRect(ctx, titleX, titleY, titleW, titleH, 10);
-  ctx.fillStyle = "rgba(255,255,255,0.30)"; // 30% opacity
+  ctx.fillStyle = "#ffffff";  // FULL WHITE, no transparency
   ctx.fill();
-  ctx.lineWidth = 4; ctx.strokeStyle = "#dc2626"; ctx.stroke();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "#dc2626";
+  ctx.stroke();
   ctx.restore();
 
-  ctx.fillStyle = "#000"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillStyle = "#000";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
   ctx.fillText(title, titleX + titleW / 2, titleY + titleH / 2);
 
-  // Table geometry
+  // Table layout
   const tableX = PADDING;
-  const tableW = CARD_WIDTH - (PADDING * 2);
+  const tableW = CARD_WIDTH - PADDING * 2;
   const rowH = 120;
   const rowGap = 20;
   const radius = 8;
@@ -130,7 +128,6 @@ async function createLeaderboardCard(guild) {
   const headersY = titleY + titleH + 50;
   const firstRowY = headersY + rowH + rowGap;
 
-  // Column offsets
   const col0 = tableX;
   const col1 = tableX + 140;
   const col2 = tableX + 1020;
@@ -146,52 +143,58 @@ async function createLeaderboardCard(guild) {
     bounties: (col4 + col5) / 2
   };
 
-  // Header row card
+  // --- Header Row (100% white)
   ctx.save();
   drawRoundedRect(ctx, tableX, headersY, tableW, rowH, radius);
-  ctx.fillStyle = "rgba(255,255,255,0.30)"; // 30% opacity
+  ctx.fillStyle = "#ffffff"; // solid white
   ctx.fill();
-  ctx.lineWidth = 4; ctx.strokeStyle = borderCol; ctx.stroke();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = borderCol;
+  ctx.stroke();
   ctx.restore();
 
-  ctx.fillStyle = "#000"; ctx.font = "bold 58px Sans"; ctx.textBaseline = "middle";
+  ctx.fillStyle = "#000";
+  ctx.font = "bold 58px Sans";
+  ctx.textBaseline = "middle";
   ctx.textAlign = "center";
-  ctx.fillText("#", X.rank, headersY + rowH / 2);
+
+  // Removed "#" from this header cell
+  ctx.fillText("", X.rank, headersY + rowH / 2);
   ctx.fillText("Trainer", X.trainer, headersY + rowH / 2);
   ctx.fillText("Rank", X.rankInfo, headersY + rowH / 2);
   ctx.fillText("Points", X.points, headersY + rowH / 2);
   ctx.fillText("Bounties", X.bounties, headersY + rowH / 2);
 
-  // Leaderboard data
+  // ---- Data rows 40% opacity!
   const list = await db.getLeaderboard(10);
-
   ctx.font = "bold 52px Sans";
 
   for (let i = 0; i < list.length; i++) {
-    const user = list[i];
+    const u = list[i];
     const y = firstRowY + i * (rowH + rowGap);
-    const center = y + rowH / 2;
+    const mid = y + rowH / 2;
 
-    const name = await resolveDisplayName(guild, user);
-    const rankName = getRankName(user.lifetime_points);
+    const displayName = await resolveDisplayName(guild, u);
+    const rankName = getRankName(u.lifetime_points);
 
     ctx.save();
     drawRoundedRect(ctx, tableX, y, tableW, rowH, radius);
-    ctx.fillStyle = "rgba(255,255,255,0.30)"; // 30% opacity
+    ctx.fillStyle = "rgba(255,255,255,0.40)"; // NOW 40%
     ctx.fill();
-    ctx.lineWidth = 4; ctx.strokeStyle = borderCol; ctx.stroke();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = borderCol;
+    ctx.stroke();
     ctx.restore();
 
     ctx.fillStyle = "#000";
     ctx.textAlign = "center";
-    ctx.fillText(`#${i+1}`, X.rank, center);
 
-    fillTruncatedText(ctx, name, X.trainer, center, col2-col1-40);
+    ctx.fillText(`#${i+1}`, X.rank, mid);
+    fillTruncatedText(ctx, displayName, X.trainer, mid, col2-col1-40);
+    fillTruncatedText(ctx, rankName, X.rankInfo, mid, col3-col2-120);
 
-    fillTruncatedText(ctx, rankName, X.rankInfo + 0, center, col3-col2-120);
-
-    ctx.fillText(String(user.lifetime_points), X.points, center);
-    ctx.fillText(String(user.completed_bounties), X.bounties, center);
+    ctx.fillText(String(u.lifetime_points), X.points, mid);
+    ctx.fillText(String(u.completed_bounties), X.bounties, mid);
   }
 
   return canvas.toBuffer("image/png");
