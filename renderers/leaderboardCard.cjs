@@ -1,17 +1,10 @@
 // renderers/leaderboardCard.cjs
 //
-// Renders a PNG leaderboard card with columns:
-// # | Trainer | Rank (badge + name) | Points | Bounties
+// FINAL VERSION — Header row in card, equal spacing, no page logic
 //
-// - 4:3 aspect ratio: 2400 x 1800
-// - Shows 10 players per page
-//   page 1 → ranks #1–10
-//   page 2 → ranks #11–20
-// - Uses background image:
-//     /renderers/leaderboard-bg/leaderboard-card.png
-// - Each row is its own white card with red outline.
-// - Title is also in a centered white card.
-// - All text is black + bold.
+// Shows Top 10 only
+// White cards w/red outline for title + header + rows
+// Background: /renderers/leaderboard-bg/leaderboard-card.png
 
 const { createCanvas, loadImage } = require("canvas");
 const path = require("path");
@@ -19,18 +12,17 @@ const fs = require("fs");
 const db = require("../database.cjs");
 const { getRankName } = require("../utils/rankSystem.cjs");
 
-// 4:3
+// 4:3 resolution
 const CARD_WIDTH = 2400;
 const CARD_HEIGHT = 1800;
-const PADDING = 80;
+const PADDING = 80; // margin around entire design
 
-// Background image location (relative to this file)
+// Background location
 const BG_PATH = path.join(__dirname, "leaderboard-bg", "leaderboard-card.png");
 
-// Badge image folder: /renderers/rank-badges
+// Badge Icons
 const BADGE_DIR = path.join(__dirname, "rank-badges");
 
-// Rank → badge filename mapping
 const RANK_BADGE_FILES = {
   "Rookie Trainer": "poke-ball.png",
   Trainer: "great-ball.png",
@@ -42,7 +34,6 @@ const RANK_BADGE_FILES = {
   Master: "vortex-ball.png"
 };
 
-// Simple text fallback if image missing
 const RANK_BADGE_FALLBACK = {
   "Rookie Trainer": "P",
   Trainer: "G",
@@ -54,18 +45,8 @@ const RANK_BADGE_FALLBACK = {
   Master: "V"
 };
 
-function getBadgeFileForRank(rankName) {
-  return RANK_BADGE_FILES[rankName] || null;
-}
-function getBadgeFallbackForRank(rankName) {
-  return RANK_BADGE_FALLBACK[rankName] || "";
-}
-function fileExistsSafe(fullPath) {
-  try {
-    return fs.existsSync(fullPath);
-  } catch {
-    return false;
-  }
+function fileExistsSafe(fp) {
+  try { return fs.existsSync(fp); } catch { return false; }
 }
 
 function drawRoundedRect(ctx, x, y, w, h, r) {
@@ -83,323 +64,162 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-/**
- * Truncate text to fit maxWidth with ellipsis.
- */
-function fillTruncatedText(ctx, text, x, y, maxWidth, align = "left") {
-  ctx.textAlign = align;
+function fillTruncatedText(ctx, text, x, y, maxWidth, align = "center") {
   const full = String(text || "");
   if (ctx.measureText(full).width <= maxWidth) {
+    ctx.textAlign = align;
     ctx.fillText(full, x, y);
     return;
   }
-
   let trimmed = full;
-  while (trimmed.length > 0 && ctx.measureText(trimmed + "…").width > maxWidth) {
+  while (trimmed.length && ctx.measureText(trimmed + "…").width > maxWidth) {
     trimmed = trimmed.slice(0, -1);
   }
+  ctx.textAlign = align;
   ctx.fillText(trimmed + "…", x, y);
 }
 
-/**
- * Safely resolve a display name for a user from guild + DB row.
- * - Prefer guild nickname
- * - Then global name
- * - Then discord username
- * - Then stored username
- */
-async function resolveDisplayName(guild, userRow) {
-  let displayName = userRow.username || "Unknown";
-
-  if (!guild || !userRow.discord_id) {
-    return displayName;
-  }
-
+async function resolveDisplayName(guild, row) {
+  let name = row.username || "Unknown";
   try {
-    let member = guild.members.cache.get(userRow.discord_id);
-    if (!member) {
-      member = await guild.members.fetch(userRow.discord_id).catch(() => null);
-    }
+    let member = guild.members.cache.get(row.discord_id) ||
+                 await guild.members.fetch(row.discord_id).catch(()=>null);
 
     if (member) {
-      if (member.nickname) return member.nickname;
-      if (member.user?.globalName) return member.user.globalName;
-      if (member.user?.username) return member.user.username;
+      return member.nickname ||
+             member.user?.globalName ||
+             member.user?.username ||
+             name;
     }
-  } catch {
-    // ignore, fall back to stored username
-  }
-
-  return displayName;
+  } catch {}
+  return name;
 }
 
-/**
- * Draw the background image, scaled to "cover" the canvas.
- */
 async function drawBackground(ctx) {
   if (!fileExistsSafe(BG_PATH)) {
-    // fallback: plain white
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
     return;
   }
-
   const img = await loadImage(BG_PATH);
-  const scale = Math.max(
-    CARD_WIDTH / img.width,
-    CARD_HEIGHT / img.height
-  );
-
+  const scale = Math.max(CARD_WIDTH / img.width, CARD_HEIGHT / img.height);
   const drawW = img.width * scale;
   const drawH = img.height * scale;
-  const dx = (CARD_WIDTH - drawW) / 2;
-  const dy = (CARD_HEIGHT - drawH) / 2;
-
-  ctx.drawImage(img, dx, dy, drawW, drawH);
+  ctx.drawImage(img, (CARD_WIDTH - drawW) / 2, (CARD_HEIGHT - drawH) / 2, drawW, drawH);
 }
 
-/**
- * Create the leaderboard card.
- * @param {Guild} guild  Discord guild (for nickname lookup)
- * @param {number} page  1 → ranks 1–10, 2 → ranks 11–20
- * @returns {Buffer} PNG buffer
- */
-async function createLeaderboardCard(guild, page = 1) {
-  // Clamp page to 1 or 2
-  const pageNum = page === 2 ? 2 : 1;
-
+async function createLeaderboardCard(guild) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
-
-  // ---- Background ----
   await drawBackground(ctx);
 
-  // ---- Title card ----
-  const titleText = "Top Hunters Leaderboard";
-  ctx.font = "bold 86px Sans";
-  ctx.fillStyle = "#000000";
-  ctx.textBaseline = "middle";
+  // Title card
+  const title = "Top Hunters Leaderboard";
+  ctx.font = "bold 90px Sans";
+  const titleW = ctx.measureText(title).width + 200;
+  const titleH = 130;
+  const titleX = (CARD_WIDTH - titleW) / 2;
+  const titleY = PADDING;
 
-  const titleTextWidth = ctx.measureText(titleText).width;
-  const titlePaddingX = 80;
-  const titleBoxW = titleTextWidth + titlePaddingX * 2;
-  const titleBoxH = 120;
-
-  const titleBoxX = (CARD_WIDTH - titleBoxW) / 2;
-  const titleBoxY = PADDING; // near top
-
-  // Draw title box (same style as rows)
   ctx.save();
-  drawRoundedRect(ctx, titleBoxX, titleBoxY, titleBoxW, titleBoxH, 8);
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = "#dc2626"; // red
-  ctx.stroke();
+  drawRoundedRect(ctx, titleX, titleY, titleW, titleH, 10);
+  ctx.fillStyle = "#ffffff"; ctx.fill();
+  ctx.lineWidth = 4; ctx.strokeStyle = "#dc2626"; ctx.stroke();
   ctx.restore();
 
-  // Title text centered in box
-  ctx.fillStyle = "#000000";
+  ctx.fillStyle = "#000"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(title, titleX + titleW / 2, titleY + titleH / 2);
+
+  // Table geometry
+  const tableX = PADDING;
+  const tableW = CARD_WIDTH - (PADDING * 2);
+  const rowH = 120;
+  const rowGap = 20;
+  const radius = 8;
+  const borderCol = "#dc2626";
+
+  const headersY = titleY + titleH + 50;
+  const firstRowY = headersY + rowH + rowGap;
+
+  // Column offsets
+  const col0 = tableX;
+  const col1 = tableX + 140;
+  const col2 = tableX + 1020;
+  const col3 = tableX + 1540;
+  const col4 = tableX + 1940;
+  const col5 = tableX + tableW;
+
+  const X = {
+    rank: (col0 + col1) / 2,
+    trainer: (col1 + col2) / 2,
+    rankInfo: (col2 + col3) / 2,
+    points: (col3 + col4) / 2,
+    bounties: (col4 + col5) / 2
+  };
+
+  // HEADER ROW card
+  ctx.save();
+  drawRoundedRect(ctx, tableX, headersY, tableW, rowH, radius);
+  ctx.fillStyle = "#ffffff"; ctx.fill();
+  ctx.lineWidth = 4; ctx.strokeStyle = borderCol; ctx.stroke();
+  ctx.restore();
+
+  // Header text
+  ctx.fillStyle = "#000"; ctx.font = "bold 58px Sans"; ctx.textBaseline = "middle";
   ctx.textAlign = "center";
-  const titleTextX = titleBoxX + titleBoxW / 2;
-  const titleTextY = titleBoxY + titleBoxH / 2;
-  ctx.fillText(titleText, titleTextX, titleTextY);
+  ctx.fillText("#", X.rank, headersY + rowH / 2);
+  ctx.fillText("Trainer", X.trainer, headersY + rowH / 2);
+  ctx.fillText("Rank", X.rankInfo, headersY + rowH / 2);
+  ctx.fillText("Points", X.points, headersY + rowH / 2);
+  ctx.fillText("Bounties", X.bounties, headersY + rowH / 2);
 
-  // ---- Page indicator (top-right, above rows) ----
-  const innerX = PADDING;
-  const innerW = CARD_WIDTH - PADDING * 2;
+  // Leaderboard data
+  const list = await db.getLeaderboard(10);
 
-  ctx.font = "bold 40px Sans";
-  ctx.textAlign = "right";
-  ctx.textBaseline = "top";
-  ctx.fillStyle = "#000000";
-  ctx.fillText(
-    pageNum === 1 ? "Page 1 — Ranks #1–10" : "Page 2 — Ranks #11–20",
-    innerX + innerW - 20,
-    titleBoxY + titleBoxH + 16
-  );
+  ctx.font = "bold 52px Sans";
 
-  // ---- Table / row geometry ----
+  for (let i = 0; i < list.length; i++) {
+    const user = list[i];
+    const y = firstRowY + i * (rowH + rowGap);
+    const center = y + rowH / 2;
 
-  // Starting Y below title
-  const rowsTopY = titleBoxY + titleBoxH + 80;
+    const name = await resolveDisplayName(guild, user);
+    const rankName = getRankName(user.lifetime_points);
 
-  // Make rows fill almost full width inside padding
-  const tableX = innerX + 10;
-  const tableW = innerW - 20;
-
-  // Column boundaries:
-  // # | Trainer | Rank | Points | Bounties
-  const col0 = tableX; // left border
-  const col1 = tableX + 140;   // after "#"
-  const col2 = tableX + 1020;  // after Trainer
-  const col3 = tableX + 1540;  // after Rank
-  const col4 = tableX + 1940;  // after Points
-  const col5 = tableX + tableW; // right border
-
-  const colRankNumCenterX = (col0 + col1) / 2;
-  const colTrainerCenterX = (col1 + col2) / 2;
-  const colRankCenterX = (col2 + col3) / 2;
-  const colPointsCenterX = (col3 + col4) / 2;
-  const colBountiesCenterX = (col4 + col5) / 2;
-
-  // Header labels (in free space above first row)
-  const headerCenterY = rowsTopY - 45;
-
-  ctx.fillStyle = "#000000";
-  ctx.font = "bold 60px Sans";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("#", colRankNumCenterX, headerCenterY);
-  ctx.fillText("Trainer", colTrainerCenterX, headerCenterY);
-  ctx.fillText("Rank", colRankCenterX, headerCenterY);
-  ctx.fillText("Points", colPointsCenterX, headerCenterY);
-  ctx.fillText("Bounties", colBountiesCenterX, headerCenterY);
-
-  // ---- Fetch leaderboard data ----
-  const allRows = await db.getLeaderboard(20);
-  const startIndex = (pageNum - 1) * 10;
-  const endIndex = startIndex + 10;
-  const rows = allRows.slice(startIndex, endIndex);
-
-  // ---- Row cards ----
-  const rowHeight = 110;
-  const rowGap = 15;
-  const rowRadius = 6;
-  const rowBorderWidth = 4;
-  const rowBorderColor = "#dc2626"; // red-600
-  const colLineColor = "#e5e7eb";   // light gray for internal separators
-
-  ctx.textBaseline = "middle";
-
-  for (let i = 0; i < rows.length; i++) {
-    const user = rows[i];
-    const rowTopY = rowsTopY + i * (rowHeight + rowGap);
-    const rowBottomY = rowTopY + rowHeight;
-    const rowCenterY = rowTopY + rowHeight / 2;
-
-    const globalRankNumber = startIndex + i + 1;
-    const lifetimePoints = user.lifetime_points || 0;
-    const completedBounties = user.completed_bounties || 0;
-    const rankName = getRankName(lifetimePoints);
-
-    // Display name (nickname)
-    const displayName = await resolveDisplayName(guild, user);
-
-    // --- Row card box (rounded white with red outline) ---
+    // box
     ctx.save();
-    drawRoundedRect(ctx, tableX, rowTopY, tableW, rowHeight, rowRadius);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.lineWidth = rowBorderWidth;
-    ctx.strokeStyle = rowBorderColor;
-    ctx.stroke();
+    drawRoundedRect(ctx, tableX, y, tableW, rowH, radius);
+    ctx.fillStyle = "#ffffff"; ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = borderCol; ctx.stroke();
     ctx.restore();
 
-    // --- Internal vertical lines (segment separators) ---
-    ctx.save();
-    ctx.strokeStyle = colLineColor;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    [col1, col2, col3, col4].forEach((x) => {
-      ctx.moveTo(x, rowTopY);
-      ctx.lineTo(x, rowBottomY);
-    });
-    ctx.stroke();
-    ctx.restore();
-
-    // --- Text styles ---
-    ctx.fillStyle = "#000000";
-    ctx.font = "bold 50px Sans";
-
-    // --- # column ---
+    // text
+    ctx.fillStyle = "#000";
     ctx.textAlign = "center";
-    ctx.fillText(`#${globalRankNumber}`, colRankNumCenterX, rowCenterY);
+    ctx.fillText(`#${i+1}`, X.rank, center);
+    fillTruncatedText(ctx, name, X.trainer, center, col2-col1-40);
 
-    // --- Trainer column ---
-    ctx.textAlign = "center";
-    const trainerMaxWidth = col2 - col1 - 40;
-    fillTruncatedText(
-      ctx,
-      displayName,
-      colTrainerCenterX,
-      rowCenterY,
-      trainerMaxWidth,
-      "center"
-    );
-
-    // --- Rank column (badge + rank name, centered) ---
-    const rankColLeft = col2;
-    const rankColRight = col3;
-    const rankInnerPadding = 30;
-    const badgeSize = 60;
-    const badgeCenterY = rowCenterY;
-
-    // We'll treat the visual center of the rank cell as colRankCenterX,
-    // and place the badge slightly left and text slightly right,
-    // so the overall group looks centered.
-    const badgeCenterX = colRankCenterX - 80;
-    const badgeFile = getBadgeFileForRank(rankName);
-    const badgePath =
-      badgeFile && fileExistsSafe(path.join(BADGE_DIR, badgeFile))
-        ? path.join(BADGE_DIR, badgeFile)
-        : null;
+    // Rank + badge
+    const badgeSize = 62;
+    const badgeX = X.rankInfo - 80;
+    const badgeFile = RANK_BADGE_FILES[rankName];
+    const badgePath = badgeFile && fileExistsSafe(path.join(BADGE_DIR, badgeFile))
+      ? path.join(BADGE_DIR, badgeFile) : null;
 
     if (badgePath) {
       try {
         const img = await loadImage(badgePath);
-        const drawX = badgeCenterX - badgeSize / 2;
-        const drawY = badgeCenterY - badgeSize / 2;
-        ctx.drawImage(img, drawX, drawY, badgeSize, badgeSize);
-      } catch {
-        ctx.fillStyle = "#e5e7eb";
-        ctx.beginPath();
-        ctx.arc(badgeCenterX, badgeCenterY, badgeSize / 2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#000000";
-        ctx.font = "bold 32px Sans";
-        ctx.textAlign = "center";
-        ctx.fillText(getBadgeFallbackForRank(rankName), badgeCenterX, badgeCenterY);
-      }
-    } else {
-      ctx.fillStyle = "#e5e7eb";
-      ctx.beginPath();
-      ctx.arc(badgeCenterX, badgeCenterY, badgeSize / 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#000000";
-      ctx.font = "bold 32px Sans";
-      ctx.textAlign = "center";
-      ctx.fillText(getBadgeFallbackForRank(rankName), badgeCenterX, badgeCenterY);
+        ctx.drawImage(img, badgeX - badgeSize/2, center - badgeSize/2, badgeSize, badgeSize);
+      } catch {}
     }
 
-    // Rank text to the right, but overall visually centered
-    const rankTextCenterX = colRankCenterX + 60;
-    const rankMaxWidth =
-      rankColRight - rankColLeft - badgeSize - rankInnerPadding * 2;
+    fillTruncatedText(ctx, rankName, X.rankInfo + 60, center, col3-col2-120);
 
-    ctx.textAlign = "center";
-    ctx.font = "bold 48px Sans";
-    fillTruncatedText(
-      ctx,
-      rankName,
-      rankTextCenterX,
-      rowCenterY,
-      rankMaxWidth,
-      "center"
-    );
-
-    // --- Points ---
-    ctx.textAlign = "center";
-    ctx.font = "bold 50px Sans";
-    ctx.fillText(String(lifetimePoints), colPointsCenterX, rowCenterY);
-
-    // --- Bounties ---
-    ctx.fillText(String(completedBounties), colBountiesCenterX, rowCenterY);
+    ctx.fillText(String(user.lifetime_points), X.points, center);
+    ctx.fillText(String(user.completed_bounties), X.bounties, center);
   }
 
   return canvas.toBuffer("image/png");
 }
 
-module.exports = {
-  createLeaderboardCard
-};
+module.exports = { createLeaderboardCard };
