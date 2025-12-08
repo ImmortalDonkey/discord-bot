@@ -298,6 +298,16 @@ async function getTotalCompletedBounties() {
   );
   return row && row.total ? row.total : 0;
 }
+// ⭐ NEW: lifetime_points direct setter ⭐
+async function updateLifetimePoints(discordId, newLifetime) {
+  await run(
+    `UPDATE points
+     SET lifetime_points = ?, last_updated = ?
+     WHERE discord_id = ?`,
+    [newLifetime, Date.now(), discordId]
+  );
+  return getUserById(discordId);
+}
 
 // ------------------------------------------------------
 // IN-MEMORY CACHE FOR BOUNTIES + CLAIMS
@@ -786,16 +796,17 @@ module.exports = {
   get,
   all,
 
-  // Points
-  getUserById,
-  getUserByUsername,
-  addPoints,
-  updateUserPoints,
-  getLeaderboard,
-  getAllUsers,
-  clearAllPoints,
-  incrementCompletedBounties,
-  getTotalCompletedBounties,
+ // Points
+getUserById,
+getUserByUsername,
+addPoints,
+updateUserPoints,
+updateLifetimePoints, // ⬅️ NEW EXPORT
+getLeaderboard,
+getAllUsers,
+clearAllPoints,
+incrementCompletedBounties,
+getTotalCompletedBounties,
 
   // Bounties
   createBounty,
