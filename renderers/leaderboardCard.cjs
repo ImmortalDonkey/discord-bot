@@ -7,10 +7,10 @@
 // - Shows 10 players per page
 //   page 1 → ranks #1–10
 //   page 2 → ranks #11–20
-// - Background image:
+// - Uses background image:
 //     /renderers/leaderboard-bg/leaderboard-card.png
-// - Each row is its own white card with red outline, with vertical
-//   separator lines for the segments.
+// - Each row is its own white card with red outline.
+// - Title is also in a centered white card.
 // - All text is black + bold.
 
 const { createCanvas, loadImage } = require("canvas");
@@ -174,37 +174,67 @@ async function createLeaderboardCard(guild, page = 1) {
   // ---- Background ----
   await drawBackground(ctx);
 
-  // ---- Title + page indicator ----
+  // ---- Title card ----
+  const titleText = "Top Hunters Leaderboard";
+  ctx.font = "bold 86px Sans";
+  ctx.fillStyle = "#000000";
+  ctx.textBaseline = "middle";
+
+  const titleTextWidth = ctx.measureText(titleText).width;
+  const titlePaddingX = 80;
+  const titleBoxW = titleTextWidth + titlePaddingX * 2;
+  const titleBoxH = 120;
+
+  const titleBoxX = (CARD_WIDTH - titleBoxW) / 2;
+  const titleBoxY = PADDING; // near top
+
+  // Draw title box (same style as rows)
+  ctx.save();
+  drawRoundedRect(ctx, titleBoxX, titleBoxY, titleBoxW, titleBoxH, 8);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "#dc2626"; // red
+  ctx.stroke();
+  ctx.restore();
+
+  // Title text centered in box
+  ctx.fillStyle = "#000000";
+  ctx.textAlign = "center";
+  const titleTextX = titleBoxX + titleBoxW / 2;
+  const titleTextY = titleBoxY + titleBoxH / 2;
+  ctx.fillText(titleText, titleTextX, titleTextY);
+
+  // ---- Page indicator (top-right, above rows) ----
   const innerX = PADDING;
-  const innerY = PADDING;
   const innerW = CARD_WIDTH - PADDING * 2;
 
-  ctx.fillStyle = "#000000";
-  ctx.font = "bold 80px Sans";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "top";
-  ctx.fillText("Top Hunters Leaderboard", innerX + 50, innerY + 40);
-
-  // Page indicator (top-right)
-  ctx.font = "bold 36px Sans";
+  ctx.font = "bold 40px Sans";
   ctx.textAlign = "right";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "#000000";
   ctx.fillText(
     pageNum === 1 ? "Page 1 — Ranks #1–10" : "Page 2 — Ranks #11–20",
-    innerX + innerW - 50,
-    innerY + 55
+    innerX + innerW - 20,
+    titleBoxY + titleBoxH + 16
   );
 
-  // ---- Table / row geometry (for inner lines) ----
-  const tableX = innerX + 40;
-  const tableW = innerW - 80;
+  // ---- Table / row geometry ----
+
+  // Starting Y below title
+  const rowsTopY = titleBoxY + titleBoxH + 80;
+
+  // Make rows fill almost full width inside padding
+  const tableX = innerX + 10;
+  const tableW = innerW - 20;
 
   // Column boundaries:
   // # | Trainer | Rank | Points | Bounties
   const col0 = tableX; // left border
-  const col1 = tableX + 120; // after "#"
-  const col2 = tableX + 980; // after Trainer
-  const col3 = tableX + 1450; // after Rank
-  const col4 = tableX + 1850; // after Points
+  const col1 = tableX + 140;   // after "#"
+  const col2 = tableX + 1020;  // after Trainer
+  const col3 = tableX + 1540;  // after Rank
+  const col4 = tableX + 1940;  // after Points
   const col5 = tableX + tableW; // right border
 
   const colRankNumCenterX = (col0 + col1) / 2;
@@ -214,11 +244,10 @@ async function createLeaderboardCard(guild, page = 1) {
   const colBountiesCenterX = (col4 + col5) / 2;
 
   // Header labels (in free space above first row)
-  const rowsTopY = innerY + 220; // first row top
   const headerCenterY = rowsTopY - 45;
 
   ctx.fillStyle = "#000000";
-  ctx.font = "bold 46px Sans";
+  ctx.font = "bold 60px Sans";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("#", colRankNumCenterX, headerCenterY);
@@ -234,12 +263,12 @@ async function createLeaderboardCard(guild, page = 1) {
   const rows = allRows.slice(startIndex, endIndex);
 
   // ---- Row cards ----
-  const rowHeight = 95;
-  const rowGap = 15; // between row cards
+  const rowHeight = 110;
+  const rowGap = 15;
   const rowRadius = 6;
   const rowBorderWidth = 4;
   const rowBorderColor = "#dc2626"; // red-600
-  const colLineColor = "#e5e7eb"; // light gray for internal separators
+  const colLineColor = "#e5e7eb";   // light gray for internal separators
 
   ctx.textBaseline = "middle";
 
@@ -281,7 +310,7 @@ async function createLeaderboardCard(guild, page = 1) {
 
     // --- Text styles ---
     ctx.fillStyle = "#000000";
-    ctx.font = "bold 40px Sans";
+    ctx.font = "bold 50px Sans";
 
     // --- # column ---
     ctx.textAlign = "center";
@@ -299,14 +328,17 @@ async function createLeaderboardCard(guild, page = 1) {
       "center"
     );
 
-    // --- Rank column (badge + rank name) ---
+    // --- Rank column (badge + rank name, centered) ---
     const rankColLeft = col2;
     const rankColRight = col3;
     const rankInnerPadding = 30;
-    const badgeSize = 52;
+    const badgeSize = 60;
     const badgeCenterY = rowCenterY;
-    const badgeX = rankColLeft + rankInnerPadding + badgeSize / 2;
 
+    // We'll treat the visual center of the rank cell as colRankCenterX,
+    // and place the badge slightly left and text slightly right,
+    // so the overall group looks centered.
+    const badgeCenterX = colRankCenterX - 80;
     const badgeFile = getBadgeFileForRank(rankName);
     const badgePath =
       badgeFile && fileExistsSafe(path.join(BADGE_DIR, badgeFile))
@@ -316,45 +348,49 @@ async function createLeaderboardCard(guild, page = 1) {
     if (badgePath) {
       try {
         const img = await loadImage(badgePath);
-        const drawX = badgeX - badgeSize / 2;
+        const drawX = badgeCenterX - badgeSize / 2;
         const drawY = badgeCenterY - badgeSize / 2;
         ctx.drawImage(img, drawX, drawY, badgeSize, badgeSize);
       } catch {
-        // Fallback letter inside small circle
         ctx.fillStyle = "#e5e7eb";
         ctx.beginPath();
-        ctx.arc(badgeX, badgeCenterY, badgeSize / 2, 0, Math.PI * 2);
+        ctx.arc(badgeCenterX, badgeCenterY, badgeSize / 2, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = "#000000";
-        ctx.font = "bold 28px Sans";
+        ctx.font = "bold 32px Sans";
         ctx.textAlign = "center";
-        ctx.fillText(getBadgeFallbackForRank(rankName), badgeX, badgeCenterY);
+        ctx.fillText(getBadgeFallbackForRank(rankName), badgeCenterX, badgeCenterY);
       }
     } else {
-      // Fallback letter
       ctx.fillStyle = "#e5e7eb";
       ctx.beginPath();
-      ctx.arc(badgeX, badgeCenterY, badgeSize / 2, 0, Math.PI * 2);
+      ctx.arc(badgeCenterX, badgeCenterY, badgeSize / 2, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#000000";
-      ctx.font = "bold 28px Sans";
+      ctx.font = "bold 32px Sans";
       ctx.textAlign = "center";
-      ctx.fillText(getBadgeFallbackForRank(rankName), badgeX, badgeCenterY);
+      ctx.fillText(getBadgeFallbackForRank(rankName), badgeCenterX, badgeCenterY);
     }
 
-    // Rank name text to the right of badge
-    const rankTextX = badgeX + badgeSize / 2 + 18;
-    const rankMaxWidth = rankColRight - rankTextX - rankInnerPadding;
+    // Rank text to the right, but overall visually centered
+    const rankTextCenterX = colRankCenterX + 60;
+    const rankMaxWidth =
+      rankColRight - rankColLeft - badgeSize - rankInnerPadding * 2;
 
-    ctx.textAlign = "left";
-    ctx.font = "bold 38px Sans";
-    ctx.fillStyle = "#000000";
-    fillTruncatedText(ctx, rankName, rankTextX, rowCenterY, rankMaxWidth, "left");
+    ctx.textAlign = "center";
+    ctx.font = "bold 48px Sans";
+    fillTruncatedText(
+      ctx,
+      rankName,
+      rankTextCenterX,
+      rowCenterY,
+      rankMaxWidth,
+      "center"
+    );
 
     // --- Points ---
     ctx.textAlign = "center";
-    ctx.font = "bold 40px Sans";
-    ctx.fillStyle = "#000000";
+    ctx.font = "bold 50px Sans";
     ctx.fillText(String(lifetimePoints), colPointsCenterX, rowCenterY);
 
     // --- Bounties ---
