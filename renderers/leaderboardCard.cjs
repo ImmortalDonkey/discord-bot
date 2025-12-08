@@ -1,8 +1,7 @@
 // renderers/leaderboardCard.cjs
 //
-// Shows Top 10 only
-// Transparent header + row cards with red outline
-// Text has a 6px black stroke for visibility
+// Top 10 leaderboard card
+// All cells semi-transparent with white-shadow black text
 // Title remains solid white
 // Background: /renderers/leaderboard-bg/leaderboard-card.png
 
@@ -37,11 +36,13 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function strokeText(ctx, text, x, y) {
-  ctx.textAlign = ctx.textAlign;
-  ctx.textBaseline = ctx.textBaseline;
-  ctx.strokeText(text, x, y);
-  ctx.fillText(text, x, y);
+// Apply white shadow + black fill for readability
+function applyTextStyle(ctx) {
+  ctx.fillStyle = "#000000"; // black text
+  ctx.shadowColor = "rgba(255,255,255,0.95)";
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
 }
 
 async function resolveDisplayName(guild, row) {
@@ -74,10 +75,9 @@ async function drawBackground(ctx) {
 async function createLeaderboardCard(guild) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
-
   await drawBackground(ctx);
 
-  // Title card
+  // ---- Title card (solid white) ----
   const title = "Top Hunters Leaderboard";
   ctx.font = "bold 90px Sans";
   const titleW = ctx.measureText(title).width + 200;
@@ -86,15 +86,17 @@ async function createLeaderboardCard(guild) {
   const titleY = PADDING;
 
   drawRoundedRect(ctx, titleX, titleY, titleW, titleH, 10);
-  ctx.fillStyle = "#ffffff"; ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
   ctx.lineWidth = 4; ctx.strokeStyle = "#dc2626"; ctx.stroke();
 
-  ctx.fillStyle = "#000000";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#000000";
   ctx.fillText(title, titleX + titleW / 2, titleY + titleH / 2);
 
-  // Table geometry
+  // ---- Table geometry ----
   const tableX = PADDING;
   const tableW = CARD_WIDTH - PADDING * 2;
   const rowH = 120;
@@ -105,7 +107,6 @@ async function createLeaderboardCard(guild) {
   const headersY = titleY + titleH + 50;
   const firstRowY = headersY + rowH + rowGap;
 
-  // Columns
   const col0 = tableX;
   const col1 = tableX + 140;
   const col2 = tableX + 1020;
@@ -121,24 +122,22 @@ async function createLeaderboardCard(guild) {
     bounties: (col4 + col5) / 2
   };
 
-  // Transparent header card
+  // ---- Header row (now same opacity as rows) ----
   drawRoundedRect(ctx, tableX, headersY, tableW, rowH, radius);
+  ctx.fillStyle = "rgba(255,255,255,0.45)"; // reduced opacity - 10%
+  ctx.fill();
   ctx.lineWidth = 4; ctx.strokeStyle = borderCol; ctx.stroke();
 
+  applyTextStyle(ctx);
   ctx.font = "bold 58px Sans";
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = 6;
-  ctx.fillStyle = "#ffffff";
 
-  ctx.textBaseline = "middle";
+  ctx.fillText("Trainer", X.trainer, headersY + rowH / 2);
+  ctx.fillText("Rank", X.rank, headersY + rowH / 2);
+  ctx.fillText("Points", X.points, headersY + rowH / 2);
+  ctx.fillText("Bounties", X.bounties, headersY + rowH / 2);
 
-  strokeText(ctx, "Trainer", X.trainer, headersY + rowH / 2);
-  strokeText(ctx, "Rank",    X.rank, headersY + rowH / 2);
-  strokeText(ctx, "Points",  X.points, headersY + rowH / 2);
-  strokeText(ctx, "Bounties",X.bounties, headersY + rowH / 2);
-
-  // Data
   const list = await db.getLeaderboard(10);
+
   ctx.font = "bold 52px Sans";
 
   for (let i = 0; i < list.length; i++) {
@@ -148,22 +147,20 @@ async function createLeaderboardCard(guild) {
     const name = await resolveDisplayName(guild, user);
     const rankText = getRankName(user.lifetime_points);
 
-    // Row card with transparency
+    // Row card — same opacity as header
     drawRoundedRect(ctx, tableX, y, tableW, rowH, radius);
-    ctx.fillStyle = "rgba(255,255,255,0.55)"; // **increased transparency**
+    ctx.fillStyle = "rgba(255,255,255,0.45)";
     ctx.fill();
     ctx.strokeStyle = borderCol;
     ctx.lineWidth = 4;
     ctx.stroke();
 
-    ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "#000";
-
-    strokeText(ctx, `#${i + 1}`, X.pos, center);
-    strokeText(ctx, name, X.trainer, center);
-    strokeText(ctx, rankText, X.rank, center);
-    strokeText(ctx, String(user.lifetime_points), X.points, center);
-    strokeText(ctx, String(user.completed_bounties), X.bounties, center);
+    applyTextStyle(ctx);
+    ctx.fillText(`#${i + 1}`, X.pos, center);
+    ctx.fillText(name, X.trainer, center);
+    ctx.fillText(rankText, X.rank, center);
+    ctx.fillText(String(user.lifetime_points), X.points, center);
+    ctx.fillText(String(user.completed_bounties), X.bounties, center);
   }
 
   return canvas.toBuffer("image/png");
