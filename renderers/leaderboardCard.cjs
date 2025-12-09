@@ -1,11 +1,9 @@
 // renderers/leaderboardCard.cjs
 //
-// Final Tweaked Version + Latest Bounties Width Fix
+// Final Tweaked Version
 //  - Transparent row + header cards (25% opacity)
 //  - Solid white title card
-//  - Trainer narrowed further / Bounties widened further
-//  - Rank and Points untouched
-//  - +2px font improvements
+//  - Trainer col narrower / Bounties wider
 //  - Auto text truncation
 //  - No glow
 
@@ -15,10 +13,25 @@ const fs = require("fs");
 const db = require("../database.cjs");
 const { getRankName } = require("../utils/rankSystem.cjs");
 
+// 4:3 resolution
 const CARD_WIDTH = 2400;
 const CARD_HEIGHT = 1800;
 const PADDING = 80;
+
+// background path
 const BG_PATH = path.join(__dirname, "leaderboard-bg", "leaderboard-card.png");
+
+// badge fallback system
+const RANK_BADGE_FALLBACK = {
+  "Rookie Trainer": "P",
+  Trainer: "G",
+  "Ace Trainer": "U",
+  "Gym Challenger": "Pr",
+  "Gym Leader": "M",
+  "Elite Four": "B",
+  Champion: "C",
+  Master: "V"
+};
 
 function fileExistsSafe(fp) {
   try { return fs.existsSync(fp); } catch { return false; }
@@ -39,23 +52,6 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-async function drawBackground(ctx) {
-  if (!fileExistsSafe(BG_PATH)) {
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-    return;
-  }
-  const img = await loadImage(BG_PATH);
-  const scale = Math.max(CARD_WIDTH / img.width, CARD_HEIGHT / img.height);
-  ctx.drawImage(
-    img,
-    (CARD_WIDTH - img.width * scale) / 2,
-    (CARD_HEIGHT - img.height * scale) / 2,
-    img.width * scale,
-    img.height * scale
-  );
-}
-
 function fillTruncatedText(ctx, text, x, y, maxWidth) {
   const full = String(text || "");
   if (ctx.measureText(full).width <= maxWidth) {
@@ -70,12 +66,34 @@ function fillTruncatedText(ctx, text, x, y, maxWidth) {
 }
 
 async function resolveDisplayName(guild, row) {
+  let name = row.username || "Unknown";
   try {
-    const m = guild.members.cache.get(row.discord_id) ||
-      await guild.members.fetch(row.discord_id).catch(() => null);
-    if (m) return m.nickname || m.user?.globalName || m.user?.username;
+    let m = guild.members.cache.get(row.discord_id) ||
+            await guild.members.fetch(row.discord_id).catch(() => null);
+    if (m) {
+      return m.nickname ||
+             m.user?.globalName ||
+             m.user?.username ||
+             name;
+    }
   } catch {}
-  return row.username || "Unknown";
+  return name;
+}
+
+async function drawBackground(ctx) {
+  if (!fileExistsSafe(BG_PATH)) {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+    return;
+  }
+  const img = await loadImage(BG_PATH);
+  const scale = Math.max(
+    CARD_WIDTH / img.width,
+    CARD_HEIGHT / img.height
+  );
+  const w = img.width * scale;
+  const h = img.height * scale;
+  ctx.drawImage(img, (CARD_WIDTH - w) / 2, (CARD_HEIGHT - h) / 2, w, h);
 }
 
 async function createLeaderboardCard(guild) {
@@ -86,36 +104,40 @@ async function createLeaderboardCard(guild) {
   // Title
   const title = "Top Hunters Leaderboard";
   ctx.font = "bold 90px Sans";
-  const tW = ctx.measureText(title).width + 200;
-  const tH = 130;
-  const tX = (CARD_WIDTH - tW) / 2;
-  const tY = PADDING;
+  const titleW = ctx.measureText(title).width + 200;
+  const titleH = 130;
+  const titleX = (CARD_WIDTH - titleW) / 2;
+  const titleY = PADDING;
 
-  drawRoundedRect(ctx, tX, tY, tW, tH, 10);
-  ctx.fillStyle = "#fff";
+  ctx.save();
+  drawRoundedRect(ctx, titleX, titleY, titleW, titleH, 10);
+  ctx.fillStyle = "#ffffff";
   ctx.fill();
   ctx.lineWidth = 4;
   ctx.strokeStyle = "#dc2626";
   ctx.stroke();
+  ctx.restore();
+
   ctx.fillStyle = "#000";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(title, tX + tW / 2, tY + tH / 2);
+  ctx.fillText(title, titleX + titleW / 2, titleY + titleH / 2);
 
-  // Table geometry
+  // table geometry
   const tableX = PADDING;
-  const tableW = CARD_WIDTH - PADDING * 2;
+  const tableW = CARD_WIDTH - (PADDING * 2);
   const rowH = 120;
   const rowGap = 20;
-  const headerY = tY + tH + 50;
-  const firstRowY = headerY + rowH + rowGap;
 
-  // COLUMN WIDTH REVISIONS
-  const col0 = tableX;
+  const headersY = titleY + titleH + 50;
+  const firstRowY = headersY + rowH + rowGap;
+
+  // COLUMN WIDTH ADJUSTMENT — THIS PATCH
+  const col0 = tableX; 
   const col1 = tableX + 140;
-  const col2 = tableX + 920;   // -(50) further reduced Trainer width
-  const col3 = tableX + 1570;  // unchanged Rank width increase
-  const col4 = tableX + 2010;  // +(50) more Bounties width
+  const col2 = tableX + 900;   // 20px narrower (Trainer)
+  const col3 = tableX + 1540;
+  const col4 = tableX + 2030;  // +20px wider (Bounties)
   const col5 = tableX + tableW;
 
   const X = {
@@ -126,20 +148,24 @@ async function createLeaderboardCard(guild) {
     bounties: (col4 + col5) / 2
   };
 
-  // Header row
+  // header box (transparent)
   ctx.save();
   ctx.globalAlpha = 0.25;
-  drawRoundedRect(ctx, tableX, headerY, tableW, rowH, 8);
+  drawRoundedRect(ctx, tableX, headersY, tableW, rowH, 8);
   ctx.fillStyle = "#ffffff";
   ctx.fill();
   ctx.restore();
+
   ctx.fillStyle = "#000";
   ctx.font = "bold 60px Sans";
-  ctx.fillText("Trainer", X.trainer, headerY + rowH / 2);
-  ctx.fillText("Rank", X.rankInfo, headerY + rowH / 2);
-  ctx.fillText("Points", X.points, headerY + rowH / 2);
-  ctx.fillText("Bounties", X.bounties, headerY + rowH / 2);
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+  ctx.fillText("Trainer", X.trainer, headersY + rowH / 2);
+  ctx.fillText("Rank", X.rankInfo, headersY + rowH / 2);
+  ctx.fillText("Points", X.points, headersY + rowH / 2);
+  ctx.fillText("Bounties", X.bounties, headersY + rowH / 2);
 
+  // rows
   const list = await db.getLeaderboard(10);
   ctx.font = "bold 54px Sans";
 
@@ -147,12 +173,13 @@ async function createLeaderboardCard(guild) {
     const usr = list[i];
     const y = firstRowY + i * (rowH + rowGap);
     const cy = y + rowH / 2;
+
     const name = await resolveDisplayName(guild, usr);
     const rankName = getRankName(usr.lifetime_points);
-    const lifetime = usr.lifetime_points || 0;
-    const completed = usr.completed_bounties || 0;
+    const points = usr.lifetime_points || 0;
+    const bounties = usr.completed_bounties || 0;
 
-    // Row background
+    // background opacity
     ctx.save();
     ctx.globalAlpha = 0.25;
     drawRoundedRect(ctx, tableX, y, tableW, rowH, 8);
@@ -161,14 +188,16 @@ async function createLeaderboardCard(guild) {
     ctx.restore();
 
     ctx.fillStyle = "#000";
-    ctx.textAlign = "center";
 
-    ctx.fillText(`#${i+1}`, X.rank, cy);
+    ctx.fillText(`#${i + 1}`, X.rank, cy);
+
     fillTruncatedText(ctx, name, X.trainer, cy, col2 - col1 - 50);
 
-    fillTruncatedText(ctx, rankName, X.rankInfo, cy, col3 - col2 - 90);
-    ctx.fillText(String(lifetime), X.points, cy);
-    ctx.fillText(String(completed), X.bounties, cy);
+    const rankMax = col3 - col2 - 120;
+    fillTruncatedText(ctx, rankName, X.rankInfo, cy, rankMax);
+
+    ctx.fillText(String(points), X.points, cy);
+    ctx.fillText(String(bounties), X.bounties, cy);
   }
 
   return canvas.toBuffer("image/png");
