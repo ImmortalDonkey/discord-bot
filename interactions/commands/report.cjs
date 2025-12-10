@@ -17,6 +17,12 @@ const {
   getRoleForRarity
 } = require("../../utils/reportChannelRouter.cjs");
 
+// ⬇️ NEW — Strong Validation
+const {
+  isValidPokemon,
+  isValidLocation
+} = require("../../utils/validation.cjs");
+
 const DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
 
 module.exports = {
@@ -51,6 +57,21 @@ module.exports = {
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
 
+    // 🔍 NEW VALIDATION — stops junk input
+    if (!isValidPokemon(pokemon)) {
+      return interaction.followUp({
+        content: `❌ **"${pokemon}"** is not a valid Pokémon.\nPlease choose from the autocomplete list.`,
+        flags: 64
+      });
+    }
+
+    if (!isValidLocation(route)) {
+      return interaction.followUp({
+        content: `❌ **"${route}"** is not a valid Route.\nPlease select using the autocomplete list.`,
+        flags: 64
+      });
+    }
+
     // ──────────────────────────────
     // RARITY + POINTS
     // ──────────────────────────────
@@ -78,7 +99,7 @@ module.exports = {
     // EXPIRY WINDOW
     // ──────────────────────────────
     const expiresAt = new Date(now);
-    expiresAt.setMinutes(59, 59, 999); // end of the hour
+    expiresAt.setMinutes(59, 59, 999);
     const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
 
     const reportId = `report_${Date.now()}_${user.id}`;
@@ -152,7 +173,7 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // DATABASE SAVE
+    // SAVE TO DATABASE
     // ──────────────────────────────
     await db.createReport({
       id: reportId,
@@ -175,7 +196,7 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // CONFIRMATION BACK TO USER
+    // USER FEEDBACK
     // ──────────────────────────────
     return interaction.followUp({
       content: `✔ Posted in <#${targetChannelId}> — expires at **${expiresAt.toLocaleTimeString([], {
