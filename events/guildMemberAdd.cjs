@@ -5,8 +5,8 @@ const {
 } = require('discord.js');
 
 module.exports = async (client, member) => {
-  // DEV ONLY
-  if (process.env.ENV !== 'dev') return;
+  // DEV ONLY SAFETY
+  if (process.env.NODE_ENV !== 'dev') return;
 
   console.log(`👤 New member joined (DEV): ${member.user.tag}`);
 
@@ -15,13 +15,17 @@ module.exports = async (client, member) => {
   // Assign New Arrival role
   const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
   if (newArrival) {
-    await member.roles.add(newArrival).catch(() => {});
+    await member.roles.add(newArrival).catch(err => {
+      console.error('❌ Failed to assign New Arrival role:', err);
+    });
+  } else {
+    console.warn('⚠ ROLE_NEW_ARRIVAL not found');
   }
 
   // Send onboarding message
   const channel = guild.channels.cache.get(process.env.CHANNEL_START_HERE);
   if (!channel) {
-    console.warn('⚠ Start-here channel not found');
+    console.warn('⚠ CHANNEL_START_HERE not found');
     return;
   }
 
