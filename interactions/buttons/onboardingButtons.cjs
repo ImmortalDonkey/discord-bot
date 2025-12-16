@@ -93,15 +93,16 @@ function infoButton(key) {
 function buildPanel(client, userId) {
   const selected = getUserSelection(client, userId);
 
-  const embed = new EmbedBuilder()
-    .setTitle('Choose your roles')
-    .setDescription(
-      '**Roaming Pokémon:**\n' +
-      'Pick which roaming notifications you want.\n\n' +
-      '**Other:**\n' +
-      'Optional gameplay roles.\n\n' +
-      '📝 Roles can be edited later in **#roles**.'
-    );
+const embed = new EmbedBuilder()
+  .setTitle('Choose your roles')
+  .setDescription(
+    '_You will receive notifications based on your selection._\n\n' +
+    '**Roaming Pokémon:**\n' +
+    'Select the rarity(s).\n\n' +
+    '**Other:**\n' +
+    'Optional gameplay roles _(click **Info** to see details)_.\n\n' +
+    '📝 Roles can be edited later in **#roles**.'
+  );
 
   return {
     embeds: [embed],
