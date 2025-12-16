@@ -177,9 +177,9 @@ module.exports = {
   async execute(client, interaction) {
     const { member, guild, customId, user } = interaction;
 
-    if (process.env.NODE_ENV !== 'dev') {
-      return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
-    }
+    if (process.env.ENV !== 'dev') {
+  return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
+}
 
     // OPEN FROM #roles BUTTON
     if (customId === 'roles_open') {
