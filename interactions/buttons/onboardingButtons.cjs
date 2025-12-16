@@ -5,6 +5,9 @@ const {
   EmbedBuilder
 } = require('discord.js');
 
+/* 🆕 ADD */
+const db = require('../../database.cjs');
+
 // ─────────────────────────────
 // ROLE DEFINITIONS
 // ─────────────────────────────
@@ -93,47 +96,38 @@ function infoButton(key) {
 function buildPanel(client, userId) {
   const selected = getUserSelection(client, userId);
 
-const embed = new EmbedBuilder()
-  .setTitle('Choose your roles')
-  .setDescription(
-    '_You will receive notifications based on your selection._\n\n' +
-    '**Roaming Pokémon:**\n' +
-    'Select the rarity(s).\n\n' +
-    '**Other:**\n' +
-    'Optional gameplay roles _(click **Info** to see details)_.\n\n' +
-    '📝 Roles can be edited later in **#roles**.'
-  );
+  const embed = new EmbedBuilder()
+    .setTitle('Choose your roles')
+    .setDescription(
+      '_You will receive notifications based on your selection._\n\n' +
+      '**Roaming Pokémon:**\n' +
+      'Select the rarity(s).\n\n' +
+      '**Other:**\n' +
+      'Optional gameplay roles _(click **Info** to see details)_.\n\n' +
+      '📝 Roles can be edited later in **#roles**.'
+    );
 
   return {
     embeds: [embed],
     components: [
-      // Row 1 — Roaming Pokémon
       new ActionRowBuilder().addComponents(
         roleButton('paradox', selected.has('paradox')),
         roleButton('roamerMonth', selected.has('roamerMonth')),
         roleButton('legendary', selected.has('legendary')),
         roleButton('common', selected.has('common'))
       ),
-
-      // Row 2 — Bounty
       new ActionRowBuilder().addComponents(
         roleButton('bounty', selected.has('bounty')),
         infoButton('bounty')
       ),
-
-      // Row 3 — Mob
       new ActionRowBuilder().addComponents(
         roleButton('mob', selected.has('mob')),
         infoButton('mob')
       ),
-
-      // Row 4 — Witch
       new ActionRowBuilder().addComponents(
         roleButton('witch', selected.has('witch')),
         infoButton('witch')
       ),
-
-      // Row 5 — Controls
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId('onboard_confirm')
@@ -150,6 +144,26 @@ const embed = new EmbedBuilder()
       )
     ]
   };
+}
+
+/* 🆕 ADD */
+// ─────────────────────────────
+// GLOBAL PANEL MANAGER (#roles)
+// ─────────────────────────────
+async function ensureGlobalRolesPanel(client, guild) {
+  const channel = guild.channels.cache.get(process.env.CHANNEL_ROLES);
+  if (!channel) return null;
+
+  const storedId = await db.getMeta('roles_panel_message_id');
+
+  if (storedId) {
+    const existing = await channel.messages.fetch(storedId).catch(() => null);
+    if (existing) return existing;
+  }
+
+  const msg = await channel.send(buildPanel(client, 'global'));
+  await db.setMeta('roles_panel_message_id', msg.id);
+  return msg;
 }
 
 // ─────────────────────────────
@@ -178,6 +192,9 @@ module.exports = {
 
     // YES → ephemeral panel in #start-here
     if (customId === 'onboard_yes') {
+      /* 🆕 ADD */
+      await ensureGlobalRolesPanel(client, guild);
+
       return interaction.reply({
         ...buildPanel(client, user.id),
         ephemeral: true
@@ -231,6 +248,9 @@ module.exports = {
       if (newArrival) await member.roles.remove(newArrival);
 
       selection.clear();
+
+      /* 🆕 ADD */
+      await ensureGlobalRolesPanel(client, guild);
 
       return interaction.update({
         content: `✅ Roles applied! You can edit these anytime in <#${process.env.CHANNEL_ROLES}>.`,
