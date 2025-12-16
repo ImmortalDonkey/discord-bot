@@ -245,7 +245,10 @@ client.on('interactionCreate', async interaction => {
 // ──────────────────────────────────────
 // DEV-ONLY ONBOARDING
 // ──────────────────────────────────────
-if (process.env.ENV === 'dev') {
+if (
+  process.env.NODE_ENV === 'dev' ||
+  process.env.ENV === 'dev'
+) {
   const onboardingHandler = require('./events/guildMemberAdd.cjs');
 
   client.on('guildMemberAdd', async member => {
