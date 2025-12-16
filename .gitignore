@@ -10,6 +10,7 @@ node_modules/
 data/
 bot.db
 botdata.db
+bot_dev.db
 
 # Logs
 *.log
