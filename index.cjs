@@ -44,7 +44,6 @@ const { runReportScheduler } = require('./utils/reportScheduler.cjs');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers, // ⬅️ REQUIRED FOR ONBOARDING
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
   ]
@@ -171,13 +170,6 @@ client.once('ready', async () => {
 });
 
 // ──────────────────────────────────────
-// ONBOARDING: MEMBER JOIN
-// ──────────────────────────────────────
-client.on('guildMemberAdd', (member) => {
-  require('./events/guildMemberAdd.cjs')(client, member);
-});
-
-// ──────────────────────────────────────
 // INTERACTIONS
 // ──────────────────────────────────────
 client.on('interactionCreate', async interaction => {
@@ -195,6 +187,19 @@ client.on('interactionCreate', async interaction => {
     } catch {}
   }
 });
+
+// ──────────────────────────────────────
+// DEV-ONLY ONBOARDING (SAFE)
+// ──────────────────────────────────────
+if (process.env.ENV === 'dev') {
+  client.on('guildMemberAdd', (member) => {
+    require('./events/guildMemberAdd.cjs')(client, member);
+  });
+
+  console.log('🧪 Onboarding ENABLED (DEV ONLY)');
+} else {
+  console.log('🛑 Onboarding DISABLED (LIVE)');
+}
 
 // ──────────────────────────────────────
 // LOGIN + HEARTBEAT
