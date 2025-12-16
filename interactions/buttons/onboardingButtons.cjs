@@ -20,7 +20,7 @@ const ROLE_KEYS = {
 };
 
 // ─────────────────────────────
-// INFO MESSAGES (UPDATED EXACTLY)
+// INFO MESSAGES (EXACT TEXT)
 // ─────────────────────────────
 const INFO_MESSAGES = {
   bounty: `🏹 **Bounty Hunting**
@@ -88,7 +88,7 @@ function infoButton(key) {
 }
 
 // ─────────────────────────────
-// PANEL BUILDER
+// PANEL BUILDER (5 ROWS MAX)
 // ─────────────────────────────
 function buildPanel(client, userId) {
   const selected = getUserSelection(client, userId);
@@ -106,35 +106,33 @@ function buildPanel(client, userId) {
   return {
     embeds: [embed],
     components: [
-      // ── Roaming Pokémon
+      // Row 1 — Roaming Pokémon
       new ActionRowBuilder().addComponents(
-        roleButton('paradox', selected.has('paradox'))
-      ),
-      new ActionRowBuilder().addComponents(
+        roleButton('paradox', selected.has('paradox')),
         roleButton('roamerMonth', selected.has('roamerMonth'))
       ),
+
+      // Row 2 — Roaming Pokémon
       new ActionRowBuilder().addComponents(
-        roleButton('legendary', selected.has('legendary'))
-      ),
-      new ActionRowBuilder().addComponents(
+        roleButton('legendary', selected.has('legendary')),
         roleButton('common', selected.has('common'))
       ),
 
-      // ── Other (role + info inline)
+      // Row 3 — Other
       new ActionRowBuilder().addComponents(
         roleButton('bounty', selected.has('bounty')),
         infoButton('bounty')
       ),
+
+      // Row 4 — Other
       new ActionRowBuilder().addComponents(
         roleButton('mob', selected.has('mob')),
-        infoButton('mob')
-      ),
-      new ActionRowBuilder().addComponents(
+        infoButton('mob'),
         roleButton('witch', selected.has('witch')),
         infoButton('witch')
       ),
 
-      // ── Controls
+      // Row 5 — Controls
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId('onboard_confirm')
@@ -195,7 +193,10 @@ module.exports = {
     // INFO
     if (customId.startsWith('info_')) {
       const key = customId.replace('info_', '');
-      return interaction.reply({ content: INFO_MESSAGES[key], ephemeral: true });
+      return interaction.reply({
+        content: INFO_MESSAGES[key],
+        ephemeral: true
+      });
     }
 
     // RESET
