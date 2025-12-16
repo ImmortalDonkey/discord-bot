@@ -13,13 +13,14 @@ const ROLE_KEYS = {
   roamerMonth: { label: 'Roamer of the Month', env: 'ROLE_ROAMERMONTH' },
   legendary: { label: 'Legendary / Rare', env: 'ROLE_LEGENDARY' },
   common: { label: 'Common', env: 'ROLE_COMMON' },
+
   bounty: { label: 'Bounty Hunting', env: 'ROLE_BOUNTY_HUNTER' },
   mob: { label: 'Mob Hunting', env: 'ROLE_MOB_HUNTER' },
   witch: { label: 'Witch Hunting', env: 'ROLE_WITCH_HUNTER' }
 };
 
 // ─────────────────────────────
-// INFO MESSAGES
+// INFO MESSAGES  ✅ RESTORED
 // ─────────────────────────────
 const INFO_MESSAGES = {
   bounty: `⚔️ **Bounty Hunting**
@@ -31,6 +32,7 @@ Take part in time-limited Pokémon bounties posted by staff and the community.
 • Earn PKD  
 
 Ideal if you enjoy competitive hunting and challenges.`,
+
   mob: `🧟 **Mob Hunting**
 
 Participate in large-scale Pokémon hunts where many players hunt the same route simultaneously.
@@ -39,6 +41,7 @@ Participate in large-scale Pokémon hunts where many players hunt the same route
 • Great for consistent grinders  
 
 Ideal if you enjoy steady farming and teamwork.`,
+
   witch: `🧙 **Witch Hunting**
 
 Take part in investigation-style gameplay.
@@ -51,15 +54,17 @@ Ideal if you enjoy investigation and deduction.`
 };
 
 // ─────────────────────────────
-// SELECTION STATE
+// SELECTION STATE (per-user)
 // ─────────────────────────────
 function getUserSelection(client, userId) {
   if (!client.onboardingSelections) {
     client.onboardingSelections = new Map();
   }
+
   if (!client.onboardingSelections.has(userId)) {
     client.onboardingSelections.set(userId, new Set());
   }
+
   return client.onboardingSelections.get(userId);
 }
 
@@ -79,8 +84,8 @@ function buildPanel(client, userId) {
   const embed = new EmbedBuilder()
     .setTitle('Choose your roles')
     .setDescription(
-      'Select one or more roles, then press **Confirm**.\n' +
-      'You can change this anytime in this channel.'
+      'Select one or more roles, then press **Confirm**.\n\n' +
+      '📝 Roles can be edited later in **#roles**.'
     );
 
   const row1 = new ActionRowBuilder().addComponents(
@@ -97,45 +102,43 @@ function buildPanel(client, userId) {
   );
 
   const row3 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('info_bounty').setLabel('ℹ️ Bounty Info').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('info_mob').setLabel('ℹ️ Mob Info').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('info_witch').setLabel('ℹ️ Witch Info').setStyle(ButtonStyle.Primary)
+    new ButtonBuilder()
+      .setCustomId('info_bounty')
+      .setLabel('ℹ️ Bounty Info')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('info_mob')
+      .setLabel('ℹ️ Mob Info')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('info_witch')
+      .setLabel('ℹ️ Witch Info')
+      .setStyle(ButtonStyle.Primary)
   );
 
   const row4 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('onboard_confirm').setLabel('Confirm').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('onboard_reset').setLabel('Reset').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('onboard_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger)
+    new ButtonBuilder()
+      .setCustomId('onboard_confirm')
+      .setLabel('Confirm')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('onboard_reset')
+      .setLabel('Reset')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('onboard_cancel')
+      .setLabel('Cancel')
+      .setStyle(ButtonStyle.Danger)
   );
 
-  return { embeds: [embed], components: [row1, row2, row3, row4] };
+  return {
+    embeds: [embed],
+    components: [row1, row2, row3, row4]
+  };
 }
 
 // ─────────────────────────────
-// GLOBAL PANEL MANAGER
-// ─────────────────────────────
-async function ensureGlobalPanel(client, guild, userId) {
-  const channel = guild.channels.cache.get(process.env.CHANNEL_ROLES);
-  if (!channel) return null;
-
-  if (!client.globalRolePanelMessage) {
-    const msg = await channel.send(buildPanel(client, userId));
-    client.globalRolePanelMessage = msg.id;
-    return msg;
-  }
-
-  const msg = await channel.messages.fetch(client.globalRolePanelMessage).catch(() => null);
-  if (!msg) {
-    const newMsg = await channel.send(buildPanel(client, userId));
-    client.globalRolePanelMessage = newMsg.id;
-    return newMsg;
-  }
-
-  return msg;
-}
-
-// ─────────────────────────────
-// HANDLER
+// BUTTON HANDLER
 // ─────────────────────────────
 module.exports = {
   ids: [
@@ -150,54 +153,59 @@ module.exports = {
   ],
 
   async execute(client, interaction) {
-    const { guild, member, customId, user } = interaction;
+    const { member, guild, customId, user } = interaction;
 
+    // DEV SAFETY
     if (process.env.NODE_ENV !== 'dev') {
-      return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
-    }
-
-    const selection = getUserSelection(client, user.id);
-
-    // YES → redirect to #roles
-    if (customId === 'onboard_yes') {
-      await ensureGlobalPanel(client, guild, user.id);
       return interaction.reply({
-        content: `➡️ Head to <#${process.env.CHANNEL_ROLES}> to choose your roles.`,
+        content: '⚠ Onboarding is disabled.',
         ephemeral: true
       });
     }
 
-    // ROLE TOGGLE
+    const selection = getUserSelection(client, user.id);
+
+    // ───── YES (open ephemeral panel) ─────
+    if (customId === 'onboard_yes') {
+      return interaction.reply({
+        ...buildPanel(client, user.id),
+        ephemeral: true
+      });
+    }
+
+    // ───── ROLE TOGGLE ─────
     if (customId.startsWith('role_')) {
       const key = customId.replace('role_', '');
       selection.has(key) ? selection.delete(key) : selection.add(key);
-
-      const panel = await ensureGlobalPanel(client, guild, user.id);
-      if (panel) await panel.edit(buildPanel(client, user.id));
-      return interaction.deferUpdate();
+      return interaction.update(buildPanel(client, user.id));
     }
 
-    // INFO
+    // ───── INFO BUTTONS ─────
     if (customId.startsWith('info_')) {
       const key = customId.replace('info_', '');
-      return interaction.reply({ content: INFO_MESSAGES[key], ephemeral: true });
+      return interaction.reply({
+        content: INFO_MESSAGES[key],
+        ephemeral: true
+      });
     }
 
-    // RESET
+    // ───── RESET ─────
     if (customId === 'onboard_reset') {
       selection.clear();
-      const panel = await ensureGlobalPanel(client, guild, user.id);
-      if (panel) await panel.edit(buildPanel(client, user.id));
-      return interaction.deferUpdate();
+      return interaction.update(buildPanel(client, user.id));
     }
 
-    // CANCEL
+    // ───── CANCEL ─────
     if (customId === 'onboard_cancel') {
       selection.clear();
-      return interaction.reply({ content: '❌ Selection cancelled.', ephemeral: true });
+      return interaction.update({
+        content: '❌ Role selection cancelled.',
+        embeds: [],
+        components: []
+      });
     }
 
-    // CONFIRM
+    // ───── CONFIRM ─────
     if (customId === 'onboard_confirm') {
       for (const key of selection) {
         const roleId = process.env[ROLE_KEYS[key].env];
@@ -205,16 +213,18 @@ module.exports = {
         if (role) await member.roles.add(role);
       }
 
-      const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
       const trainer = guild.roles.cache.get(process.env.ROLE_TRAINER);
+      const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
 
       if (trainer) await member.roles.add(trainer);
       if (newArrival) await member.roles.remove(newArrival);
 
       selection.clear();
-      return interaction.reply({
-        content: `✅ Roles updated! You can change these anytime here.`,
-        ephemeral: true
+
+      return interaction.update({
+        content: `✅ Roles applied! You can edit these anytime in <#${process.env.CHANNEL_ROLES}>.`,
+        embeds: [],
+        components: []
       });
     }
   }
