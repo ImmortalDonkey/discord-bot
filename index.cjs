@@ -189,4 +189,6 @@ client.login(process.env.DISCORD_TOKEN);
 
 const app = express();
 app.get('/', (_req, res) => res.send('Roaming Companion running.'));
-app.listen(3000, () => console.log('🌐 Web server on port 3000'));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🌐 Web server on port ${PORT}`));
