@@ -164,6 +164,7 @@ function buildPanel(client, userId) {
 module.exports = {
   ids: [
     'onboard_yes',
+    'onboard_no', // ✅ ADDED
     'roles_open',
     'onboard_confirm',
     'onboard_reset',
@@ -178,8 +179,16 @@ module.exports = {
     const { member, guild, customId, user } = interaction;
 
     if (process.env.ENV !== 'dev') {
-  return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
-}
+      return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
+    }
+
+    // ✅ HANDLE NO BUTTON (PATCH)
+    if (customId === 'onboard_no') {
+      return interaction.update({
+        content: '👍 No problem! You can change roles later in **#roles**.',
+        components: []
+      });
+    }
 
     // OPEN FROM #roles BUTTON
     if (customId === 'roles_open') {
