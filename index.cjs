@@ -27,6 +27,8 @@ const {
   handleButtonInteraction
 } = require('./handlers/buttonHandler.cjs');
 
+const { initEventHandlers } = require('./handlers/eventHandler.cjs');
+
 const {
   initModalHandlers,
   handleModalInteraction
