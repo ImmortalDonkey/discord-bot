@@ -5,9 +5,6 @@ const {
   EmbedBuilder
 } = require('discord.js');
 
-/* 🆕 ADD */
-const db = require('../../database.cjs');
-
 // ─────────────────────────────
 // ROLE DEFINITIONS
 // ─────────────────────────────
@@ -23,7 +20,7 @@ const ROLE_KEYS = {
 };
 
 // ─────────────────────────────
-// INFO MESSAGES (EXACT)
+// INFO MESSAGES (UNCHANGED)
 // ─────────────────────────────
 const INFO_MESSAGES = {
   bounty: `🏹 **Bounty Hunting**
@@ -61,7 +58,7 @@ Ideal if you enjoy investigation, deduction, and strategic tracking.`
 };
 
 // ─────────────────────────────
-// SELECTION STATE
+// SELECTION STATE (per user)
 // ─────────────────────────────
 function getUserSelection(client, userId) {
   if (!client.onboardingSelections) {
@@ -71,6 +68,21 @@ function getUserSelection(client, userId) {
     client.onboardingSelections.set(userId, new Set());
   }
   return client.onboardingSelections.get(userId);
+}
+
+// ─────────────────────────────
+// PREFILL FROM MEMBER ROLES
+// ─────────────────────────────
+function seedSelectionFromMember(client, member) {
+  const selection = getUserSelection(client, member.id);
+  selection.clear();
+
+  for (const [key, cfg] of Object.entries(ROLE_KEYS)) {
+    const roleId = process.env[cfg.env];
+    if (roleId && member.roles.cache.has(roleId)) {
+      selection.add(key);
+    }
+  }
 }
 
 // ─────────────────────────────
@@ -91,7 +103,7 @@ function infoButton(key) {
 }
 
 // ─────────────────────────────
-// PANEL BUILDER (VALID: 5 ROWS)
+// PANEL BUILDER
 // ─────────────────────────────
 function buildPanel(client, userId) {
   const selected = getUserSelection(client, userId);
@@ -146,37 +158,13 @@ function buildPanel(client, userId) {
   };
 }
 
-/* 🆕 ADD */
-// ─────────────────────────────
-// GLOBAL PANEL MANAGER (#roles)
-// ─────────────────────────────
-async function ensureGlobalRolesPanel(client, guild) {
-  const channel = guild.channels.cache.get(process.env.CHANNEL_ROLES);
-  if (!channel) return null;
-
-  const storedId = await db.getMeta('roles_panel_message_id');
-
-  if (storedId) {
-    const existing = await channel.messages.fetch(storedId).catch(() => null);
-    if (existing) return existing;
-  }
-
-  const msg = await channel.send(buildPanel(client, 'global'));
-  await db.setMeta('roles_panel_message_id', msg.id);
-  return msg;
-}
-
-/* 🆕 ADD */
-function isGlobalPanelInteraction(interaction) {
-  return interaction.channelId === process.env.CHANNEL_ROLES;
-}
-
 // ─────────────────────────────
 // HANDLER
 // ─────────────────────────────
 module.exports = {
   ids: [
     'onboard_yes',
+    'roles_open',
     'onboard_confirm',
     'onboard_reset',
     'onboard_cancel',
@@ -193,30 +181,21 @@ module.exports = {
       return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
     }
 
-    const selection = getUserSelection(client, user.id);
-
-    // YES → ephemeral panel in #start-here
-    if (customId === 'onboard_yes') {
-      await ensureGlobalRolesPanel(client, guild);
-
+    // OPEN FROM #roles BUTTON
+    if (customId === 'roles_open') {
+      seedSelectionFromMember(client, member);
       return interaction.reply({
         ...buildPanel(client, user.id),
         ephemeral: true
       });
     }
 
+    const selection = getUserSelection(client, user.id);
+
     // ROLE TOGGLE
     if (customId.startsWith('role_')) {
       const key = customId.replace('role_', '');
       selection.has(key) ? selection.delete(key) : selection.add(key);
-
-      if (isGlobalPanelInteraction(interaction)) {
-        const panel = await ensureGlobalRolesPanel(client, guild);
-        if (panel) await panel.edit(buildPanel(client, user.id));
-
-        return interaction.deferUpdate();
-      }
-
       return interaction.update(buildPanel(client, user.id));
     }
 
@@ -231,33 +210,13 @@ module.exports = {
 
     // RESET
     if (customId === 'onboard_reset') {
-      selection.clear();
-
-      if (isGlobalPanelInteraction(interaction)) {
-        await interaction.reply({
-          content: '🔄 Your role selection has been reset.',
-          ephemeral: true
-        });
-
-        const panel = await ensureGlobalRolesPanel(client, guild);
-        if (panel) await panel.edit(buildPanel(client, user.id));
-        return;
-      }
-
+      seedSelectionFromMember(client, member);
       return interaction.update(buildPanel(client, user.id));
     }
 
     // CANCEL
     if (customId === 'onboard_cancel') {
       selection.clear();
-
-      if (isGlobalPanelInteraction(interaction)) {
-        return interaction.reply({
-          content: '❌ Selection cancelled.',
-          ephemeral: true
-        });
-      }
-
       return interaction.update({
         content: '❌ Role selection cancelled.',
         embeds: [],
@@ -267,35 +226,24 @@ module.exports = {
 
     // CONFIRM
     if (customId === 'onboard_confirm') {
-      for (const key of selection) {
-        const roleId = process.env[ROLE_KEYS[key].env];
+      for (const [key, cfg] of Object.entries(ROLE_KEYS)) {
+        const roleId = process.env[cfg.env];
+        if (!roleId) continue;
+
         const role = guild.roles.cache.get(roleId);
-        if (role) await member.roles.add(role);
+        if (!role) continue;
+
+        if (selection.has(key)) {
+          await member.roles.add(role);
+        } else {
+          await member.roles.remove(role).catch(() => {});
+        }
       }
-
-      const trainer = guild.roles.cache.get(process.env.ROLE_TRAINER);
-      const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
-
-      if (trainer) await member.roles.add(trainer);
-      if (newArrival) await member.roles.remove(newArrival);
 
       selection.clear();
 
-      await ensureGlobalRolesPanel(client, guild);
-
-      if (isGlobalPanelInteraction(interaction)) {
-        await interaction.reply({
-          content: '✅ Your roles have been updated.',
-          ephemeral: true
-        });
-
-        const panel = await ensureGlobalRolesPanel(client, guild);
-        if (panel) await panel.edit(buildPanel(client, user.id));
-        return;
-      }
-
       return interaction.update({
-        content: `✅ Roles applied! You can edit these anytime in <#${process.env.CHANNEL_ROLES}>.`,
+        content: '✅ Your roles have been updated.',
         embeds: [],
         components: []
       });
