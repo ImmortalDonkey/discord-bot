@@ -26,8 +26,8 @@ module.exports = {
   async execute(client, interaction) {
     const { guild, member, customId } = interaction;
 
-    // DEV SAFETY (extra guard)
-    if (process.env.ENV !== 'dev') {
+    // DEV ONLY SAFETY
+    if (process.env.NODE_ENV !== 'dev') {
       return interaction.reply({
         content: '⚠ Onboarding is disabled.',
         ephemeral: true
