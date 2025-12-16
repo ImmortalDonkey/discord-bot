@@ -20,7 +20,7 @@ const ROLE_KEYS = {
 };
 
 // ─────────────────────────────
-// INFO MESSAGES (EXACT TEXT)
+// INFO MESSAGES (EXACT)
 // ─────────────────────────────
 const INFO_MESSAGES = {
   bounty: `🏹 **Bounty Hunting**
@@ -88,7 +88,7 @@ function infoButton(key) {
 }
 
 // ─────────────────────────────
-// PANEL BUILDER (5 ROWS MAX)
+// PANEL BUILDER (VALID: 5 ROWS)
 // ─────────────────────────────
 function buildPanel(client, userId) {
   const selected = getUserSelection(client, userId);
@@ -96,9 +96,9 @@ function buildPanel(client, userId) {
   const embed = new EmbedBuilder()
     .setTitle('Choose your roles')
     .setDescription(
-      '**Roaming Pokémon**\n' +
-      'Select which roaming notifications you want.\n\n' +
-      '**Other**\n' +
+      '**Roaming Pokémon:**\n' +
+      'Pick which roaming notifications you want.\n\n' +
+      '**Other:**\n' +
       'Optional gameplay roles.\n\n' +
       '📝 Roles can be edited later in **#roles**.'
     );
@@ -109,25 +109,25 @@ function buildPanel(client, userId) {
       // Row 1 — Roaming Pokémon
       new ActionRowBuilder().addComponents(
         roleButton('paradox', selected.has('paradox')),
-        roleButton('roamerMonth', selected.has('roamerMonth'))
-      ),
-
-      // Row 2 — Roaming Pokémon
-      new ActionRowBuilder().addComponents(
+        roleButton('roamerMonth', selected.has('roamerMonth')),
         roleButton('legendary', selected.has('legendary')),
         roleButton('common', selected.has('common'))
       ),
 
-      // Row 3 — Other
+      // Row 2 — Bounty
       new ActionRowBuilder().addComponents(
         roleButton('bounty', selected.has('bounty')),
         infoButton('bounty')
       ),
 
-      // Row 4 — Other
+      // Row 3 — Mob
       new ActionRowBuilder().addComponents(
         roleButton('mob', selected.has('mob')),
-        infoButton('mob'),
+        infoButton('mob')
+      ),
+
+      // Row 4 — Witch
+      new ActionRowBuilder().addComponents(
         roleButton('witch', selected.has('witch')),
         infoButton('witch')
       ),
@@ -175,7 +175,7 @@ module.exports = {
 
     const selection = getUserSelection(client, user.id);
 
-    // YES → open ephemeral panel in #start-here
+    // YES → ephemeral panel in #start-here
     if (customId === 'onboard_yes') {
       return interaction.reply({
         ...buildPanel(client, user.id),
