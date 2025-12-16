@@ -27,8 +27,6 @@ const {
   handleButtonInteraction
 } = require('./handlers/buttonHandler.cjs');
 
-const { initEventHandlers } = require('./handlers/eventHandler.cjs');
-
 const {
   initModalHandlers,
   handleModalInteraction
@@ -194,9 +192,15 @@ client.on('interactionCreate', async interaction => {
 // ──────────────────────────────────────
 // DEV-ONLY ONBOARDING (SAFE)
 // ──────────────────────────────────────
-if (process.env.NODE_ENV === 'dev') {
-  client.on('guildMemberAdd', (member) => {
-    require('./events/guildMemberAdd.cjs')(client, member);
+if (process.env.ENV === 'dev') {
+  const onboardingHandler = require('./events/guildMemberAdd.cjs');
+
+  client.on('guildMemberAdd', async member => {
+    try {
+      await onboardingHandler(client, member);
+    } catch (err) {
+      console.error('❌ Onboarding error:', err);
+    }
   });
 
   console.log('🧪 Onboarding ENABLED (DEV ONLY)');
