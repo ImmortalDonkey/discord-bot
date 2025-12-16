@@ -164,7 +164,6 @@ function buildPanel(client, userId) {
 module.exports = {
   ids: [
     'onboard_yes',
-    'onboard_no', // ✅ ADDED
     'roles_open',
     'onboard_confirm',
     'onboard_reset',
@@ -182,10 +181,18 @@ module.exports = {
       return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
     }
 
-    // ✅ HANDLE NO BUTTON (PATCH)
+    // ✅ PATCH: handle the welcome message buttons so interaction doesn’t fail
+    if (customId === 'onboard_yes') {
+      seedSelectionFromMember(client, member);
+      return interaction.reply({
+        ...buildPanel(client, user.id),
+        ephemeral: true
+      });
+    }
+
     if (customId === 'onboard_no') {
       return interaction.update({
-        content: '👍 No problem! You can change roles later in **#roles**.',
+        content: `👋 Welcome ${member}!\n\nNo problem — you can change roles later in <#${process.env.CHANNEL_ROLES}>.`,
         components: []
       });
     }
