@@ -20,125 +20,141 @@ const ROLE_KEYS = {
 };
 
 // ─────────────────────────────
-// INFO MESSAGES  ✅ RESTORED
+// INFO MESSAGES (UPDATED EXACTLY)
 // ─────────────────────────────
 const INFO_MESSAGES = {
-  bounty: `⚔️ **Bounty Hunting**
+  bounty: `🏹 **Bounty Hunting**
 
+Bounty Hunting  
 Take part in time-limited Pokémon bounties posted by staff and the community.
 
 • Hunt specific Pokémon  
-• Submit proof  
-• Earn PKD  
+• Submit proof of capture  
+• Earn PKD rewards  
 
-Ideal if you enjoy competitive hunting and challenges.`,
+Ideal if you enjoy competitive hunting and challenge-based gameplay.`,
 
   mob: `🧟 **Mob Hunting**
 
-Participate in large-scale Pokémon hunts where many players hunt the same route simultaneously.
+Mob Hunting  
+Participate in large-scale Pokémon hunts where many players hunt the same route at the same time.
 
-• High activity hunts  
+• High-activity group hunts  
 • Great for consistent grinders  
+• Encourages teamwork  
 
-Ideal if you enjoy steady farming and teamwork.`,
+Ideal if you enjoy steady farming and coordinated hunting.`,
 
   witch: `🧙 **Witch Hunting**
 
-Take part in investigation-style gameplay.
+Witch Hunting  
+Take part in investigation-style gameplay to track down roaming Pokémon activity.
 
-• Track players who captured roamers  
-• Use Recently Obtained Pokémon data  
-• Deduce roamer locations  
+• Track players who captured a roamer  
+• Use “Recently Obtained Pokémon” data  
+• Deduce the roamer’s location  
 
-Ideal if you enjoy investigation and deduction.`
+Ideal if you enjoy investigation, deduction, and strategic tracking.`
 };
 
 // ─────────────────────────────
-// SELECTION STATE (per-user)
+// SELECTION STATE
 // ─────────────────────────────
 function getUserSelection(client, userId) {
   if (!client.onboardingSelections) {
     client.onboardingSelections = new Map();
   }
-
   if (!client.onboardingSelections.has(userId)) {
     client.onboardingSelections.set(userId, new Set());
   }
-
   return client.onboardingSelections.get(userId);
 }
 
 // ─────────────────────────────
-// UI BUILDERS
+// UI HELPERS
 // ─────────────────────────────
-function buildRoleButton(key, selected) {
+function roleButton(key, selected) {
   return new ButtonBuilder()
     .setCustomId(`role_${key}`)
     .setLabel(selected ? `✅ ${ROLE_KEYS[key].label}` : ROLE_KEYS[key].label)
     .setStyle(selected ? ButtonStyle.Success : ButtonStyle.Secondary);
 }
 
+function infoButton(key) {
+  return new ButtonBuilder()
+    .setCustomId(`info_${key}`)
+    .setLabel('ℹ️ Info')
+    .setStyle(ButtonStyle.Primary);
+}
+
+// ─────────────────────────────
+// PANEL BUILDER
+// ─────────────────────────────
 function buildPanel(client, userId) {
   const selected = getUserSelection(client, userId);
 
   const embed = new EmbedBuilder()
     .setTitle('Choose your roles')
     .setDescription(
-      'Select one or more roles, then press **Confirm**.\n\n' +
+      '**Roaming Pokémon**\n' +
+      'Select which roaming notifications you want.\n\n' +
+      '**Other**\n' +
+      'Optional gameplay roles.\n\n' +
       '📝 Roles can be edited later in **#roles**.'
     );
 
-  const row1 = new ActionRowBuilder().addComponents(
-    buildRoleButton('paradox', selected.has('paradox')),
-    buildRoleButton('roamerMonth', selected.has('roamerMonth')),
-    buildRoleButton('legendary', selected.has('legendary')),
-    buildRoleButton('common', selected.has('common'))
-  );
-
-  const row2 = new ActionRowBuilder().addComponents(
-    buildRoleButton('bounty', selected.has('bounty')),
-    buildRoleButton('mob', selected.has('mob')),
-    buildRoleButton('witch', selected.has('witch'))
-  );
-
-  const row3 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('info_bounty')
-      .setLabel('ℹ️ Bounty Info')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId('info_mob')
-      .setLabel('ℹ️ Mob Info')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId('info_witch')
-      .setLabel('ℹ️ Witch Info')
-      .setStyle(ButtonStyle.Primary)
-  );
-
-  const row4 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('onboard_confirm')
-      .setLabel('Confirm')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId('onboard_reset')
-      .setLabel('Reset')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId('onboard_cancel')
-      .setLabel('Cancel')
-      .setStyle(ButtonStyle.Danger)
-  );
-
   return {
     embeds: [embed],
-    components: [row1, row2, row3, row4]
+    components: [
+      // ── Roaming Pokémon
+      new ActionRowBuilder().addComponents(
+        roleButton('paradox', selected.has('paradox'))
+      ),
+      new ActionRowBuilder().addComponents(
+        roleButton('roamerMonth', selected.has('roamerMonth'))
+      ),
+      new ActionRowBuilder().addComponents(
+        roleButton('legendary', selected.has('legendary'))
+      ),
+      new ActionRowBuilder().addComponents(
+        roleButton('common', selected.has('common'))
+      ),
+
+      // ── Other (role + info inline)
+      new ActionRowBuilder().addComponents(
+        roleButton('bounty', selected.has('bounty')),
+        infoButton('bounty')
+      ),
+      new ActionRowBuilder().addComponents(
+        roleButton('mob', selected.has('mob')),
+        infoButton('mob')
+      ),
+      new ActionRowBuilder().addComponents(
+        roleButton('witch', selected.has('witch')),
+        infoButton('witch')
+      ),
+
+      // ── Controls
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('onboard_confirm')
+          .setLabel('Confirm')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('onboard_reset')
+          .setLabel('Reset')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('onboard_cancel')
+          .setLabel('Cancel')
+          .setStyle(ButtonStyle.Danger)
+      )
+    ]
   };
 }
 
 // ─────────────────────────────
-// BUTTON HANDLER
+// HANDLER
 // ─────────────────────────────
 module.exports = {
   ids: [
@@ -155,17 +171,13 @@ module.exports = {
   async execute(client, interaction) {
     const { member, guild, customId, user } = interaction;
 
-    // DEV SAFETY
     if (process.env.NODE_ENV !== 'dev') {
-      return interaction.reply({
-        content: '⚠ Onboarding is disabled.',
-        ephemeral: true
-      });
+      return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
     }
 
     const selection = getUserSelection(client, user.id);
 
-    // ───── YES (open ephemeral panel) ─────
+    // YES → open ephemeral panel in #start-here
     if (customId === 'onboard_yes') {
       return interaction.reply({
         ...buildPanel(client, user.id),
@@ -173,29 +185,26 @@ module.exports = {
       });
     }
 
-    // ───── ROLE TOGGLE ─────
+    // ROLE TOGGLE
     if (customId.startsWith('role_')) {
       const key = customId.replace('role_', '');
       selection.has(key) ? selection.delete(key) : selection.add(key);
       return interaction.update(buildPanel(client, user.id));
     }
 
-    // ───── INFO BUTTONS ─────
+    // INFO
     if (customId.startsWith('info_')) {
       const key = customId.replace('info_', '');
-      return interaction.reply({
-        content: INFO_MESSAGES[key],
-        ephemeral: true
-      });
+      return interaction.reply({ content: INFO_MESSAGES[key], ephemeral: true });
     }
 
-    // ───── RESET ─────
+    // RESET
     if (customId === 'onboard_reset') {
       selection.clear();
       return interaction.update(buildPanel(client, user.id));
     }
 
-    // ───── CANCEL ─────
+    // CANCEL
     if (customId === 'onboard_cancel') {
       selection.clear();
       return interaction.update({
@@ -205,7 +214,7 @@ module.exports = {
       });
     }
 
-    // ───── CONFIRM ─────
+    // CONFIRM
     if (customId === 'onboard_confirm') {
       for (const key of selection) {
         const roleId = process.env[ROLE_KEYS[key].env];
