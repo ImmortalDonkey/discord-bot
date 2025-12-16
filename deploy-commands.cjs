@@ -1,4 +1,17 @@
-require('dotenv').config();
+// deploy-commands.cjs
+
+// ──────────────────────────────────────
+// ENV LOADING (LIVE vs DEV)
+// ──────────────────────────────────────
+const envFile =
+  process.env.NODE_ENV === 'dev'
+    ? '.env.dev'
+    : '.env';
+
+require('dotenv').config({ path: envFile });
+
+// ──────────────────────────────────────
+
 const fs = require('fs');
 const path = require('path');
 const { REST, Routes } = require('discord.js');
