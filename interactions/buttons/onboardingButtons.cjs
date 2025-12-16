@@ -9,34 +9,13 @@ const {
 // ROLE DEFINITIONS
 // ─────────────────────────────
 const ROLE_KEYS = {
-  paradox: {
-    label: 'Paradox',
-    env: 'ROLE_PARADOX'
-  },
-  roamerMonth: {
-    label: 'Roamer of the Month',
-    env: 'ROLE_ROAMERMONTH'
-  },
-  legendary: {
-    label: 'Legendary / Rare',
-    env: 'ROLE_LEGENDARY'
-  },
-  common: {
-    label: 'Common',
-    env: 'ROLE_COMMON'
-  },
-  bounty: {
-    label: 'Bounty Hunting',
-    env: 'ROLE_BOUNTY_HUNTER'
-  },
-  mob: {
-    label: 'Mob Hunting',
-    env: 'ROLE_MOB_HUNTER'
-  },
-  witch: {
-    label: 'Witch Hunting',
-    env: 'ROLE_WITCH_HUNTER'
-  }
+  paradox: { label: 'Paradox', env: 'ROLE_PARADOX' },
+  roamerMonth: { label: 'Roamer of the Month', env: 'ROLE_ROAMERMONTH' },
+  legendary: { label: 'Legendary / Rare', env: 'ROLE_LEGENDARY' },
+  common: { label: 'Common', env: 'ROLE_COMMON' },
+  bounty: { label: 'Bounty Hunting', env: 'ROLE_BOUNTY_HUNTER' },
+  mob: { label: 'Mob Hunting', env: 'ROLE_MOB_HUNTER' },
+  witch: { label: 'Witch Hunting', env: 'ROLE_WITCH_HUNTER' }
 };
 
 // ─────────────────────────────
@@ -51,10 +30,10 @@ Take part in time-limited Pokémon bounties posted by staff and the community.
 • Submit proof  
 • Earn PKD  
 
-Ideal if you like competitive hunting and challenges.`,
+Ideal if you enjoy competitive hunting and challenges.`,
   mob: `🧟 **Mob Hunting**
 
-Focus on large-scale Pokémon hunts that require high numbers of players hunting a route simultaneously.
+Participate in large-scale Pokémon hunts where many players hunt the same route simultaneously.
 
 • High activity hunts  
 • Great for consistent grinders  
@@ -62,14 +41,17 @@ Focus on large-scale Pokémon hunts that require high numbers of players hunting
 Ideal if you enjoy steady farming and teamwork.`,
   witch: `🧙 **Witch Hunting**
 
-Participate in investigations.
+Take part in investigation-style gameplay.
 
-• Track down players who recently caught roamers  
-• Coordinate with others to locate targets`
+• Track players who captured roamers  
+• Use Recently Obtained Pokémon data  
+• Deduce roamer locations  
+
+Ideal if you enjoy investigation and deduction.`
 };
 
 // ─────────────────────────────
-// HELPERS
+// SELECTION STATE
 // ─────────────────────────────
 function getUserSelection(client, userId) {
   if (!client.onboardingSelections) {
@@ -81,6 +63,9 @@ function getUserSelection(client, userId) {
   return client.onboardingSelections.get(userId);
 }
 
+// ─────────────────────────────
+// UI BUILDERS
+// ─────────────────────────────
 function buildRoleButton(key, selected) {
   return new ButtonBuilder()
     .setCustomId(`role_${key}`)
@@ -88,17 +73,14 @@ function buildRoleButton(key, selected) {
     .setStyle(selected ? ButtonStyle.Success : ButtonStyle.Secondary);
 }
 
-// ─────────────────────────────
-// MAIN PANEL RENDER
-// ─────────────────────────────
 function buildPanel(client, userId) {
   const selected = getUserSelection(client, userId);
 
   const embed = new EmbedBuilder()
     .setTitle('Choose your roles')
     .setDescription(
-      'Pick one or more roles, then press **Confirm**.\n' +
-      'You can change this anytime in **#roles**.'
+      'Select one or more roles, then press **Confirm**.\n' +
+      'You can change this anytime in this channel.'
     );
 
   const row1 = new ActionRowBuilder().addComponents(
@@ -115,43 +97,45 @@ function buildPanel(client, userId) {
   );
 
   const row3 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('info_bounty')
-      .setLabel('ℹ️ Bounty Info')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId('info_mob')
-      .setLabel('ℹ️ Mob Info')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId('info_witch')
-      .setLabel('ℹ️ Witch Info')
-      .setStyle(ButtonStyle.Primary)
+    new ButtonBuilder().setCustomId('info_bounty').setLabel('ℹ️ Bounty Info').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('info_mob').setLabel('ℹ️ Mob Info').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('info_witch').setLabel('ℹ️ Witch Info').setStyle(ButtonStyle.Primary)
   );
 
   const row4 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('onboard_confirm')
-      .setLabel('Confirm')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId('onboard_reset')
-      .setLabel('Reset')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId('onboard_cancel')
-      .setLabel('Cancel')
-      .setStyle(ButtonStyle.Danger)
+    new ButtonBuilder().setCustomId('onboard_confirm').setLabel('Confirm').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('onboard_reset').setLabel('Reset').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('onboard_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger)
   );
 
-  return {
-    embeds: [embed],
-    components: [row1, row2, row3, row4]
-  };
+  return { embeds: [embed], components: [row1, row2, row3, row4] };
 }
 
 // ─────────────────────────────
-// EXPORT
+// GLOBAL PANEL MANAGER
+// ─────────────────────────────
+async function ensureGlobalPanel(client, guild, userId) {
+  const channel = guild.channels.cache.get(process.env.CHANNEL_ROLES);
+  if (!channel) return null;
+
+  if (!client.globalRolePanelMessage) {
+    const msg = await channel.send(buildPanel(client, userId));
+    client.globalRolePanelMessage = msg.id;
+    return msg;
+  }
+
+  const msg = await channel.messages.fetch(client.globalRolePanelMessage).catch(() => null);
+  if (!msg) {
+    const newMsg = await channel.send(buildPanel(client, userId));
+    client.globalRolePanelMessage = newMsg.id;
+    return newMsg;
+  }
+
+  return msg;
+}
+
+// ─────────────────────────────
+// HANDLER
 // ─────────────────────────────
 module.exports = {
   ids: [
@@ -166,7 +150,7 @@ module.exports = {
   ],
 
   async execute(client, interaction) {
-    const { member, guild, customId, user } = interaction;
+    const { guild, member, customId, user } = interaction;
 
     if (process.env.NODE_ENV !== 'dev') {
       return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
@@ -174,49 +158,46 @@ module.exports = {
 
     const selection = getUserSelection(client, user.id);
 
-    // ───── YES ─────
+    // YES → redirect to #roles
     if (customId === 'onboard_yes') {
+      await ensureGlobalPanel(client, guild, user.id);
       return interaction.reply({
-        ...buildPanel(client, user.id),
+        content: `➡️ Head to <#${process.env.CHANNEL_ROLES}> to choose your roles.`,
         ephemeral: true
       });
     }
 
-    // ───── ROLE TOGGLE ─────
+    // ROLE TOGGLE
     if (customId.startsWith('role_')) {
       const key = customId.replace('role_', '');
-      if (selection.has(key)) selection.delete(key);
-      else selection.add(key);
+      selection.has(key) ? selection.delete(key) : selection.add(key);
 
-      return interaction.update(buildPanel(client, user.id));
+      const panel = await ensureGlobalPanel(client, guild, user.id);
+      if (panel) await panel.edit(buildPanel(client, user.id));
+      return interaction.deferUpdate();
     }
 
-    // ───── INFO ─────
+    // INFO
     if (customId.startsWith('info_')) {
       const key = customId.replace('info_', '');
-      return interaction.reply({
-        content: INFO_MESSAGES[key],
-        ephemeral: true
-      });
+      return interaction.reply({ content: INFO_MESSAGES[key], ephemeral: true });
     }
 
-    // ───── RESET ─────
+    // RESET
     if (customId === 'onboard_reset') {
       selection.clear();
-      return interaction.update(buildPanel(client, user.id));
+      const panel = await ensureGlobalPanel(client, guild, user.id);
+      if (panel) await panel.edit(buildPanel(client, user.id));
+      return interaction.deferUpdate();
     }
 
-    // ───── CANCEL ─────
+    // CANCEL
     if (customId === 'onboard_cancel') {
       selection.clear();
-      return interaction.update({
-        content: '❌ Onboarding cancelled.',
-        components: [],
-        embeds: []
-      });
+      return interaction.reply({ content: '❌ Selection cancelled.', ephemeral: true });
     }
 
-    // ───── CONFIRM ─────
+    // CONFIRM
     if (customId === 'onboard_confirm') {
       for (const key of selection) {
         const roleId = process.env[ROLE_KEYS[key].env];
@@ -231,11 +212,9 @@ module.exports = {
       if (newArrival) await member.roles.remove(newArrival);
 
       selection.clear();
-
-      return interaction.update({
-        content: `✅ You're all set! Head to <#${process.env.CHANNEL_TUTORIAL}> to get started.`,
-        components: [],
-        embeds: []
+      return interaction.reply({
+        content: `✅ Roles updated! You can change these anytime here.`,
+        ephemeral: true
       });
     }
   }
