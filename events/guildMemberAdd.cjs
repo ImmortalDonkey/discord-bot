@@ -5,8 +5,11 @@ const {
 } = require('discord.js');
 
 module.exports = async (client, member) => {
-  // DEV ONLY SAFETY
-  if (process.env.NODE_ENV !== 'dev') return;
+ // DEV ONLY SAFETY (support ENV or NODE_ENV)
+if (
+  process.env.NODE_ENV !== 'dev' &&
+  process.env.ENV !== 'dev'
+) return;
 
   console.log(`👤 New member joined (DEV): ${member.user.tag}`);
 
