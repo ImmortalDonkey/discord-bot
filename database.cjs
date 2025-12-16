@@ -12,7 +12,11 @@ const sqlite3 = require('sqlite3');
 // ------------------------------------------------------
 // SQLITE BASE SETUP
 // ------------------------------------------------------
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'bot.db');
+
+const DB_PATH =
+  process.env.DB_PATH ||
+  process.env.DB_FILE ||
+  path.join(__dirname, 'data', 'bot.db');
 
 function ensureDataDir() {
   const dir = path.dirname(DB_PATH);
