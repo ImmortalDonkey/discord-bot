@@ -192,7 +192,6 @@ module.exports = {
 
     // YES → ephemeral panel in #start-here
     if (customId === 'onboard_yes') {
-      /* 🆕 ADD */
       await ensureGlobalRolesPanel(client, guild);
 
       return interaction.reply({
@@ -249,7 +248,6 @@ module.exports = {
 
       selection.clear();
 
-      /* 🆕 ADD */
       await ensureGlobalRolesPanel(client, guild);
 
       return interaction.update({
