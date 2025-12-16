@@ -61,6 +61,25 @@ function all(sql, params = []) {
 }
 
 // ------------------------------------------------------
+// BOT META HELPERS (persistent bot state)
+// ------------------------------------------------------
+async function getMeta(key) {
+  const row = await get(
+    `SELECT value FROM bot_meta WHERE key = ?`,
+    [key]
+  );
+  return row ? row.value : null;
+}
+
+async function setMeta(key, value) {
+  await run(
+    `INSERT OR REPLACE INTO bot_meta (key, value)
+     VALUES (?, ?)`,
+    [key, String(value)]
+  );
+}
+
+// ------------------------------------------------------
 // INITIALISE SQLITE SCHEMA
 // ------------------------------------------------------
 async function init() {
@@ -799,6 +818,10 @@ module.exports = {
   run,
   get,
   all,
+
+    // Bot meta
+  getMeta,
+  setMeta,
 
  // Points
 getUserById,
