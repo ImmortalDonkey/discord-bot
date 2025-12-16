@@ -46,6 +46,7 @@ const { runReportScheduler } = require('./utils/reportScheduler.cjs');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers, // ✅ REQUIRED FOR ONBOARDING
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
   ]
@@ -193,7 +194,7 @@ client.on('interactionCreate', async interaction => {
 // ──────────────────────────────────────
 // DEV-ONLY ONBOARDING (SAFE)
 // ──────────────────────────────────────
-if (process.env.ENV === 'dev') {
+if (process.env.NODE_ENV === 'dev') {
   client.on('guildMemberAdd', (member) => {
     require('./events/guildMemberAdd.cjs')(client, member);
   });
