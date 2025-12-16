@@ -11,6 +11,10 @@ const express = require('express');
 const {
   Client,
   GatewayIntentBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require('discord.js');
 
 const db = require('./database.cjs');
@@ -44,7 +48,7 @@ const { runReportScheduler } = require('./utils/reportScheduler.cjs');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers, // ✅ REQUIRED FOR ONBOARDING
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
   ]
@@ -116,11 +120,64 @@ client.getRarityDisplayLabel = function(key) {
 client.once('ready', async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 
+  // ✅ DB MUST INIT FIRST
   try {
     await db.init();
     console.log('✅ Database initialised');
   } catch (err) {
     console.error('❌ DB init failed:', err);
+  }
+
+  // ──────────────────────────────────────
+  // 📌 ENSURE #roles "Change roles" MESSAGE
+  // ──────────────────────────────────────
+  try {
+    const guild = client.guilds.cache.get(process.env.GUILD_ID);
+    if (!guild) throw new Error('Guild not found');
+
+    const channel = guild.channels.cache.get(process.env.CHANNEL_ROLES);
+    if (!channel) throw new Error('CHANNEL_ROLES not found');
+
+    let existingId = await db.getMeta('roles_message_id');
+
+    if (existingId) {
+      const existingMsg = await channel.messages.fetch(existingId).catch(() => null);
+      if (existingMsg) {
+        console.log('✅ Roles message already exists');
+        existingId = null;
+      } else {
+        await db.setMeta('roles_message_id', null);
+      }
+    }
+
+    if (!existingId) {
+      const embed = new EmbedBuilder()
+        .setTitle('Choose your roles')
+        .setDescription(
+          'The roles you select will determine what you receive notifications for.\n\n' +
+          '• Roaming Pokémon alerts (by rarity)\n' +
+          '• Gameplay roles (Bounty, Mob, Witch Hunting)\n\n' +
+          'You can change these at any time.\n\n' +
+          '⬇️ Click the button below to update your roles.'
+        );
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('roles_open')
+          .setLabel('Change roles')
+          .setStyle(ButtonStyle.Primary)
+      );
+
+      const msg = await channel.send({
+        embeds: [embed],
+        components: [row]
+      });
+
+      await db.setMeta('roles_message_id', msg.id);
+      console.log('✅ Roles message created');
+    }
+  } catch (err) {
+    console.error('❌ Failed to ensure roles message:', err);
   }
 
   try {
@@ -138,7 +195,6 @@ client.once('ready', async () => {
     console.error('❌ Handler init failed:', err);
   }
 
-  // Start bounty scheduler
   try {
     startBountyScheduler(client);
     console.log('⏱️ Bounty scheduler online');
@@ -146,9 +202,6 @@ client.once('ready', async () => {
     console.error('❌ Failed to start bounty scheduler:', err);
   }
 
-  // ──────────────────────────────────────
-  // 🔔 PRECISE TOP-OF-MINUTE report scheduler
-  // ──────────────────────────────────────
   function scheduleReports() {
     const now = new Date();
     const msToNextMinute = (60 - now.getSeconds()) * 1000;
@@ -190,7 +243,7 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ──────────────────────────────────────
-// DEV-ONLY ONBOARDING (SAFE)
+// DEV-ONLY ONBOARDING
 // ──────────────────────────────────────
 if (process.env.ENV === 'dev') {
   const onboardingHandler = require('./events/guildMemberAdd.cjs');
