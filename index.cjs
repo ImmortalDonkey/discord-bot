@@ -44,6 +44,7 @@ const { runReportScheduler } = require('./utils/reportScheduler.cjs');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers, // ⬅️ REQUIRED FOR ONBOARDING
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
   ]
@@ -167,6 +168,13 @@ client.once('ready', async () => {
 
   scheduleReports();
   console.log('⏱ Report scheduler aligned and online');
+});
+
+// ──────────────────────────────────────
+// ONBOARDING: MEMBER JOIN
+// ──────────────────────────────────────
+client.on('guildMemberAdd', (member) => {
+  require('./events/guildMemberAdd.cjs')(client, member);
 });
 
 // ──────────────────────────────────────
