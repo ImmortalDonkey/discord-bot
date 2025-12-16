@@ -166,6 +166,11 @@ async function ensureGlobalRolesPanel(client, guild) {
   return msg;
 }
 
+/* 🆕 ADD */
+function isGlobalPanelInteraction(interaction) {
+  return interaction.channelId === process.env.CHANNEL_ROLES;
+}
+
 // ─────────────────────────────
 // HANDLER
 // ─────────────────────────────
@@ -204,6 +209,14 @@ module.exports = {
     if (customId.startsWith('role_')) {
       const key = customId.replace('role_', '');
       selection.has(key) ? selection.delete(key) : selection.add(key);
+
+      if (isGlobalPanelInteraction(interaction)) {
+        const panel = await ensureGlobalRolesPanel(client, guild);
+        if (panel) await panel.edit(buildPanel(client, user.id));
+
+        return interaction.deferUpdate();
+      }
+
       return interaction.update(buildPanel(client, user.id));
     }
 
@@ -219,12 +232,32 @@ module.exports = {
     // RESET
     if (customId === 'onboard_reset') {
       selection.clear();
+
+      if (isGlobalPanelInteraction(interaction)) {
+        await interaction.reply({
+          content: '🔄 Your role selection has been reset.',
+          ephemeral: true
+        });
+
+        const panel = await ensureGlobalRolesPanel(client, guild);
+        if (panel) await panel.edit(buildPanel(client, user.id));
+        return;
+      }
+
       return interaction.update(buildPanel(client, user.id));
     }
 
     // CANCEL
     if (customId === 'onboard_cancel') {
       selection.clear();
+
+      if (isGlobalPanelInteraction(interaction)) {
+        return interaction.reply({
+          content: '❌ Selection cancelled.',
+          ephemeral: true
+        });
+      }
+
       return interaction.update({
         content: '❌ Role selection cancelled.',
         embeds: [],
@@ -249,6 +282,17 @@ module.exports = {
       selection.clear();
 
       await ensureGlobalRolesPanel(client, guild);
+
+      if (isGlobalPanelInteraction(interaction)) {
+        await interaction.reply({
+          content: '✅ Your roles have been updated.',
+          ephemeral: true
+        });
+
+        const panel = await ensureGlobalRolesPanel(client, guild);
+        if (panel) await panel.edit(buildPanel(client, user.id));
+        return;
+      }
 
       return interaction.update({
         content: `✅ Roles applied! You can edit these anytime in <#${process.env.CHANNEL_ROLES}>.`,
