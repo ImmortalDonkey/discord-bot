@@ -12,14 +12,15 @@ module.exports = async (client, member) => {
 
   const guild = member.guild;
 
-  // Assign New Arrival
+  // Assign New Arrival role
   const newArrivalId = process.env.ROLE_NEW_ARRIVAL;
   if (newArrivalId) {
-    await member.roles.add(newArrivalId).catch(err =>
-      console.error('❌ Failed to add New Arrival:', err)
-    );
+    await member.roles.add(newArrivalId).catch(err => {
+      console.error('❌ Failed to assign New Arrival role:', err);
+    });
   }
 
+  // Send onboarding message
   const channel = guild.channels.cache.get(process.env.CHANNEL_START_HERE);
   if (!channel) {
     console.warn('⚠ CHANNEL_START_HERE not found');
