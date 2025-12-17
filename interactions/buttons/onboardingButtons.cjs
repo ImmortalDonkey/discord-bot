@@ -6,13 +6,6 @@ const {
 } = require('discord.js');
 
 /* ─────────────────────────────
-   DEBUG HELPER
-───────────────────────────── */
-function dbg(...args) {
-  console.log('[ONBOARDING]', ...args);
-}
-
-/* ─────────────────────────────
    ROLE DEFINITIONS
 ───────────────────────────── */
 const ROLE_KEYS = {
@@ -27,12 +20,15 @@ const ROLE_KEYS = {
 };
 
 /* ─────────────────────────────
-   INFO MESSAGES
+   INFO MESSAGES (unchanged)
 ───────────────────────────── */
 const INFO_MESSAGES = {
-  bounty: 'Bounty info',
-  mob: 'Mob info',
-  witch: 'Witch info'
+  bounty: `🏹 **Bounty Hunting**
+Take part in time-limited Pokémon bounties.`,
+  mob: `🧟 **Mob Hunting**
+Large-scale group hunts.`,
+  witch: `🧙 **Witch Hunting**
+Investigation-based gameplay.`
 };
 
 /* ─────────────────────────────
@@ -90,7 +86,12 @@ function buildPanel(client, userId) {
     embeds: [
       new EmbedBuilder()
         .setTitle('Choose your roles')
-        .setDescription('Debug panel')
+        .setDescription(
+          '_You will receive notifications based on your selection._\n\n' +
+          '**Roaming Pokémon:** Select rarity(s)\n' +
+          '**Other:** Optional gameplay roles\n\n' +
+          '📝 Roles can be edited later in **#roles**.'
+        )
     ],
     components: [
       new ActionRowBuilder().addComponents(
@@ -102,6 +103,14 @@ function buildPanel(client, userId) {
       new ActionRowBuilder().addComponents(
         roleButton('bounty', selected.has('bounty')),
         infoButton('bounty')
+      ),
+      new ActionRowBuilder().addComponents(
+        roleButton('mob', selected.has('mob')),
+        infoButton('mob')
+      ),
+      new ActionRowBuilder().addComponents(
+        roleButton('witch', selected.has('witch')),
+        infoButton('witch')
       ),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -132,91 +141,104 @@ module.exports = {
   ],
 
   async execute(client, interaction) {
-    const { customId, user, member } = interaction;
+    const { customId, user, member, guild } = interaction;
 
-    dbg('CLICK', customId);
-    dbg('ACK STATE', {
-      replied: interaction.replied,
-      deferred: interaction.deferred
-    });
+    if (process.env.NODE_ENV !== 'dev') {
+      return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
+    }
 
-    try {
-      // DEV ONLY
-      if (process.env.NODE_ENV !== 'dev') {
-        dbg('BLOCKED: not dev');
-        if (!interaction.replied && !interaction.deferred) {
-          return interaction.reply({ content: 'Disabled', ephemeral: true });
+    /* YES → trainer */
+    if (customId === 'onboard_yes') {
+      const trainer = guild.roles.cache.get(process.env.ROLE_TRAINER);
+      const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
+
+      if (trainer) await member.roles.add(trainer).catch(() => {});
+      if (newArrival) await member.roles.remove(newArrival).catch(() => {});
+
+      seedSelectionFromMember(client, member);
+
+      return interaction.reply({
+        ...buildPanel(client, user.id),
+        ephemeral: true
+      });
+    }
+
+    /* NO → guest */
+    if (customId === 'onboard_no') {
+      const guest = guild.roles.cache.get(process.env.ROLE_GUEST);
+      const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
+
+      if (guest) await member.roles.add(guest).catch(() => {});
+      if (newArrival) await member.roles.remove(newArrival).catch(() => {});
+
+      return interaction.update({
+        content: `👋 Welcome ${member}! You can change roles later in <#${process.env.CHANNEL_ROLES}>.`,
+        components: []
+      });
+    }
+
+    /* OPEN FROM #roles */
+    if (customId === 'roles_open') {
+      seedSelectionFromMember(client, member);
+      return interaction.reply({
+        ...buildPanel(client, user.id),
+        ephemeral: true
+      });
+    }
+
+    const selection = getUserSelection(client, user.id);
+
+    /* TOGGLE */
+    if (customId.startsWith('role_')) {
+      const key = customId.replace('role_', '');
+      selection.has(key) ? selection.delete(key) : selection.add(key);
+      return interaction.update(buildPanel(client, user.id));
+    }
+
+    /* INFO */
+    if (customId.startsWith('info_')) {
+      return interaction.reply({
+        content: INFO_MESSAGES[customId.replace('info_', '')],
+        ephemeral: true
+      });
+    }
+
+    /* CONFIRM */
+    if (customId === 'onboard_confirm') {
+      for (const [key, cfg] of Object.entries(ROLE_KEYS)) {
+        const roleId = process.env[cfg.env];
+        if (!roleId) continue;
+
+        const role = guild.roles.cache.get(roleId);
+        if (!role) continue;
+
+        if (selection.has(key)) {
+          await member.roles.add(role).catch(() => {});
+        } else {
+          await member.roles.remove(role).catch(() => {});
         }
-        return;
       }
 
-      // YES
-      if (customId === 'onboard_yes') {
-        dbg('YES clicked');
+      const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
+      if (newArrival) await member.roles.remove(newArrival).catch(() => {});
 
-        seedSelectionFromMember(client, member);
+      selection.clear();
 
-        return interaction.reply({
-          ...buildPanel(client, user.id),
-          ephemeral: true
-        });
-      }
+      return interaction.update({
+        content: '✅ Your roles have been updated.',
+        embeds: [],
+        components: []
+      });
+    }
 
-      // ROLE TOGGLE
-      if (customId.startsWith('role_')) {
-        dbg('ROLE TOGGLE', customId);
-
-        const selection = getUserSelection(client, user.id);
-        const key = customId.replace('role_', '');
-
-        selection.has(key)
-          ? selection.delete(key)
-          : selection.add(key);
-
-        dbg('SELECTION NOW', [...selection]);
-
-        return interaction.update(buildPanel(client, user.id));
-      }
-
-      // INFO
-      if (customId.startsWith('info_')) {
-        dbg('INFO clicked', customId);
-        return interaction.reply({
-          content: INFO_MESSAGES[customId.replace('info_', '')],
-          ephemeral: true
-        });
-      }
-
-      // CONFIRM
-      if (customId === 'onboard_confirm') {
-        dbg('CONFIRM');
-        return interaction.update({
-          content: 'Confirmed',
-          embeds: [],
-          components: []
-        });
-      }
-
-      // CANCEL
-      if (customId === 'onboard_cancel') {
-        dbg('CANCEL');
-        return interaction.update({
-          content: 'Cancelled',
-          embeds: [],
-          components: []
-        });
-      }
-
-      dbg('UNHANDLED BUTTON', customId);
-
-    } catch (err) {
-      console.error('❌ ONBOARDING ERROR:', err);
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({
-          content: '❌ Internal error (see logs)',
-          ephemeral: true
-        }).catch(() => {});
-      }
+    /* CANCEL */
+    if (customId === 'onboard_cancel') {
+      selection.clear();
+      return interaction.update({
+        content: '❌ Role selection cancelled.',
+        embeds: [],
+        components: []
+      });
     }
   }
 };
