@@ -12,20 +12,17 @@ module.exports = async (client, member) => {
 
   const guild = member.guild;
 
-  // Assign New Arrival role
-  const newArrivalId = process.env.ROLE_NEW_ARRIVAL;
-  if (newArrivalId) {
-    await member.roles.add(newArrivalId).catch(err => {
-      console.error('❌ Failed to assign New Arrival role:', err);
-    });
+  // Assign New Arrival
+  const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
+  if (newArrival) {
+    await member.roles.add(newArrival).catch(err =>
+      console.error('❌ Failed to add New Arrival:', err)
+    );
   }
 
-  // Send onboarding message
+  // Send Yes / No onboarding
   const channel = guild.channels.cache.get(process.env.CHANNEL_START_HERE);
-  if (!channel) {
-    console.warn('⚠ CHANNEL_START_HERE not found');
-    return;
-  }
+  if (!channel) return;
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -45,3 +42,4 @@ Do you play **Pokémon Vortex**?`,
     components: [row]
   });
 };
+
