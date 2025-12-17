@@ -20,19 +20,42 @@ const ROLE_KEYS = {
 };
 
 /* ─────────────────────────────
-   INFO MESSAGES (unchanged)
+   FULL INFO MESSAGES (RESTORED)
 ───────────────────────────── */
 const INFO_MESSAGES = {
   bounty: `🏹 **Bounty Hunting**
-Take part in time-limited Pokémon bounties.`,
+
+Take part in time-limited Pokémon bounties posted by staff and the community.
+
+• Hunt specific Pokémon  
+• Submit proof of capture  
+• Earn PKD rewards  
+
+Ideal if you enjoy competitive hunting and challenge-based gameplay.`,
+
   mob: `🧟 **Mob Hunting**
-Large-scale group hunts.`,
+
+Participate in large-scale Pokémon hunts where many players hunt the same route at the same time.
+
+• High-activity group hunts  
+• Great for consistent grinders  
+• Encourages teamwork  
+
+Ideal if you enjoy steady farming and coordinated hunting.`,
+
   witch: `🧙 **Witch Hunting**
-Investigation-based gameplay.`
+
+Take part in investigation-style gameplay to track down roaming Pokémon activity.
+
+• Track players who captured a roamer  
+• Use “Recently Obtained Pokémon” data  
+• Deduce the roamer’s location  
+
+Ideal if you enjoy investigation, deduction, and strategic tracking.`
 };
 
 /* ─────────────────────────────
-   SELECTION STATE
+   SELECTION STATE (IN-MEMORY)
 ───────────────────────────── */
 function getUserSelection(client, userId) {
   if (!client.onboardingSelections) {
@@ -82,17 +105,19 @@ function infoButton(key) {
 function buildPanel(client, userId) {
   const selected = getUserSelection(client, userId);
 
+  const embed = new EmbedBuilder()
+    .setTitle('Choose your roles')
+    .setDescription(
+      '_You will receive notifications based on your selection._\n\n' +
+      '**Roaming Pokémon:**\n' +
+      'Select the rarity(s).\n\n' +
+      '**Other:**\n' +
+      'Optional gameplay roles _(click **Info** to see details)_.\n\n' +
+      '📝 Roles can be edited later in **#roles**.'
+    );
+
   return {
-    embeds: [
-      new EmbedBuilder()
-        .setTitle('Choose your roles')
-        .setDescription(
-          '_You will receive notifications based on your selection._\n\n' +
-          '**Roaming Pokémon:** Select rarity(s)\n' +
-          '**Other:** Optional gameplay roles\n\n' +
-          '📝 Roles can be edited later in **#roles**.'
-        )
-    ],
+    embeds: [embed],
     components: [
       new ActionRowBuilder().addComponents(
         roleButton('paradox', selected.has('paradox')),
@@ -127,7 +152,7 @@ function buildPanel(client, userId) {
 }
 
 /* ─────────────────────────────
-   HANDLER
+   BUTTON HANDLER
 ───────────────────────────── */
 module.exports = {
   ids: [
@@ -143,11 +168,14 @@ module.exports = {
   async execute(client, interaction) {
     const { customId, user, member, guild } = interaction;
 
+    // DEV ONLY
     if (process.env.NODE_ENV !== 'dev') {
       return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
     }
 
-    /* YES → trainer */
+    /* ───────────────
+       YES → TRAINER
+    ─────────────── */
     if (customId === 'onboard_yes') {
       const trainer = guild.roles.cache.get(process.env.ROLE_TRAINER);
       const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
@@ -163,7 +191,9 @@ module.exports = {
       });
     }
 
-    /* NO → guest */
+    /* ───────────────
+       NO → GUEST
+    ─────────────── */
     if (customId === 'onboard_no') {
       const guest = guild.roles.cache.get(process.env.ROLE_GUEST);
       const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
@@ -172,12 +202,14 @@ module.exports = {
       if (newArrival) await member.roles.remove(newArrival).catch(() => {});
 
       return interaction.update({
-        content: `👋 Welcome ${member}! You can change roles later in <#${process.env.CHANNEL_ROLES}>.`,
+        content: `👋 Welcome ${member}!\n\nYou can change roles later in <#${process.env.CHANNEL_ROLES}>.`,
         components: []
       });
     }
 
-    /* OPEN FROM #roles */
+    /* ───────────────
+       OPEN FROM #roles
+    ─────────────── */
     if (customId === 'roles_open') {
       seedSelectionFromMember(client, member);
       return interaction.reply({
@@ -188,7 +220,7 @@ module.exports = {
 
     const selection = getUserSelection(client, user.id);
 
-    /* TOGGLE */
+    /* ROLE TOGGLE */
     if (customId.startsWith('role_')) {
       const key = customId.replace('role_', '');
       selection.has(key) ? selection.delete(key) : selection.add(key);
@@ -197,8 +229,9 @@ module.exports = {
 
     /* INFO */
     if (customId.startsWith('info_')) {
+      const key = customId.replace('info_', '');
       return interaction.reply({
-        content: INFO_MESSAGES[customId.replace('info_', '')],
+        content: INFO_MESSAGES[key],
         ephemeral: true
       });
     }
