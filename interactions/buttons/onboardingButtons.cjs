@@ -180,7 +180,10 @@ module.exports = {
 
     // DEV ONLY
     if (process.env.NODE_ENV !== 'dev') {
-      return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
+      return interaction.reply({
+        content: 'Onboarding disabled.',
+        ephemeral: true
+      });
     }
 
     // ───────────────
