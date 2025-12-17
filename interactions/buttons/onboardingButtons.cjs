@@ -159,6 +159,18 @@ function buildPanel(client, userId) {
 }
 
 // ─────────────────────────────
+// SAFE UPDATE HELPER (CRITICAL FIX)
+// ─────────────────────────────
+async function smartUpdate(interaction, payload) {
+  if (interaction.message) {
+    return interaction.update(payload);
+  }
+
+  await interaction.deferUpdate();
+  return interaction.editReply(payload);
+}
+
+// ─────────────────────────────
 // HANDLER
 // ─────────────────────────────
 module.exports = {
@@ -180,10 +192,7 @@ module.exports = {
 
     // DEV ONLY
     if (process.env.NODE_ENV !== 'dev') {
-      return interaction.reply({
-        content: 'Onboarding disabled.',
-        ephemeral: true
-      });
+      return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
     }
 
     // ───────────────
@@ -237,7 +246,7 @@ module.exports = {
     if (customId.startsWith('role_')) {
       const key = customId.replace('role_', '');
       selection.has(key) ? selection.delete(key) : selection.add(key);
-      return interaction.update(buildPanel(client, user.id));
+      return smartUpdate(interaction, buildPanel(client, user.id));
     }
 
     // INFO
@@ -252,13 +261,13 @@ module.exports = {
     // RESET
     if (customId === 'onboard_reset') {
       seedSelectionFromMember(client, member);
-      return interaction.update(buildPanel(client, user.id));
+      return smartUpdate(interaction, buildPanel(client, user.id));
     }
 
     // CANCEL
     if (customId === 'onboard_cancel') {
       selection.clear();
-      return interaction.update({
+      return smartUpdate(interaction, {
         content: '❌ Role selection cancelled.',
         embeds: [],
         components: []
@@ -283,7 +292,7 @@ module.exports = {
 
       selection.clear();
 
-      return interaction.update({
+      return smartUpdate(interaction, {
         content: '✅ Your roles have been updated.',
         embeds: [],
         components: []
