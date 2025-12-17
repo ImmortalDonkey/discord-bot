@@ -20,30 +20,41 @@ const ROLE_KEYS = {
 };
 
 /* ─────────────────────────────
-   INFO MESSAGES
+   INFO MESSAGES (ORIGINAL — UNCHANGED)
 ───────────────────────────── */
 const INFO_MESSAGES = {
   bounty: `🏹 **Bounty Hunting**
 
+Bounty Hunting  
 Take part in time-limited Pokémon bounties posted by staff and the community.
 
 • Hunt specific Pokémon  
 • Submit proof of capture  
-• Earn PKD rewards`,
+• Earn PKD rewards  
+
+Ideal if you enjoy competitive hunting and challenge-based gameplay.`,
 
   mob: `🧟 **Mob Hunting**
 
-Participate in large-scale Pokémon hunts.
+Mob Hunting  
+Participate in large-scale Pokémon hunts where many players hunt the same route at the same time.
 
 • High-activity group hunts  
-• Encourages teamwork`,
+• Great for consistent grinders  
+• Encourages teamwork  
+
+Ideal if you enjoy steady farming and coordinated hunting.`,
 
   witch: `🧙 **Witch Hunting**
 
-Investigation-style gameplay.
+Witch Hunting  
+Take part in investigation-style gameplay to track down roaming Pokémon activity.
 
-• Track roamer captures  
-• Deduce roaming locations`
+• Track players who captured a roamer  
+• Use “Recently Obtained Pokémon” data  
+• Deduce the roamer’s location  
+
+Ideal if you enjoy investigation, deduction, and strategic tracking.`
 };
 
 /* ─────────────────────────────
@@ -81,27 +92,56 @@ function buildPanel(client, userId) {
     .setTitle('Choose your roles')
     .setDescription(
       '_You will receive notifications based on your selection._\n\n' +
-      '**Roaming Pokémon:** Select rarity(s)\n' +
-      '**Other:** Optional gameplay roles\n\n' +
-      '📝 Editable later in **#roles**'
+      '**Roaming Pokémon:**\n' +
+      'Select the rarity(s).\n\n' +
+      '**Other:**\n' +
+      'Optional gameplay roles _(click **Info** to see details)_.\n\n' +
+      '📝 Roles can be edited later in **#roles**.'
     );
 
   return {
     embeds: [embed],
     components: [
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('role_paradox').setLabel(selected.has('paradox') ? '✅ Paradox' : 'Paradox').setStyle(selected.has('paradox') ? ButtonStyle.Success : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('role_roamerMonth').setLabel(selected.has('roamerMonth') ? '✅ Roamer of the Month' : 'Roamer of the Month').setStyle(selected.has('roamerMonth') ? ButtonStyle.Success : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('role_legendary').setLabel(selected.has('legendary') ? '✅ Legendary / Rare' : 'Legendary / Rare').setStyle(selected.has('legendary') ? ButtonStyle.Success : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('role_common').setLabel(selected.has('common') ? '✅ Common' : 'Common').setStyle(selected.has('common') ? ButtonStyle.Success : ButtonStyle.Secondary)
+        new ButtonBuilder()
+          .setCustomId('role_paradox')
+          .setLabel(selected.has('paradox') ? '✅ Paradox' : 'Paradox')
+          .setStyle(selected.has('paradox') ? ButtonStyle.Success : ButtonStyle.Secondary),
+
+        new ButtonBuilder()
+          .setCustomId('role_roamerMonth')
+          .setLabel(selected.has('roamerMonth') ? '✅ Roamer of the Month' : 'Roamer of the Month')
+          .setStyle(selected.has('roamerMonth') ? ButtonStyle.Success : ButtonStyle.Secondary),
+
+        new ButtonBuilder()
+          .setCustomId('role_legendary')
+          .setLabel(selected.has('legendary') ? '✅ Legendary / Rare' : 'Legendary / Rare')
+          .setStyle(selected.has('legendary') ? ButtonStyle.Success : ButtonStyle.Secondary),
+
+        new ButtonBuilder()
+          .setCustomId('role_common')
+          .setLabel(selected.has('common') ? '✅ Common' : 'Common')
+          .setStyle(selected.has('common') ? ButtonStyle.Success : ButtonStyle.Secondary)
       ),
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('role_bounty').setLabel('Bounty Hunting').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('info_bounty').setLabel('ℹ️ Info').setStyle(ButtonStyle.Primary)
+        new ButtonBuilder()
+          .setCustomId('role_bounty')
+          .setLabel(selected.has('bounty') ? '✅ Bounty Hunting' : 'Bounty Hunting')
+          .setStyle(selected.has('bounty') ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('info_bounty')
+          .setLabel('ℹ️ Info')
+          .setStyle(ButtonStyle.Primary)
       ),
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('onboard_confirm').setLabel('Confirm').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('onboard_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger)
+        new ButtonBuilder()
+          .setCustomId('onboard_confirm')
+          .setLabel('Confirm')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('onboard_cancel')
+          .setLabel('Cancel')
+          .setStyle(ButtonStyle.Danger)
       )
     ]
   };
@@ -123,14 +163,13 @@ module.exports = {
   async execute(client, interaction) {
     if (process.env.NODE_ENV !== 'dev') return;
 
-    const { customId, member, guild, user } = interaction;
+    const { customId, member, user } = interaction;
 
-    /* 🔑 ALWAYS ACK IMMEDIATELY */
+    // ACK ONCE
     if (!interaction.deferred && !interaction.replied) {
       await interaction.deferUpdate().catch(() => {});
     }
 
-    /* YES */
     if (customId === 'onboard_yes') {
       await member.roles.add(process.env.ROLE_TRAINER).catch(() => {});
       await member.roles.remove(process.env.ROLE_NEW_ARRIVAL).catch(() => {});
@@ -138,32 +177,36 @@ module.exports = {
       return interaction.editReply(buildPanel(client, user.id));
     }
 
-    /* NO */
     if (customId === 'onboard_no') {
       await member.roles.add(process.env.ROLE_GUEST).catch(() => {});
       await member.roles.remove(process.env.ROLE_NEW_ARRIVAL).catch(() => {});
-      return interaction.editReply({ content: 'Welcome! Roles can be changed later.', components: [] });
+      return interaction.editReply({
+        content: 'Welcome! Roles can be changed later.',
+        components: []
+      });
     }
 
     const selection = getUserSelection(client, user.id);
 
-    /* ROLE TOGGLE */
     if (customId.startsWith('role_')) {
       const key = customId.replace('role_', '');
       selection.has(key) ? selection.delete(key) : selection.add(key);
       return interaction.editReply(buildPanel(client, user.id));
     }
 
-    /* INFO */
     if (customId.startsWith('info_')) {
-      return interaction.followUp({ content: INFO_MESSAGES[customId.replace('info_', '')], ephemeral: true });
+      const key = customId.replace('info_', '');
+      return interaction.followUp({
+        content: INFO_MESSAGES[key],
+        ephemeral: true
+      });
     }
 
-    /* CONFIRM */
     if (customId === 'onboard_confirm') {
       for (const [key, cfg] of Object.entries(ROLE_KEYS)) {
         const roleId = process.env[cfg.env];
         if (!roleId) continue;
+
         selection.has(key)
           ? await member.roles.add(roleId).catch(() => {})
           : await member.roles.remove(roleId).catch(() => {});
@@ -172,13 +215,20 @@ module.exports = {
       await member.roles.remove(process.env.ROLE_NEW_ARRIVAL).catch(() => {});
       selection.clear();
 
-      return interaction.editReply({ content: '✅ Roles updated.', embeds: [], components: [] });
+      return interaction.editReply({
+        content: '✅ Your roles have been updated.',
+        embeds: [],
+        components: []
+      });
     }
 
-    /* CANCEL */
     if (customId === 'onboard_cancel') {
       selection.clear();
-      return interaction.editReply({ content: '❌ Cancelled.', embeds: [], components: [] });
+      return interaction.editReply({
+        content: '❌ Role selection cancelled.',
+        embeds: [],
+        components: []
+      });
     }
   }
 };
