@@ -237,7 +237,7 @@ module.exports = {
     if (customId.startsWith('role_')) {
       const key = customId.replace('role_', '');
       selection.has(key) ? selection.delete(key) : selection.add(key);
-      return interaction.editReply(buildPanel(client, user.id));
+      return interaction.update(buildPanel(client, user.id));
     }
 
     // INFO
@@ -252,13 +252,13 @@ module.exports = {
     // RESET
     if (customId === 'onboard_reset') {
       seedSelectionFromMember(client, member);
-      return interaction.editReply(buildPanel(client, user.id));
+      return interaction.update(buildPanel(client, user.id));
     }
 
     // CANCEL
     if (customId === 'onboard_cancel') {
       selection.clear();
-      return interaction.editReply({
+      return interaction.update({
         content: '❌ Role selection cancelled.',
         embeds: [],
         components: []
@@ -283,7 +283,7 @@ module.exports = {
 
       selection.clear();
 
-      return interaction.editReply({
+      return interaction.update({
         content: '✅ Your roles have been updated.',
         embeds: [],
         components: []
