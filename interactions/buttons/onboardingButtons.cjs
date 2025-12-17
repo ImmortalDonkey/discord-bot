@@ -58,7 +58,7 @@ Ideal if you enjoy investigation, deduction, and strategic tracking.`
 };
 
 // ─────────────────────────────
-// SELECTION STATE (per user, memory)
+// SELECTION STATE (per user)
 // ─────────────────────────────
 function getUserSelection(client, userId) {
   if (!client.onboardingSelections) {
@@ -180,13 +180,16 @@ module.exports = {
 
     // DEV ONLY
     if (process.env.NODE_ENV !== 'dev') {
-      return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
+      return interaction.reply({
+        content: 'Onboarding disabled.',
+        ephemeral: true
+      });
     }
 
+    // ───────────────
     // YES → Trainer
+    // ───────────────
     if (customId === 'onboard_yes') {
-      await interaction.deferReply({ ephemeral: true });
-
       const trainer = guild.roles.cache.get(process.env.ROLE_TRAINER);
       const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
 
@@ -195,65 +198,66 @@ module.exports = {
 
       seedSelectionFromMember(client, member);
 
-      return interaction.editReply(buildPanel(client, user.id));
+      return interaction.reply({
+        ...buildPanel(client, user.id),
+        ephemeral: true
+      });
     }
 
+    // ───────────────
     // NO → Guest
+    // ───────────────
     if (customId === 'onboard_no') {
-      await interaction.deferUpdate();
-
       const guest = guild.roles.cache.get(process.env.ROLE_GUEST);
       const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
 
       if (guest) await member.roles.add(guest).catch(() => {});
       if (newArrival) await member.roles.remove(newArrival).catch(() => {});
 
-      return interaction.editReply({
+      return interaction.update({
         content: `👋 Welcome ${member}!\n\nYou can change roles later in <#${process.env.CHANNEL_ROLES}>.`,
-        embeds: [],
         components: []
       });
     }
 
+    // ───────────────
     // OPEN FROM #roles
+    // ───────────────
     if (customId === 'roles_open') {
-      await interaction.deferReply({ ephemeral: true });
       seedSelectionFromMember(client, member);
-      return interaction.editReply(buildPanel(client, user.id));
+      return interaction.reply({
+        ...buildPanel(client, user.id),
+        ephemeral: true
+      });
     }
 
     const selection = getUserSelection(client, user.id);
 
     // ROLE TOGGLE
     if (customId.startsWith('role_')) {
-      await interaction.deferUpdate();
-
       const key = customId.replace('role_', '');
       selection.has(key) ? selection.delete(key) : selection.add(key);
-
       return interaction.editReply(buildPanel(client, user.id));
     }
 
     // INFO
     if (customId.startsWith('info_')) {
+      const key = customId.replace('info_', '');
       return interaction.reply({
-        content: INFO_MESSAGES[customId.replace('info_', '')],
+        content: INFO_MESSAGES[key],
         ephemeral: true
       });
     }
 
     // RESET
     if (customId === 'onboard_reset') {
-      await interaction.deferUpdate();
       seedSelectionFromMember(client, member);
       return interaction.editReply(buildPanel(client, user.id));
     }
 
     // CANCEL
     if (customId === 'onboard_cancel') {
-      await interaction.deferUpdate();
       selection.clear();
-
       return interaction.editReply({
         content: '❌ Role selection cancelled.',
         embeds: [],
@@ -263,8 +267,6 @@ module.exports = {
 
     // CONFIRM
     if (customId === 'onboard_confirm') {
-      await interaction.deferUpdate();
-
       for (const [key, cfg] of Object.entries(ROLE_KEYS)) {
         const roleId = process.env[cfg.env];
         if (!roleId) continue;
