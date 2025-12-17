@@ -20,7 +20,7 @@ const ROLE_KEYS = {
 };
 
 /* ─────────────────────────────
-   FULL INFO MESSAGES (RESTORED)
+   INFO MESSAGES
 ───────────────────────────── */
 const INFO_MESSAGES = {
   bounty: `🏹 **Bounty Hunting**
@@ -29,33 +29,25 @@ Take part in time-limited Pokémon bounties posted by staff and the community.
 
 • Hunt specific Pokémon  
 • Submit proof of capture  
-• Earn PKD rewards  
-
-Ideal if you enjoy competitive hunting and challenge-based gameplay.`,
+• Earn PKD rewards`,
 
   mob: `🧟 **Mob Hunting**
 
-Participate in large-scale Pokémon hunts where many players hunt the same route at the same time.
+Participate in large-scale Pokémon hunts.
 
 • High-activity group hunts  
-• Great for consistent grinders  
-• Encourages teamwork  
-
-Ideal if you enjoy steady farming and coordinated hunting.`,
+• Encourages teamwork`,
 
   witch: `🧙 **Witch Hunting**
 
-Take part in investigation-style gameplay to track down roaming Pokémon activity.
+Investigation-style gameplay.
 
-• Track players who captured a roamer  
-• Use “Recently Obtained Pokémon” data  
-• Deduce the roamer’s location  
-
-Ideal if you enjoy investigation, deduction, and strategic tracking.`
+• Track roamer captures  
+• Deduce roaming locations`
 };
 
 /* ─────────────────────────────
-   SELECTION STATE (IN-MEMORY)
+   SELECTION STATE
 ───────────────────────────── */
 function getUserSelection(client, userId) {
   if (!client.onboardingSelections) {
@@ -67,9 +59,6 @@ function getUserSelection(client, userId) {
   return client.onboardingSelections.get(userId);
 }
 
-/* ─────────────────────────────
-   PREFILL FROM MEMBER ROLES
-───────────────────────────── */
 function seedSelectionFromMember(client, member) {
   const selection = getUserSelection(client, member.id);
   selection.clear();
@@ -83,23 +72,6 @@ function seedSelectionFromMember(client, member) {
 }
 
 /* ─────────────────────────────
-   UI HELPERS
-───────────────────────────── */
-function roleButton(key, selected) {
-  return new ButtonBuilder()
-    .setCustomId(`role_${key}`)
-    .setLabel(selected ? `✅ ${ROLE_KEYS[key].label}` : ROLE_KEYS[key].label)
-    .setStyle(selected ? ButtonStyle.Success : ButtonStyle.Secondary);
-}
-
-function infoButton(key) {
-  return new ButtonBuilder()
-    .setCustomId(`info_${key}`)
-    .setLabel('ℹ️ Info')
-    .setStyle(ButtonStyle.Primary);
-}
-
-/* ─────────────────────────────
    PANEL BUILDER
 ───────────────────────────── */
 function buildPanel(client, userId) {
@@ -109,56 +81,39 @@ function buildPanel(client, userId) {
     .setTitle('Choose your roles')
     .setDescription(
       '_You will receive notifications based on your selection._\n\n' +
-      '**Roaming Pokémon:**\n' +
-      'Select the rarity(s).\n\n' +
-      '**Other:**\n' +
-      'Optional gameplay roles _(click **Info** to see details)_.\n\n' +
-      '📝 Roles can be edited later in **#roles**.'
+      '**Roaming Pokémon:** Select rarity(s)\n' +
+      '**Other:** Optional gameplay roles\n\n' +
+      '📝 Editable later in **#roles**'
     );
 
   return {
     embeds: [embed],
     components: [
       new ActionRowBuilder().addComponents(
-        roleButton('paradox', selected.has('paradox')),
-        roleButton('roamerMonth', selected.has('roamerMonth')),
-        roleButton('legendary', selected.has('legendary')),
-        roleButton('common', selected.has('common'))
+        new ButtonBuilder().setCustomId('role_paradox').setLabel(selected.has('paradox') ? '✅ Paradox' : 'Paradox').setStyle(selected.has('paradox') ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('role_roamerMonth').setLabel(selected.has('roamerMonth') ? '✅ Roamer of the Month' : 'Roamer of the Month').setStyle(selected.has('roamerMonth') ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('role_legendary').setLabel(selected.has('legendary') ? '✅ Legendary / Rare' : 'Legendary / Rare').setStyle(selected.has('legendary') ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('role_common').setLabel(selected.has('common') ? '✅ Common' : 'Common').setStyle(selected.has('common') ? ButtonStyle.Success : ButtonStyle.Secondary)
       ),
       new ActionRowBuilder().addComponents(
-        roleButton('bounty', selected.has('bounty')),
-        infoButton('bounty')
+        new ButtonBuilder().setCustomId('role_bounty').setLabel('Bounty Hunting').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('info_bounty').setLabel('ℹ️ Info').setStyle(ButtonStyle.Primary)
       ),
       new ActionRowBuilder().addComponents(
-        roleButton('mob', selected.has('mob')),
-        infoButton('mob')
-      ),
-      new ActionRowBuilder().addComponents(
-        roleButton('witch', selected.has('witch')),
-        infoButton('witch')
-      ),
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('onboard_confirm')
-          .setLabel('Confirm')
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId('onboard_cancel')
-          .setLabel('Cancel')
-          .setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId('onboard_confirm').setLabel('Confirm').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('onboard_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger)
       )
     ]
   };
 }
 
 /* ─────────────────────────────
-   BUTTON HANDLER
+   HANDLER
 ───────────────────────────── */
 module.exports = {
   ids: [
     'onboard_yes',
     'onboard_no',
-    'roles_open',
     'onboard_confirm',
     'onboard_cancel',
     ...Object.keys(ROLE_KEYS).map(k => `role_${k}`),
@@ -166,56 +121,28 @@ module.exports = {
   ],
 
   async execute(client, interaction) {
-    const { customId, user, member, guild } = interaction;
+    if (process.env.NODE_ENV !== 'dev') return;
 
-    // DEV ONLY
-    if (process.env.NODE_ENV !== 'dev') {
-      return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
+    const { customId, member, guild, user } = interaction;
+
+    /* 🔑 ALWAYS ACK IMMEDIATELY */
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferUpdate().catch(() => {});
     }
 
-    /* ───────────────
-       YES → TRAINER
-    ─────────────── */
+    /* YES */
     if (customId === 'onboard_yes') {
-      const trainer = guild.roles.cache.get(process.env.ROLE_TRAINER);
-      const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
-
-      if (trainer) await member.roles.add(trainer).catch(() => {});
-      if (newArrival) await member.roles.remove(newArrival).catch(() => {});
-
+      await member.roles.add(process.env.ROLE_TRAINER).catch(() => {});
+      await member.roles.remove(process.env.ROLE_NEW_ARRIVAL).catch(() => {});
       seedSelectionFromMember(client, member);
-
-      return interaction.reply({
-        ...buildPanel(client, user.id),
-        ephemeral: true
-      });
+      return interaction.editReply(buildPanel(client, user.id));
     }
 
-    /* ───────────────
-       NO → GUEST
-    ─────────────── */
+    /* NO */
     if (customId === 'onboard_no') {
-      const guest = guild.roles.cache.get(process.env.ROLE_GUEST);
-      const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
-
-      if (guest) await member.roles.add(guest).catch(() => {});
-      if (newArrival) await member.roles.remove(newArrival).catch(() => {});
-
-      return interaction.update({
-        content: `👋 Welcome ${member}!\n\nYou can change roles later in <#${process.env.CHANNEL_ROLES}>.`,
-        components: []
-      });
-    }
-
-    /* ───────────────
-       OPEN FROM #roles
-    ─────────────── */
-    if (customId === 'roles_open') {
-      seedSelectionFromMember(client, member);
-      return interaction.reply({
-        ...buildPanel(client, user.id),
-        ephemeral: true
-      });
+      await member.roles.add(process.env.ROLE_GUEST).catch(() => {});
+      await member.roles.remove(process.env.ROLE_NEW_ARRIVAL).catch(() => {});
+      return interaction.editReply({ content: 'Welcome! Roles can be changed later.', components: [] });
     }
 
     const selection = getUserSelection(client, user.id);
@@ -224,16 +151,12 @@ module.exports = {
     if (customId.startsWith('role_')) {
       const key = customId.replace('role_', '');
       selection.has(key) ? selection.delete(key) : selection.add(key);
-      return interaction.update(buildPanel(client, user.id));
+      return interaction.editReply(buildPanel(client, user.id));
     }
 
     /* INFO */
     if (customId.startsWith('info_')) {
-      const key = customId.replace('info_', '');
-      return interaction.reply({
-        content: INFO_MESSAGES[key],
-        ephemeral: true
-      });
+      return interaction.followUp({ content: INFO_MESSAGES[customId.replace('info_', '')], ephemeral: true });
     }
 
     /* CONFIRM */
@@ -241,37 +164,21 @@ module.exports = {
       for (const [key, cfg] of Object.entries(ROLE_KEYS)) {
         const roleId = process.env[cfg.env];
         if (!roleId) continue;
-
-        const role = guild.roles.cache.get(roleId);
-        if (!role) continue;
-
-        if (selection.has(key)) {
-          await member.roles.add(role).catch(() => {});
-        } else {
-          await member.roles.remove(role).catch(() => {});
-        }
+        selection.has(key)
+          ? await member.roles.add(roleId).catch(() => {})
+          : await member.roles.remove(roleId).catch(() => {});
       }
 
-      const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
-      if (newArrival) await member.roles.remove(newArrival).catch(() => {});
-
+      await member.roles.remove(process.env.ROLE_NEW_ARRIVAL).catch(() => {});
       selection.clear();
 
-      return interaction.update({
-        content: '✅ Your roles have been updated.',
-        embeds: [],
-        components: []
-      });
+      return interaction.editReply({ content: '✅ Roles updated.', embeds: [], components: [] });
     }
 
     /* CANCEL */
     if (customId === 'onboard_cancel') {
       selection.clear();
-      return interaction.update({
-        content: '❌ Role selection cancelled.',
-        embeds: [],
-        components: []
-      });
+      return interaction.editReply({ content: '❌ Cancelled.', embeds: [], components: [] });
     }
   }
 };
