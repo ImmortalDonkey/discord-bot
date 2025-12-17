@@ -61,7 +61,7 @@ client.playerLocations = new Map();
 client.pendingReports = new Map();
 
 // ──────────────────────────────────────
-// RARITY HELPERS (unchanged)
+// RARITY HELPERS (UNCHANGED)
 // ──────────────────────────────────────
 client.rarityGroups = {
   roamerMonth: [
@@ -120,7 +120,7 @@ client.getRarityDisplayLabel = function(key) {
 client.once('ready', async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 
-  // ✅ DB MUST INIT FIRST
+  // ✅ DATABASE FIRST
   try {
     await db.init();
     console.log('✅ Database initialised');
@@ -138,13 +138,12 @@ client.once('ready', async () => {
     const channel = guild.channels.cache.get(process.env.CHANNEL_ROLES);
     if (!channel) throw new Error('CHANNEL_ROLES not found');
 
-    let existingId = await db.getMeta('roles_message_id');
+    const existingId = await db.getMeta('roles_message_id');
 
     if (existingId) {
       const existingMsg = await channel.messages.fetch(existingId).catch(() => null);
       if (existingMsg) {
         console.log('✅ Roles message already exists');
-        existingId = null;
       } else {
         await db.setMeta('roles_message_id', null);
       }
