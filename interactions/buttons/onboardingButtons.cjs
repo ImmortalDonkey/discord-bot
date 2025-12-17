@@ -164,6 +164,7 @@ function buildPanel(client, userId) {
 module.exports = {
   ids: [
     'onboard_yes',
+    'onboard_no',
     'roles_open',
     'onboard_confirm',
     'onboard_reset',
@@ -177,27 +178,48 @@ module.exports = {
   async execute(client, interaction) {
     const { member, guild, customId, user } = interaction;
 
-    if (process.env.ENV !== 'dev') {
+    // DEV ONLY
+    if (process.env.NODE_ENV !== 'dev') {
       return interaction.reply({ content: 'Onboarding disabled.', ephemeral: true });
     }
 
-    // ✅ PATCH: handle the welcome message buttons so interaction doesn’t fail
+    // ───────────────
+    // YES → Trainer
+    // ───────────────
     if (customId === 'onboard_yes') {
+      const trainer = guild.roles.cache.get(process.env.ROLE_TRAINER);
+      const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
+
+      if (trainer) await member.roles.add(trainer).catch(() => {});
+      if (newArrival) await member.roles.remove(newArrival).catch(() => {});
+
       seedSelectionFromMember(client, member);
+
       return interaction.reply({
         ...buildPanel(client, user.id),
         ephemeral: true
       });
     }
 
+    // ───────────────
+    // NO → Guest
+    // ───────────────
     if (customId === 'onboard_no') {
+      const guest = guild.roles.cache.get(process.env.ROLE_GUEST);
+      const newArrival = guild.roles.cache.get(process.env.ROLE_NEW_ARRIVAL);
+
+      if (guest) await member.roles.add(guest).catch(() => {});
+      if (newArrival) await member.roles.remove(newArrival).catch(() => {});
+
       return interaction.update({
-        content: `👋 Welcome ${member}!\n\nNo problem — you can change roles later in <#${process.env.CHANNEL_ROLES}>.`,
+        content: `👋 Welcome ${member}!\n\nYou can change roles later in <#${process.env.CHANNEL_ROLES}>.`,
         components: []
       });
     }
 
-    // OPEN FROM #roles BUTTON
+    // ───────────────
+    // OPEN FROM #roles
+    // ───────────────
     if (customId === 'roles_open') {
       seedSelectionFromMember(client, member);
       return interaction.reply({
@@ -250,7 +272,7 @@ module.exports = {
         if (!role) continue;
 
         if (selection.has(key)) {
-          await member.roles.add(role);
+          await member.roles.add(role).catch(() => {});
         } else {
           await member.roles.remove(role).catch(() => {});
         }
