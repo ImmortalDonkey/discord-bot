@@ -252,7 +252,7 @@ async function createLeaderboardCard(guild) {
   const list = await db.getLeaderboard(10);
 
   // Slightly smaller for Discord readability (no row height change)
-  ctx.font = "bold 52px Sans";
+  ctx.font = "bold 60px Sans";
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
 
