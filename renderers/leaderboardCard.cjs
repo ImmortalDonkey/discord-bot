@@ -3,8 +3,8 @@
 // Discord-safe version
 //  - Rank column widened (taken from Points column)
 //  - NO truncation for Rank text
-//  - White text + bold black outline (Discord mobile friendly)
-//  - Main header text restored to solid black
+//  - White text + very thick black outline (mobile Discord safe)
+//  - Main header text solid black
 //  - No row height changes
 //  - No other logic removed unless necessary
 
@@ -75,7 +75,7 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
 /**
  * Discord-safe text rendering:
  *  - white fill
- *  - very bold black outline
+ *  - VERY thick black outline
  *  - subtle shadow
  */
 function drawTextWithOutline(ctx, text, x, y) {
@@ -83,15 +83,18 @@ function drawTextWithOutline(ctx, text, x, y) {
 
   ctx.save();
 
+  // subtle shadow for depth
   ctx.shadowColor = "rgba(0,0,0,0.35)";
   ctx.shadowBlur = 3;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 2;
 
-  ctx.strokeStyle = "rgba(0,0,0,0.95)";
-  ctx.lineWidth = 4;
+  // very thick black outline
+  ctx.strokeStyle = "#000000";
+  ctx.lineWidth = 6;
   ctx.strokeText(str, x, y);
 
+  // white fill
   ctx.fillStyle = "#ffffff";
   ctx.fillText(str, x, y);
 
@@ -178,7 +181,7 @@ async function createLeaderboardCard(guild) {
   ctx.stroke();
   ctx.restore();
 
-  // Header text — solid black
+  // header text (solid black)
   ctx.fillStyle = "#000000";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -212,7 +215,7 @@ async function createLeaderboardCard(guild) {
     bounties: (col4 + col5) / 2
   };
 
-  // Header row
+  // header row
   ctx.save();
   ctx.globalAlpha = 0.25;
   drawRoundedRect(ctx, tableX, headersY, tableW, rowH, 8);
@@ -228,8 +231,8 @@ async function createLeaderboardCard(guild) {
   ctx.restore();
 
   ctx.font = "bold 60px Sans";
-  ctx.textBaseline = "middle";
   ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
 
   const headerY = headersY + rowH / 2;
   drawTextWithOutline(ctx, "Trainer", X.trainer, headerY);
@@ -237,7 +240,7 @@ async function createLeaderboardCard(guild) {
   drawTextWithOutline(ctx, "Points", X.points, headerY);
   drawTextWithOutline(ctx, "Bounties", X.bounties, headerY);
 
-  // Data rows
+  // rows
   const list = await db.getLeaderboard(10);
 
   ctx.font = "bold 60px Sans";
