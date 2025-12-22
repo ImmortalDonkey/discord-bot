@@ -2,10 +2,10 @@
 //
 // Discord-safe version
 //  - Rank column widened (taken from Points column)
-//  - No truncation for Rank text
-//  - Stronger outline + subtle shadow for Discord compression
+//  - NO truncation for Rank text
+//  - Strong Discord-safe text rendering (dark halo + white outline + black fill)
 //  - No row height changes
-//  - No logic removed unless necessary
+//  - No other logic removed unless necessary
 
 const { createCanvas, loadImage } = require("canvas");
 const path = require("path");
@@ -72,21 +72,31 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
 }
 
 /**
- * Draw text with Discord-safe outline + subtle shadow
+ * Discord-safe text rendering:
+ *  - soft dark halo
+ *  - strong white outline
+ *  - black fill
  */
 function drawTextWithOutline(ctx, text, x, y) {
   const str = String(text ?? "");
 
-  ctx.shadowColor = "rgba(0,0,0,0.35)";
-  ctx.shadowBlur = 2;
+  // Soft dark halo (survives Discord downscaling)
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.shadowColor = "rgba(0,0,0,0.75)";
+  ctx.shadowBlur = 6;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 2;
+  ctx.fillText(str, x, y);
+  ctx.restore();
 
+  // White outline
   ctx.strokeStyle = "#ffffff";
   ctx.lineWidth = 3;
   ctx.strokeText(str, x, y);
 
-  ctx.shadowColor = "transparent";
+  // Main fill
+  ctx.fillStyle = "#000000";
   ctx.fillText(str, x, y);
 }
 
@@ -125,7 +135,9 @@ async function resolveDisplayName(guild, row) {
         name
       );
     }
-  } catch {}
+  } catch {
+    // ignore
+  }
   return name;
 }
 
@@ -156,7 +168,7 @@ async function createLeaderboardCard(guild) {
   const ctx = canvas.getContext("2d");
   await drawBackground(ctx);
 
-  // ----- Title card -----
+  // ----- Title card (solid white) -----
   const title = "Top Hunters Leaderboard";
   ctx.font = "bold 90px Sans";
   const titleW = ctx.measureText(title).width + 200;
@@ -173,7 +185,6 @@ async function createLeaderboardCard(guild) {
   ctx.stroke();
   ctx.restore();
 
-  ctx.fillStyle = "#000000";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   drawTextWithOutline(
@@ -192,14 +203,15 @@ async function createLeaderboardCard(guild) {
   const headersY = titleY + titleH + 50;
   const firstRowY = headersY + rowH + rowGap;
 
-  // Column allocations (sum == tableW)
+  // Column allocations (sum == tableW):
   // # = 150, Trainer = 700, Rank = 720, Points = 230, Bounties = 440
+  // (Rank widened by taking width from Points)
   const col0 = tableX;
   const col1 = col0 + 150;
   const col2 = col1 + 700;
-  const col3 = col2 + 720; // widened Rank
-  const col4 = col3 + 230; // reduced Points
-  const col5 = col4 + 440;
+  const col3 = col2 + 720;
+  const col4 = col3 + 230;
+  const col5 = col4 + 440; // == tableX + tableW
 
   const X = {
     rank: (col0 + col1) / 2,
@@ -209,7 +221,7 @@ async function createLeaderboardCard(guild) {
     bounties: (col4 + col5) / 2
   };
 
-  // ----- Header card -----
+  // ----- Header card (25% opacity) -----
   ctx.save();
   ctx.globalAlpha = 0.25;
   drawRoundedRect(ctx, tableX, headersY, tableW, rowH, 8);
@@ -217,6 +229,7 @@ async function createLeaderboardCard(guild) {
   ctx.fill();
   ctx.restore();
 
+  // Red border (full opacity)
   ctx.save();
   drawRoundedRect(ctx, tableX, headersY, tableW, rowH, 8);
   ctx.lineWidth = 3;
@@ -224,7 +237,7 @@ async function createLeaderboardCard(guild) {
   ctx.stroke();
   ctx.restore();
 
-  ctx.fillStyle = "#000000";
+  // Header text
   ctx.font = "bold 60px Sans";
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
@@ -238,6 +251,7 @@ async function createLeaderboardCard(guild) {
   // ----- Data rows -----
   const list = await db.getLeaderboard(10);
 
+  // Slightly smaller for Discord readability (no row height change)
   ctx.font = "bold 52px Sans";
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
@@ -252,6 +266,7 @@ async function createLeaderboardCard(guild) {
     const lifetime = usr.lifetime_points || 0;
     const completed = usr.completed_bounties || 0;
 
+    // Row background (25% opacity)
     ctx.save();
     ctx.globalAlpha = 0.25;
     drawRoundedRect(ctx, tableX, y, tableW, rowH, 8);
@@ -259,6 +274,7 @@ async function createLeaderboardCard(guild) {
     ctx.fill();
     ctx.restore();
 
+    // Row border (full opacity)
     ctx.save();
     drawRoundedRect(ctx, tableX, y, tableW, rowH, 8);
     ctx.lineWidth = 3;
@@ -266,11 +282,10 @@ async function createLeaderboardCard(guild) {
     ctx.stroke();
     ctx.restore();
 
-    ctx.fillStyle = "#000000";
-
+    // # position
     drawTextWithOutline(ctx, `#${i + 1}`, X.rank, cy);
 
-    // Trainer (truncate only here)
+    // Trainer name (truncate only here)
     const trainerMaxWidth = col2 - col1 - 60;
     drawTruncatedTextWithOutline(
       ctx,
@@ -280,10 +295,13 @@ async function createLeaderboardCard(guild) {
       trainerMaxWidth
     );
 
-    // Rank (NO truncation)
+    // Rank name (NO truncation)
     drawTextWithOutline(ctx, rankName, X.rankInfo, cy);
 
+    // Points
     drawTextWithOutline(ctx, String(lifetime), X.points, cy);
+
+    // Bounties
     drawTextWithOutline(ctx, String(completed), X.bounties, cy);
   }
 
