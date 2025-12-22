@@ -3,8 +3,7 @@
 // Discord-safe version
 //  - Rank column widened (taken from Points column)
 //  - NO truncation for Rank text
-//  - Strong Discord-safe text rendering (dark halo + white outline + black fill)
-//  - Subtle dark backing strip behind row text (Discord contrast fix)
+//  - White text + dark outline (best contrast for illustrated background)
 //  - No row height changes
 //  - No other logic removed unless necessary
 
@@ -74,42 +73,30 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
 
 /**
  * Discord-safe text rendering:
- *  - soft dark halo
- *  - strong white outline
- *  - black fill
+ *  - white fill
+ *  - dark outline
+ *  - subtle shadow
  */
 function drawTextWithOutline(ctx, text, x, y) {
   const str = String(text ?? "");
 
-  // Soft dark halo
   ctx.save();
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.shadowColor = "rgba(0,0,0,0.75)";
-  ctx.shadowBlur = 6;
+
+  // subtle shadow
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = 3;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 2;
-  ctx.fillText(str, x, y);
-  ctx.restore();
 
-  // White outline
-  ctx.strokeStyle = "#ffffff";
+  // dark outline
+  ctx.strokeStyle = "rgba(0,0,0,0.85)";
   ctx.lineWidth = 3;
   ctx.strokeText(str, x, y);
 
-  // Main fill
-  ctx.fillStyle = "#000000";
+  // white fill
+  ctx.fillStyle = "#ffffff";
   ctx.fillText(str, x, y);
-}
 
-/**
- * Dark backing strip behind text (KEY Discord contrast fix)
- */
-function drawTextBacking(ctx, x, y, w, h) {
-  ctx.save();
-  ctx.globalAlpha = 0.35;
-  drawRoundedRect(ctx, x, y, w, h, 10);
-  ctx.fillStyle = "#000000";
-  ctx.fill();
   ctx.restore();
 }
 
@@ -272,7 +259,6 @@ async function createLeaderboardCard(guild) {
     const lifetime = usr.lifetime_points || 0;
     const completed = usr.completed_bounties || 0;
 
-    // Row background
     ctx.save();
     ctx.globalAlpha = 0.25;
     drawRoundedRect(ctx, tableX, y, tableW, rowH, 8);
@@ -280,22 +266,12 @@ async function createLeaderboardCard(guild) {
     ctx.fill();
     ctx.restore();
 
-    // Row border
     ctx.save();
     drawRoundedRect(ctx, tableX, y, tableW, rowH, 8);
     ctx.lineWidth = 3;
     ctx.strokeStyle = "#dc2626";
     ctx.stroke();
     ctx.restore();
-
-    // ---- TEXT BACKING STRIP (KEY FIX) ----
-    drawTextBacking(
-      ctx,
-      tableX + 10,
-      cy - 35,
-      tableW - 20,
-      70
-    );
 
     drawTextWithOutline(ctx, `#${i + 1}`, X.rank, cy);
 
