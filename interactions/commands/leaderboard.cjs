@@ -1,38 +1,50 @@
 // interactions/commands/leaderboard.cjs
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const db = require('../../database.cjs');
-const { getRankName } = require('../../utils/rankSystem.cjs');
+//
+// Public command to render the Top Hunters leaderboard card.
+// Uses the Canvas renderer (same as debug version).
+
+const {
+  SlashCommandBuilder,
+  AttachmentBuilder
+} = require("discord.js");
+
+const { createLeaderboardCard } = require("../../renderers/leaderboardCard.cjs");
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('leaderboard')
-    .setDescription('View the top hunters (lifetime points)'),
-
+    .setName("leaderboard")
+    .setDescription("View the Top Hunters leaderboard"),
 
   async execute(client, interaction) {
-    const rows = await db.getLeaderboard(10);
-    if (rows.length === 0) {
-      return interaction.reply({
-        content: 'No data yet.',
-        ephemeral: true
+    try {
+      // Defer immediately to avoid interaction timeout
+      await interaction.deferReply({ ephemeral: false });
+
+      // Render leaderboard card (page 1 = ranks 1–10)
+      const buffer = await createLeaderboardCard(interaction.guild, 1);
+
+      const attachment = new AttachmentBuilder(buffer, {
+        name: "top-hunters-leaderboard.png"
       });
+
+      // Send image only (no embed)
+      await interaction.editReply({
+        files: [attachment]
+      });
+    } catch (err) {
+      console.error("❌ Failed to render leaderboard card:", err);
+
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(
+          "❌ Failed to render leaderboard. Please try again later."
+        );
+      } else {
+        await interaction.reply({
+          content:
+            "❌ Failed to render leaderboard before response could be sent.",
+          ephemeral: true
+        });
+      }
     }
-
-    const desc = rows.map((u, i) => {
-      const lifetime = u.lifetime_points || 0;
-      const current = u.points || 0;
-      const rankName = getRankName(lifetime);
-
-      return `**#${i + 1}** — ${u.username} — *${rankName}* — ${lifetime} lifetime pts (Current: ${current})`;
-    }).join('\n');
-
-    return interaction.reply({
-      embeds: [
-        new EmbedBuilder()
-          .setColor('Gold')
-          .setTitle('🏆 Top Hunters (Lifetime)')
-          .setDescription(desc)
-      ]
-    });
   }
 };
