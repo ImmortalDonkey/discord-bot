@@ -4,9 +4,10 @@
 //  - Rank column widened (taken from Points column)
 //  - NO truncation for Rank text
 //  - White text + very thick black outline (mobile Discord safe)
-//  - Main header text solid black
+//  - Header text solid black
+//  - Header + data rows both at 0.4 opacity
 //  - No row height changes
-//  - No other logic removed unless necessary
+//  - No other logic removed
 
 const { createCanvas, loadImage } = require("canvas");
 const path = require("path");
@@ -83,18 +84,15 @@ function drawTextWithOutline(ctx, text, x, y) {
 
   ctx.save();
 
-  // subtle shadow for depth
   ctx.shadowColor = "rgba(0,0,0,0.35)";
   ctx.shadowBlur = 3;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 2;
 
-  // very thick black outline
   ctx.strokeStyle = "#000000";
   ctx.lineWidth = 6;
   ctx.strokeText(str, x, y);
 
-  // white fill
   ctx.fillStyle = "#ffffff";
   ctx.fillText(str, x, y);
 
@@ -181,15 +179,10 @@ async function createLeaderboardCard(guild) {
   ctx.stroke();
   ctx.restore();
 
-  // header text (solid black)
   ctx.fillStyle = "#000000";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(
-    title,
-    titleX + titleW / 2,
-    titleY + titleH / 2
-  );
+  ctx.fillText(title, titleX + titleW / 2, titleY + titleH / 2);
 
   // ----- Table geometry -----
   const tableX = PADDING;
@@ -215,9 +208,9 @@ async function createLeaderboardCard(guild) {
     bounties: (col4 + col5) / 2
   };
 
-  // header row
+  // ----- Header row (0.4 opacity) -----
   ctx.save();
-  ctx.globalAlpha = 0.25;
+  ctx.globalAlpha = 0.4;
   drawRoundedRect(ctx, tableX, headersY, tableW, rowH, 8);
   ctx.fillStyle = "#ffffff";
   ctx.fill();
@@ -240,9 +233,8 @@ async function createLeaderboardCard(guild) {
   drawTextWithOutline(ctx, "Points", X.points, headerY);
   drawTextWithOutline(ctx, "Bounties", X.bounties, headerY);
 
-  // rows
+  // ----- Data rows (0.4 opacity) -----
   const list = await db.getLeaderboard(10);
-
   ctx.font = "bold 60px Sans";
 
   for (let i = 0; i < list.length; i++) {
@@ -254,7 +246,7 @@ async function createLeaderboardCard(guild) {
     const rankName = getRankName(usr.lifetime_points);
 
     ctx.save();
-    ctx.globalAlpha = 0.25;
+    ctx.globalAlpha = 0.4;
     drawRoundedRect(ctx, tableX, y, tableW, rowH, 8);
     ctx.fillStyle = "#ffffff";
     ctx.fill();
