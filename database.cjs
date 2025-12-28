@@ -3,7 +3,7 @@
 // POINTS + LOGS = SQLite
 // BOUNTIES + CLAIMS = SQLite + in-memory cache
 // REPORTS = SQLite
-// PLAYERS (IGN) = SQLite (global, multi-server safe)
+// PLAYERS (IGN) = SQLite (global identity)
 // ------------------------------------------------------
 
 const path = require('path');
@@ -83,7 +83,6 @@ async function setMeta(key, value) {
 // ------------------------------------------------------
 
 async function init() {
-
   // ---------------- POINTS ----------------
   await run(`CREATE TABLE IF NOT EXISTS points (
     discord_id TEXT PRIMARY KEY,
@@ -104,7 +103,8 @@ async function init() {
     timestamp INTEGER
   )`);
 
-  const pointCols = (await all(`PRAGMA table_info(points)`)).map(c => c.name);
+  const infoPoints = await all(`PRAGMA table_info(points)`);
+  const pointCols = infoPoints.map(c => c.name);
   if (!pointCols.includes('lifetime_points')) {
     await run(`ALTER TABLE points ADD COLUMN lifetime_points INTEGER DEFAULT 0`);
   }
@@ -168,7 +168,8 @@ async function init() {
     winner_claim_id INTEGER
   )`);
 
-  const bountyCols = (await all(`PRAGMA table_info(bounties)`)).map(c => c.name);
+  const infoBounties = await all(`PRAGMA table_info(bounties)`);
+  const bountyCols = infoBounties.map(c => c.name);
   if (!bountyCols.includes('winner_claim_id')) {
     await run(`ALTER TABLE bounties ADD COLUMN winner_claim_id INTEGER`);
   }
@@ -214,11 +215,11 @@ async function init() {
   await loadBountiesFromDB();
   await loadClaimsFromDB();
 
-  console.log(`✅ Database initialised`);
+  console.log('✅ Database initialised');
 }
 
 // ------------------------------------------------------
-// PLAYER / IGN API (NEW)
+// PLAYER / IGN API
 // ------------------------------------------------------
 
 async function upsertPlayer({ discordId, ign, discordUsername }) {
@@ -280,37 +281,26 @@ async function getPlayerGuild(discordId, guildId) {
 }
 
 // ------------------------------------------------------
-// EXPORT
+// EXISTING EXPORTS (UNCHANGED)
 // ------------------------------------------------------
 
 module.exports = {
   db,
   init,
 
-  // raw helpers
   run,
   get,
   all,
 
-  // Bot meta
   getMeta,
   setMeta,
 
-  // Players / IGN
+  // Player / IGN
   upsertPlayer,
   getPlayerByDiscordId,
   getPlayerByIgn,
   getDiscordIdByIgn,
   deletePlayer,
   upsertPlayerGuild,
-  getPlayerGuild,
-
-  // Points
-  addPoints,
-  getLeaderboard,
-  clearAllPoints,
-
-  // Reports
-  createReport: async (r) => r,
-  findActiveReportThisHour: async () => null
+  getPlayerGuild
 };
