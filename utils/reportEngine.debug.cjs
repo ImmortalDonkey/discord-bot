@@ -1,256 +1,304 @@
 // utils/reportEngine.debug.cjs
 // ------------------------------------------------------
-// DEBUG-ONLY REPORT ENGINE
-// Implements locked encounter/sighting flow
-// Used exclusively by /reportdebug
+// DEBUG Report Engine (single-file util)
+// - Used by /reportdebug to avoid touching live /report logic
+// - Integrates with:
+//   - database.cjs (createReport + players + player_guilds)
+//   - reportLimiter.cjs (optional duplicate blocking)
+//   - validation.cjs (optional strong validation)
+//   - reportChannelRouter.cjs (routing channel + role per rarity)
+//   - renderers/reportCard.cjs (card generation)
 // ------------------------------------------------------
 
 const db = require("../database.cjs");
+
+const { getRankName } = require("./rankSystem.cjs");
 const { getRarity, getRarityDisplayLabel } = require("./rarity.cjs");
 const { calculateAwardedPoints } = require("./scoring.cjs");
-const { getRankName } = require("./rankSystem.cjs");
-const { checkReportAllowed } = require("./reportLimiter.cjs");
 
-// NOTE: backend channel ID where Vortex bot listens
-const VORTEX_BACKEND_CHANNEL_ID = process.env.VORTEX_BACKEND_CHANNEL_ID;
+const { createReportCard } = require("../renderers/reportCard.cjs");
+const { getChannelForRarity, getRoleForRarity } = require("./reportChannelRouter.cjs");
 
-// ------------------------------------------------------
-// Helpers
-// ------------------------------------------------------
+// Optional integrations (don’t hard-crash if missing)
+let checkReportAllowed = null;
+try {
+  ({ checkReportAllowed } = require("./reportLimiter.cjs"));
+} catch {}
 
-function isEncounter(idOrIgn) {
-  return typeof idOrIgn === "string" && idOrIgn.startsWith("#");
+let isValidPokemon = null;
+let isValidLocation = null;
+try {
+  ({ isValidPokemon, isValidLocation } = require("./validation.cjs"));
+} catch {}
+
+const DEFAULT_DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
+
+/**
+ * Safely fetch a text channel by ID on a guild.
+ */
+async function fetchChannelSafe(guild, channelId) {
+  if (!guild || !channelId) return null;
+  return await guild.channels.fetch(channelId).catch(() => null);
 }
 
-function normalizeIgn(str) {
-  return String(str || "").trim();
-}
+/**
+ * Resolve where to post:
+ * - Router first (rarity based)
+ * - Fallback: REPORT_CARD_CHANNEL_ID
+ */
+async function resolveTargetChannel(guild, rarityKey, fallbackChannelId = null) {
+  let targetChannel = null;
+  let targetChannelId = null;
 
-// ------------------------------------------------------
-// VORTEX VERIFICATION (DEBUG)
-// ------------------------------------------------------
-async function verifyPokemonId(client, guild, pokemonId) {
-  const channel = await guild.channels
-    .fetch(VORTEX_BACKEND_CHANNEL_ID)
-    .catch(() => null);
-
-  if (!channel) {
-    return { ok: false, reason: "backend-channel-missing" };
+  const routedChannelId = getChannelForRarity(rarityKey);
+  if (routedChannelId) {
+    targetChannel = await fetchChannelSafe(guild, routedChannelId);
+    if (targetChannel) targetChannelId = routedChannelId;
   }
 
-  // Send command to vortex bot
-  const sent = await channel.send(`!id ${pokemonId}`);
-
-  // Await vortex response (simple collector)
-  const collected = await channel.awaitMessages({
-    filter: m =>
-      m.author.id !== client.user.id &&
-      m.embeds?.length &&
-      m.embeds[0]?.title?.includes(pokemonId),
-    max: 1,
-    time: 10_000
-  });
-
-  if (!collected.size) {
-    return { ok: false, reason: "vortex-timeout" };
-  }
-
-  const msg = collected.first();
-  const embed = msg.embeds[0];
-
-  // ⚠️ This parsing assumes current Vortex embed format
-  const description = embed.description || "";
-
-  // Example expected line:
-  // Trainer: SomeIGN
-  const trainerLine = description
-    .split("\n")
-    .find(l => l.toLowerCase().startsWith("trainer"));
-
-  if (!trainerLine) {
-    return { ok: false, reason: "trainer-not-found" };
-  }
-
-  const trainerIgn = trainerLine.split(":").slice(1).join(":").trim();
-
-  return {
-    ok: true,
-    trainerIgn,
-    pokemonName: embed.title || null
-  };
-}
-
-// ------------------------------------------------------
-// MAIN DEBUG EXECUTION
-// ------------------------------------------------------
-
-async function executeDebugReport({
-  client,
-  guild,
-  reporterUser,
-  reporterMember,
-  pokemon,
-  route,
-  idOrIgn,
-  now = new Date()
-}) {
-  const flowIsEncounter = isEncounter(idOrIgn);
-
-  // --------------------------------------------------
-  // FLOW VALIDATION
-  // --------------------------------------------------
-
-  const reporterRow = await db.getUserById(reporterUser.id);
-  const reporterIgn = reporterRow?.username || null; // placeholder until /ign exists
-
-  if (flowIsEncounter && !reporterIgn) {
-    return {
-      ok: false,
-      error:
-        "You must register your IGN using `/ign` before submitting encounter reports."
-    };
-  }
-
-  if (!flowIsEncounter && !idOrIgn) {
-    return {
-      ok: false,
-      error: "You must provide an IGN for sighting reports."
-    };
-  }
-
-  // --------------------------------------------------
-  // DUPLICATE LIMITING
-  // --------------------------------------------------
-  const limitCheck = await checkReportAllowed(pokemon, now);
-  if (!limitCheck.allowed) {
-    return {
-      ok: false,
-      error: `This Pokémon was already reported this hour.\nNext reset ${limitCheck.nextResetLabel}`
-    };
-  }
-
-  // --------------------------------------------------
-  // VERIFICATION + OWNERSHIP
-  // --------------------------------------------------
-  let finalType = "sighting";
-  let encounterIgn = null;
-  let encounterUserId = null;
-  let pointsRecipientId = reporterUser.id;
-  let pointsMultiplier = 0.5;
-
-  if (flowIsEncounter) {
-    const verify = await verifyPokemonId(client, guild, idOrIgn);
-
-    if (!verify.ok) {
-      return {
-        ok: false,
-        error: `Failed to verify Pokémon ID (${verify.reason}).`
-      };
-    }
-
-    encounterIgn = normalizeIgn(verify.trainerIgn);
-
-    if (
-      encounterIgn.toLowerCase() !== reporterIgn.toLowerCase()
-    ) {
-      return {
-        ok: false,
-        error:
-          "The Pokémon ID does not belong to your registered IGN."
-      };
-    }
-
-    finalType = "encounter";
-    encounterUserId = reporterUser.id;
-    pointsRecipientId = reporterUser.id;
-    pointsMultiplier = 1;
-  } else {
-    encounterIgn = normalizeIgn(idOrIgn);
-
-    const ownerRow = await db.getUserByUsername(encounterIgn);
-
-    if (ownerRow) {
-      finalType = "encounter";
-      encounterUserId = ownerRow.discord_id;
-      pointsRecipientId = ownerRow.discord_id;
-      pointsMultiplier = 1;
+  if (!targetChannel) {
+    const fb = fallbackChannelId || DEFAULT_DEBUG_REPORT_CHANNEL_ID;
+    if (fb) {
+      targetChannel = await fetchChannelSafe(guild, fb);
+      if (targetChannel) targetChannelId = fb;
     }
   }
 
-  // --------------------------------------------------
-  // POINTS + RANK
-  // --------------------------------------------------
-  const rarityKey = getRarity(pokemon);
-  const rarityLabel = getRarityDisplayLabel(rarityKey);
+  return { targetChannel, targetChannelId };
+}
 
-  const basePoints = calculateAwardedPoints(rarityKey, now);
-  const awardedPoints = Math.floor(basePoints * pointsMultiplier);
-
-  let updatedRecipient = null;
-  let trainerRank = "Trainer";
-
-  if (awardedPoints > 0) {
-    updatedRecipient = await db.addPoints(
-      pointsRecipientId,
-      encounterIgn || reporterUser.username,
-      awardedPoints,
-      `Report (${finalType})`
-    );
-
-    trainerRank = getRankName(
-      updatedRecipient?.lifetime_points || 0
-    );
-  }
-
-  // --------------------------------------------------
-  // EXPIRY
-  // --------------------------------------------------
+/**
+ * Compute expiry (end of current hour) + deleteAt (24h after expiry)
+ */
+function computeExpiryWindow(now = new Date()) {
   const expiresAt = new Date(now);
   expiresAt.setMinutes(59, 59, 999);
   const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
+  return { expiresAt, deleteAt };
+}
 
-  // --------------------------------------------------
-  // RENDER INTENT
-  // --------------------------------------------------
-  const displayName =
-    finalType === "encounter"
-      ? encounterIgn
-      : reporterMember.displayName;
+/**
+ * Staff check helper
+ */
+function isStaff(member, staffRoleIds = []) {
+  if (!member || !member.roles) return false;
+  if (!Array.isArray(staffRoleIds) || staffRoleIds.length === 0) return false;
+  return member.roles.cache.some(r => staffRoleIds.includes(r.id));
+}
 
-  const narrativeText =
-    finalType === "encounter"
-      ? `${displayName} encountered a wild ${pokemon} on ${route}`
-      : `${reporterMember.displayName} reported that ${encounterIgn} encountered a wild ${pokemon}`;
+/**
+ * Main debug report flow:
+ * - optionally validate pokemon/route
+ * - optionally block duplicates (reportLimiter)
+ * - award points
+ * - render card
+ * - post to target channel
+ * - save to DB
+ * - touch player profile + guild tracking
+ *
+ * Options:
+ * {
+ *   staffRoleIds: string[],
+ *   fallbackChannelId: string,
+ *   allowDuplicates: boolean,
+ *   validateInputs: boolean,
+ *   reasonPrefix: string
+ * }
+ */
+async function runDebugReport(client, interaction, options = {}) {
+  const user = interaction.user;
+  const member = interaction.member;
+  const guild = interaction.guild;
+
+  const staffRoleIds = options.staffRoleIds || [];
+  const fallbackChannelId = options.fallbackChannelId || DEFAULT_DEBUG_REPORT_CHANNEL_ID;
+
+  const allowDuplicates =
+    typeof options.allowDuplicates === "boolean"
+      ? options.allowDuplicates
+      : (process.env.DEBUG_ALLOW_DUPLICATE_REPORTS === "1");
+
+  const validateInputs =
+    typeof options.validateInputs === "boolean"
+      ? options.validateInputs
+      : (process.env.DEBUG_VALIDATE_REPORT_INPUTS !== "0"); // default ON
+
+  const reasonPrefix = options.reasonPrefix || "Debug Report";
+
+  // STAFF ONLY (for /reportdebug)
+  if (!isStaff(member, staffRoleIds)) {
+    return {
+      ok: false,
+      errorMessage: "⛔ Staff-only test command.",
+      flags: 64
+    };
+  }
+
+  const pokemon = interaction.options.getString("pokemon");
+  const route = interaction.options.getString("route");
+
+  // Optional strong validation (if validation.cjs exists)
+  if (validateInputs) {
+    if (typeof isValidPokemon === "function" && !isValidPokemon(pokemon)) {
+      return {
+        ok: false,
+        errorMessage: `❌ **"${pokemon}"** is not a valid Pokémon.\nPlease choose from the autocomplete list.`,
+        flags: 64
+      };
+    }
+    if (typeof isValidLocation === "function" && !isValidLocation(route)) {
+      return {
+        ok: false,
+        errorMessage: `❌ **"${route}"** is not a valid Route.\nPlease select using the autocomplete list.`,
+        flags: 64
+      };
+    }
+  }
+
+  // RARITY + POINTS
+  const rarityKey = getRarity(pokemon);
+  const rarityLabel = getRarityDisplayLabel(rarityKey);
+
+  // Duplicate blocking (optional)
+  if (!allowDuplicates && typeof checkReportAllowed === "function") {
+    const allowedInfo = await checkReportAllowed(pokemon, new Date());
+    if (!allowedInfo.allowed) {
+      const extra =
+        allowedInfo.nextResetLabel
+          ? `\nNext reset: ${allowedInfo.nextResetLabel}`
+          : "";
+
+      return {
+        ok: false,
+        errorMessage: `🚫 Duplicate report blocked (**${allowedInfo.reason || "duplicate"}**) — **${pokemon}** already reported this hour.${extra}`,
+        flags: 64,
+        blocked: true
+      };
+    }
+  }
+
+  const now = new Date();
+  const points = calculateAwardedPoints(rarityKey, now);
+
+  const updatedUser = await db.addPoints(
+    user.id,
+    user.username,
+    points,
+    `${reasonPrefix}: ${pokemon}`
+  );
+
+  const trainerRank = getRankName(updatedUser?.lifetime_points || 0);
+  const trainerName =
+    member?.displayName ||
+    member?.nickname ||
+    user?.globalName ||
+    user?.username;
+
+  // EXPIRY WINDOW
+  const { expiresAt, deleteAt } = computeExpiryWindow(now);
+
+  const reportId = `report_${Date.now()}_${user.id}`;
+
+  // BUILD CARD IMAGE
+  const cardPath = await createReportCard({
+    trainerName,
+    trainerRank,
+    pokemonName: pokemon,
+    rarityKey,
+    rarityLabel,
+    points,
+    location: route,
+    statusText: "Active"
+  });
+
+  // ROUTE CHANNEL
+  const { targetChannel, targetChannelId } = await resolveTargetChannel(
+    guild,
+    rarityKey,
+    fallbackChannelId
+  );
+
+  if (!targetChannel) {
+    return {
+      ok: false,
+      errorMessage:
+        "❌ No valid report channel found. Please configure rarity channels or REPORT_CARD_CHANNEL_ID.",
+      flags: 64
+    };
+  }
+
+  // Role ping from router (if configured)
+  const roleId = getRoleForRarity(rarityKey);
+  const mentions = [`<@${user.id}>`];
+  if (roleId) mentions.push(`<@&${roleId}>`);
+
+  // BUTTONS (Edit / Delete)
+  const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+  const controls = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`reportedit_${reportId}`)
+      .setLabel("✏ Edit")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`reportdelete_${reportId}`)
+      .setLabel("🗑 Delete")
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  // SEND CARD MESSAGE
+  const sent = await targetChannel.send({
+    content: mentions.join(" "),
+    files: [cardPath],
+    components: [controls]
+  });
+
+  // DB SAVE (reports)
+  await db.createReport({
+    id: reportId,
+    guildId: guild.id,
+    reporterId: user.id,
+    reporterName: trainerName,
+    pokemonName: pokemon,
+    rarityKey,
+    rarityLabel,
+    location: route,
+    trainerRank,
+    points,
+    status: "active",
+    channelId: sent.channelId,
+    messageId: sent.id,
+    imagePath: cardPath,
+    expiresAt: expiresAt.getTime(),
+    deleteAt,
+    createdAt: now.getTime()
+  });
+
+  // Player profile + guild tracking (new DB features)
+  // - ign optional (not set here)
+  if (typeof db.upsertPlayerProfile === "function") {
+    await db.upsertPlayerProfile({
+      discordId: user.id,
+      username: user.username,
+      nickname: trainerName
+    });
+  }
+  if (typeof db.touchPlayerGuild === "function") {
+    await db.touchPlayerGuild(user.id, guild.id);
+  }
 
   return {
     ok: true,
-
-    finalType,
-    narrativeText,
-
-    highlight: {
-      text:
-        finalType === "encounter"
-          ? displayName
-          : encounterIgn,
-      type: finalType === "encounter" ? "owner" : "ign"
-    },
-
-    pokemonName: pokemon,
-    route,
+    reportId,
+    targetChannelId,
+    expiresAt,
+    points,
     rarityKey,
-    rarityLabel,
-
-    pointsAwarded: awardedPoints,
-    pointsRecipientId,
-
-    trainerRank,
-
-    expiresAt: expiresAt.getTime(),
-    deleteAt
+    rarityLabel
   };
 }
 
 module.exports = {
-  executeDebugReport
+  runDebugReport,
+  resolveTargetChannel,
+  computeExpiryWindow
 };
