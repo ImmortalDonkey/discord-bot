@@ -1,3 +1,5 @@
+// interactions/commands/reportdebug.cjs
+
 const {
   SlashCommandBuilder,
   ActionRowBuilder,
@@ -15,19 +17,32 @@ const {
   getRoleForRarity
 } = require("../../utils/reportChannelRouter.cjs");
 
-const {
-  classifyReportTarget,
-  validateEncounterReport,
-  validateSightingReport
-} = require("../../utils/ignValidator.cjs");
-
 const STAFF_ROLES = process.env.STAFF_ROLES?.split(",") || [];
 const DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
+
+/**
+ * Resolve Discord display name using LIVE logic
+ */
+function getDiscordDisplayName(interaction) {
+  return (
+    interaction.member?.displayName ||
+    interaction.member?.nickname ||
+    interaction.user?.globalName ||
+    interaction.user?.username
+  );
+}
+
+/**
+ * Decide grammar: on vs at
+ */
+function routePreposition(route) {
+  return /\d$/.test(route?.trim()) ? "on" : "at";
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("reportdebug")
-    .setDescription("Staff-only: test report logic with IGN / Pokémon ID")
+    .setDescription("Staff-only: test the report card system")
     .addStringOption(o =>
       o
         .setName("pokemon")
@@ -44,9 +59,15 @@ module.exports = {
     )
     .addStringOption(o =>
       o
-        .setName("target")
-        .setDescription("Pokémon ID (#12345) or IGN")
-        .setRequired(true)
+        .setName("id")
+        .setDescription("Encounter Pokémon ID (prefix with #)")
+        .setRequired(false)
+    )
+    .addStringOption(o =>
+      o
+        .setName("ign")
+        .setDescription("IGN for sighting report")
+        .setRequired(false)
     ),
 
   async execute(client, interaction) {
@@ -64,86 +85,25 @@ module.exports = {
       });
     }
 
-    await interaction.reply({
-      content: "🧪 Processing debug report...",
-      flags: 64
-    });
-
-    // Track player-guild relationship (multi-server groundwork)
-    await db.touchPlayerGuild(user.id, guild.id);
-
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
-    const targetInput = interaction.options.getString("target");
+    const idInput = interaction.options.getString("id");
+    const ignInput = interaction.options.getString("ign");
 
     // ──────────────────────────────
-    // CLASSIFY TARGET (ID vs IGN)
+    // VALIDATION: EXACTLY ONE OF ID / IGN
     // ──────────────────────────────
-    const target = classifyReportTarget(targetInput);
-
-    let reportType = null; // "encounter" | "sighting"
-    let encounterDiscordId = null;
-    let encounterIgn = null;
-    let narrativeText = null;
-    let awardedMultiplier = 1.0;
-
-    // ──────────────────────────────
-    // ENCOUNTER FLOW (Pokémon ID)
-    // ──────────────────────────────
-    if (target.type === "pokemon-id") {
-      const encounterCheck = await validateEncounterReport({
-        reporterDiscordId: user.id
+    if ((idInput && ignInput) || (!idInput && !ignInput)) {
+      return interaction.reply({
+        content: "❌ You must provide **either** an ID **or** an IGN (not both).",
+        flags: 64
       });
-
-      if (!encounterCheck.allowed) {
-        return interaction.followUp({
-          content: "❌ You must register your IGN using `/ign` before submitting an encounter report.",
-          flags: 64
-        });
-      }
-
-      reportType = "encounter";
-      encounterDiscordId = user.id;
-      encounterIgn = encounterCheck.ign;
-      awardedMultiplier = 1.0;
-
-      narrativeText = `${member.displayName} encountered a wild ${pokemon} on ${route}`;
     }
 
-    // ──────────────────────────────
-    // SIGHTING FLOW (IGN)
-    // ──────────────────────────────
-    if (target.type === "ign") {
-      const sightingCheck = await validateSightingReport({
-        ign: target.ign
-      });
-
-      if (!sightingCheck.allowed) {
-        return interaction.followUp({
-          content: "❌ Invalid sighting report.",
-          flags: 64
-        });
-      }
-
-      // Upgrade to encounter if IGN belongs to registered player
-      if (sightingCheck.upgradedToEncounter) {
-        reportType = "encounter";
-        encounterDiscordId = sightingCheck.ownerProfile.discord_id;
-        encounterIgn = sightingCheck.ownerProfile.ign;
-        awardedMultiplier = 1.0;
-
-        narrativeText =
-          `${member.displayName} reported that ${encounterIgn} encountered a wild ${pokemon} on ${route}`;
-      } else {
-        reportType = "sighting";
-        encounterDiscordId = null;
-        encounterIgn = target.ign;
-        awardedMultiplier = 0.5;
-
-        narrativeText =
-          `${member.displayName} reported a wild ${pokemon} sighting on ${route}`;
-      }
-    }
+    await interaction.reply({
+      content: "🎨 Rendering debug report card...",
+      flags: 64
+    });
 
     // ──────────────────────────────
     // RARITY + POINTS
@@ -153,20 +113,58 @@ module.exports = {
 
     const now = new Date();
     const basePoints = calculateAwardedPoints(rarityKey, now);
-    const awardedPoints = Math.floor(basePoints * awardedMultiplier);
 
-    let trainerRank = "Trainer";
+    // Encounter = 100%, Sighting = 50%
+    let awardedPoints = basePoints;
+    let reportType = "encounter";
 
-    if (encounterDiscordId) {
-      const updatedUser = await db.addPoints(
-        encounterDiscordId,
-        encounterIgn,
-        awardedPoints,
-        `Debug ${reportType}: ${pokemon}`
-      );
+    // ──────────────────────────────
+    // NAME RESOLUTION
+    // ──────────────────────────────
+    const reporterName = getDiscordDisplayName(interaction);
 
-      trainerRank = getRankName(updatedUser?.lifetime_points || 0);
+    let encountererName = reporterName;
+    let encountererType = "discord";
+    let reporterType = "discord";
+
+    // SIGHTING FLOW
+    if (ignInput) {
+      const ign = ignInput.trim();
+      const foundPlayer = await db.getPlayerByIgn(ign);
+
+      if (foundPlayer) {
+        // UPGRADE TO ENCOUNTER
+        reportType = "encounter";
+        encountererName =
+          foundPlayer.nickname ||
+          foundPlayer.username ||
+          ign;
+        encountererType = "discord";
+      } else {
+        // TRUE SIGHTING
+        reportType = "sighting";
+        encountererName = ign;
+        encountererType = "ign";
+        awardedPoints = Math.floor(basePoints * 0.5);
+      }
     }
+
+    // ID FLOW (explicit encounter)
+    if (idInput) {
+      reportType = "encounter";
+    }
+
+    // ──────────────────────────────
+    // AWARD POINTS (DEBUG STILL WRITES)
+    // ──────────────────────────────
+    const updatedUser = await db.addPoints(
+      user.id,
+      user.username,
+      awardedPoints,
+      `Debug Report (${reportType}): ${pokemon}`
+    );
+
+    const trainerRank = getRankName(updatedUser?.lifetime_points || 0);
 
     // ──────────────────────────────
     // EXPIRY WINDOW
@@ -178,33 +176,42 @@ module.exports = {
     const reportId = `report_${Date.now()}_${user.id}`;
 
     // ──────────────────────────────
-    // RENDER CARD
+    // BUILD CARD IMAGE (DEBUG RENDERER)
     // ──────────────────────────────
     const cardPath = await createReportCard({
-      narrativeText,
-      trainerRank,
+      reportType,
+      reporterName,
+      reporterType,
+      encountererName,
+      encountererType,
       pokemonName: pokemon,
+      location: route,
       rarityKey,
       rarityLabel,
       points: awardedPoints,
-      location: route,
-      statusText: reportType === "encounter" ? "Encounter" : "Sighting"
+      trainerRank,
+      statusText: "Active"
     });
 
     // ──────────────────────────────
-    // ROUTE CHANNEL
+    // ROUTE TO CHANNEL
     // ──────────────────────────────
     let targetChannel = null;
     let targetChannelId = null;
 
     const routedChannelId = getChannelForRarity(rarityKey);
+
     if (routedChannelId) {
-      targetChannel = await guild.channels.fetch(routedChannelId).catch(() => null);
+      targetChannel = await guild.channels
+        .fetch(routedChannelId)
+        .catch(() => null);
       targetChannelId = routedChannelId;
     }
 
     if (!targetChannel && DEBUG_REPORT_CHANNEL_ID) {
-      targetChannel = await guild.channels.fetch(DEBUG_REPORT_CHANNEL_ID).catch(() => null);
+      targetChannel = await guild.channels
+        .fetch(DEBUG_REPORT_CHANNEL_ID)
+        .catch(() => null);
       targetChannelId = DEBUG_REPORT_CHANNEL_ID;
     }
 
@@ -215,46 +222,65 @@ module.exports = {
       });
     }
 
+    // Role ping
     const roleId = getRoleForRarity(rarityKey);
-    const mentions = roleId ? [`<@&${roleId}>`] : [];
+    const mentions = [`<@${user.id}>`];
+    if (roleId) mentions.push(`<@&${roleId}>`);
+
+    // ──────────────────────────────
+    // BUTTONS
+    // ──────────────────────────────
+    const controls = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`reportedit_${reportId}`)
+        .setLabel("✏ Edit")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`reportdelete_${reportId}`)
+        .setLabel("🗑 Delete")
+        .setStyle(ButtonStyle.Danger)
+    );
 
     // ──────────────────────────────
     // SEND MESSAGE
     // ──────────────────────────────
     const sent = await targetChannel.send({
       content: mentions.join(" "),
-      files: [cardPath]
+      files: [cardPath],
+      components: [controls]
     });
 
     // ──────────────────────────────
-    // DB SAVE
+    // SAVE REPORT (MATCHES LIVE SCHEMA)
     // ──────────────────────────────
     await db.createReport({
       id: reportId,
       guildId: guild.id,
       reporterId: user.id,
-      reporterName: member.displayName,
+      reporterName,
+      trainerRank,
       pokemonName: pokemon,
       rarityKey,
       rarityLabel,
       location: route,
-      trainerRank,
-      points: awardedPoints,
       status: "active",
-      channelId: sent.channelId,
       messageId: sent.id,
-      imagePath: cardPath,
+      channelId: sent.channelId,
+      points: awardedPoints,
       expiresAt: expiresAt.getTime(),
       deleteAt,
-      createdAt: now.getTime()
+      createdAt: now.getTime(),
+      imagePath: cardPath
     });
 
     // ──────────────────────────────
-    // CONFIRMATION (EPHEMERAL)
+    // CONFIRMATION
     // ──────────────────────────────
     return interaction.followUp({
-      content:
-        `✔ Debug ${reportType} report posted in <#${targetChannelId}> (${awardedPoints} pts)`,
+      content: `☑ Debug report posted in <#${targetChannelId}> — expires **${expiresAt.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit"
+      })}**`,
       flags: 64
     });
   }
