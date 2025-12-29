@@ -1,24 +1,10 @@
-// renderers/reportCard.debug.cjs
-// ======================================================
-// DEBUG REPORT CARD RENDERER
-// Supports:
-//  - Encounter vs Sighting narrative
-//  - on / at grammar rules
-//  - Discord nickname + IGN colouring
-//  - Proper wrapping + spacing
-// ======================================================
-
 const fs = require("fs");
 const path = require("path");
 const { createCanvas, loadImage } = require("canvas");
 
-// ------------------------------------------------------
-// CONSTANTS
-// ------------------------------------------------------
-
 const CARD_WIDTH = 2200;
 const CARD_HEIGHT = 1300;
-const MARGIN = Math.floor(CARD_WIDTH * 0.05);
+const MARGIN = Math.floor(CARD_WIDTH * 0.05); // 5% outer margin
 
 const REPORT_DIR = path.join(__dirname, "report-images");
 const SPRITES_DIR = path.join(__dirname, "..", "sprites");
@@ -28,7 +14,7 @@ if (!fs.existsSync(REPORT_DIR)) {
   fs.mkdirSync(REPORT_DIR, { recursive: true });
 }
 
-// Rarity outline colours
+// Outline colours based on rarity
 const rarityOutline = {
   paradox: "#a855f7",
   roamerMonth: "#ec4899",
@@ -37,18 +23,11 @@ const rarityOutline = {
   common: "#4ade80"
 };
 
-// Semantic name colours
+// Semantic colours
 const NAME_COLORS = {
   discord: "#38bdf8", // cyan
   ign: "#f59e0b"      // amber
 };
-
-const VALUE_COLOR = "#ffffff";
-const LABEL_COLOR = "#facc15";
-
-// ------------------------------------------------------
-// HELPERS
-// ------------------------------------------------------
 
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
@@ -65,7 +44,7 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-async function drawSprite(ctx, x, y, w, h, pokemonName) {
+async function drawSprite(ctx, x, y, spriteW, spriteH, pokemonName) {
   if (!pokemonName) return;
 
   const spritePath = path.join(SPRITES_DIR, `${pokemonName}.png`);
@@ -74,10 +53,10 @@ async function drawSprite(ctx, x, y, w, h, pokemonName) {
   const img = await loadImage(spritePath);
 
   const imgRatio = img.width / img.height;
-  const boxRatio = w / h;
+  const boxRatio = spriteW / spriteH;
 
-  let drawW = w;
-  let drawH = h;
+  let drawW = spriteW;
+  let drawH = spriteH;
 
   if (imgRatio > boxRatio) {
     drawH = drawW / imgRatio;
@@ -85,8 +64,8 @@ async function drawSprite(ctx, x, y, w, h, pokemonName) {
     drawW = drawH * imgRatio;
   }
 
-  const dx = x + (w - drawW) / 2;
-  const dy = y + (h - drawH) / 2;
+  const dx = x + (spriteW - drawW) / 2;
+  const dy = y + (spriteH - drawH) / 2;
 
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(img, dx, dy, drawW, drawH);
@@ -100,11 +79,9 @@ function slugifyRoute(location) {
     .replace(/[^a-z0-9\-]/g, "");
 }
 
-function routeUsesOn(location) {
-  return /\d+$/.test(String(location || "").trim());
-}
-
-// Word wrap for narrative + rarity
+/**
+ * Wrap text into multiple lines based on max width
+ */
 function wrapText(ctx, text, maxWidth) {
   const words = String(text || "").split(/\s+/);
   const lines = [];
@@ -119,24 +96,18 @@ function wrapText(ctx, text, maxWidth) {
       line = test;
     }
   }
+
   if (line) lines.push(line);
   return lines;
 }
 
-// ------------------------------------------------------
-// MAIN RENDER FUNCTION
-// ------------------------------------------------------
-
 async function createReportCard(report) {
   const {
-    // Narrative control
     reportType = "encounter", // "encounter" | "sighting"
     reporterName,
     reporterType = "discord",
     encountererName,
     encountererType = "discord",
-
-    // Data
     pokemonName,
     location,
     rarityKey,
@@ -149,9 +120,9 @@ async function createReportCard(report) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // --------------------------------------------------
+  // ──────────────────────────────
   // BACKGROUND
-  // --------------------------------------------------
+  // ──────────────────────────────
   const routeSlug = slugifyRoute(location);
   const bgPath = path.join(BG_DIR, `${routeSlug}.png`);
 
@@ -175,21 +146,26 @@ async function createReportCard(report) {
   const panelW = leftW;
   const panelH = innerHeight - 160;
 
-  // --------------------------------------------------
+  // ──────────────────────────────
   // MAIN PANEL
-  // --------------------------------------------------
+  // ──────────────────────────────
   ctx.save();
   roundedRectPath(ctx, leftX, leftY, panelW, panelH, 40);
-  ctx.fillStyle = "rgba(50,50,50,0.70)";
+  ctx.fillStyle = "rgba(50, 50, 50, 0.70)";
   ctx.fill();
   ctx.lineWidth = 10;
   ctx.strokeStyle = rarityOutline[rarityKey] || "#ffffff";
   ctx.stroke();
   ctx.restore();
 
-  const FONT_SIZE = 55;
-  const lineHeight = FONT_SIZE * 1.35;
-  const spacerGap = lineHeight * 0.75;
+  // 🔼 20% FONT SIZE INCREASE
+  const BASE_FONT_SIZE = 55;
+  const FONT_SIZE = Math.round(BASE_FONT_SIZE * 1.2);
+  const lineHeight = FONT_SIZE * 1.25;
+  const spacerGap = lineHeight * 0.6;
+
+  const LABEL_COLOR = "#facc15";
+  const VALUE_COLOR = "#ffffff";
 
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
   ctx.textAlign = "left";
@@ -198,95 +174,79 @@ async function createReportCard(report) {
   const contentX = leftX + 60;
   const contentW = panelW - 120;
 
-  let cursorY = leftY + 100; // extra breathing room at top
+  // ──────────────────────────────
+  // MEASURE TOTAL TEXT HEIGHT (for vertical centering)
+  // ──────────────────────────────
+  let totalHeight = 0;
 
-  // --------------------------------------------------
+  // Narrative height
+  const narrativeLines = wrapText(
+    ctx,
+    reportType === "sighting"
+      ? `${reporterName} reported that ${encountererName} encountered a wild ${pokemonName} on ${location}`
+      : `${encountererName} encountered a wild ${pokemonName} on ${location}`,
+    contentW
+  );
+
+  totalHeight += narrativeLines.length * lineHeight;
+  totalHeight += lineHeight * 1.2; // spacing after narrative
+
+  // Metadata rows
+  const metaRows = [
+    trainerRank,
+    rarityLabel,
+    String(points || 0),
+    statusText || "Active"
+  ];
+
+  totalHeight += metaRows.length * lineHeight;
+  totalHeight += spacerGap * 3;
+
+  // Start Y centered
+  let cursorY = leftY + (panelH - totalHeight) / 2;
+
+  // ──────────────────────────────
   // NARRATIVE PARAGRAPH
-  // --------------------------------------------------
-  const useOn = routeUsesOn(location);
-  const prep = useOn ? "on" : "at";
-
-  let narrative = "";
-
-  if (reportType === "sighting") {
-    narrative = `${reporterName} reported that ${encountererName} encountered a wild ${pokemonName} ${prep} ${location}`;
-  } else {
-    narrative = `${encountererName} encountered a wild ${pokemonName} ${prep} ${location}`;
-  }
-
-  const narrativeLines = wrapText(ctx, narrative, contentW);
-
+  // ──────────────────────────────
   for (const line of narrativeLines) {
-    // Render with semantic colouring
-    let x = contentX;
-    const parts = line.split(" ");
-
-    for (const part of parts) {
-      let color = VALUE_COLOR;
-
-      if (part === reporterName) color = NAME_COLORS[reporterType];
-      if (part === encountererName) color = NAME_COLORS[encountererType];
-
-      ctx.fillStyle = color;
-      ctx.fillText(part + " ", x, cursorY);
-      x += ctx.measureText(part + " ").width;
-    }
-
+    ctx.fillStyle = VALUE_COLOR;
+    ctx.fillText(line, contentX, cursorY);
     cursorY += lineHeight;
   }
 
-  cursorY += spacerGap;
+  cursorY += lineHeight * 1.2;
 
-  // --------------------------------------------------
+  // ──────────────────────────────
   // METADATA TABLE
-  // --------------------------------------------------
+  // ──────────────────────────────
   const fields = [
     { label: "Rank:", value: trainerRank },
-    { spacer: true },
-    { label: "Rarity:", value: rarityLabel, wrap: true },
-    { spacer: true },
-    { label: "Points Awarded:", value: String(points || 0) },
-    { spacer: true },
+    { label: "Rarity:", value: rarityLabel },
+    { label: "Points:", value: String(points || 0) },
     { label: "Status:", value: statusText || "Active" }
   ];
 
   let maxLabelWidth = 0;
   for (const f of fields) {
-    if (f.spacer) continue;
     maxLabelWidth = Math.max(maxLabelWidth, ctx.measureText(f.label).width);
   }
 
   const labelX = contentX;
   const valueX = labelX + maxLabelWidth + 40;
-  const maxValueWidth = contentW - (valueX - contentX);
 
   for (const f of fields) {
-    if (f.spacer) {
-      cursorY += spacerGap;
-      continue;
-    }
-
     ctx.fillStyle = LABEL_COLOR;
     ctx.fillText(f.label, labelX, cursorY);
 
     ctx.fillStyle = VALUE_COLOR;
-
-    if (f.wrap) {
-      const lines = wrapText(ctx, f.value, maxValueWidth);
-      for (let i = 0; i < lines.length; i++) {
-        ctx.fillText(lines[i], valueX, cursorY);
-        if (i < lines.length - 1) cursorY += lineHeight;
-      }
-    } else {
-      ctx.fillText(f.value ?? "", valueX, cursorY);
-    }
+    ctx.fillText(f.value ?? "", valueX, cursorY);
 
     cursorY += lineHeight;
   }
 
-  // --------------------------------------------------
+  // ──────────────────────────────
   // SPRITE
-  // --------------------------------------------------
+  // ──────────────────────────────
   const spritePadding = 60;
   const spriteW = rightW - spritePadding * 2;
   const spriteH = panelH - spritePadding * 2;
@@ -300,9 +260,9 @@ async function createReportCard(report) {
     pokemonName
   );
 
-  // --------------------------------------------------
+  // ──────────────────────────────
   // ROUTE BAR
-  // --------------------------------------------------
+  // ──────────────────────────────
   const routeX = MARGIN;
   const routeH = 120;
   const routeY = CARD_HEIGHT - MARGIN - routeH;
@@ -317,16 +277,15 @@ async function createReportCard(report) {
   ctx.stroke();
   ctx.restore();
 
-  const routeFontSize = Math.round(FONT_SIZE * 1.2);
-  ctx.font = `bold ${routeFontSize}px sans-serif`;
+  ctx.font = `bold ${Math.round(FONT_SIZE * 1.2)}px sans-serif`;
   ctx.fillStyle = "#000000";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(location || "Unknown Route", routeX + routeW / 2, routeY + routeH / 2);
 
-  // --------------------------------------------------
-  // SAVE FILE
-  // --------------------------------------------------
+  // ──────────────────────────────
+  // SAVE
+  // ──────────────────────────────
   const safeName =
     pokemonName?.toLowerCase()?.replace(/[^a-z0-9]+/g, "-") || "pokemon";
 
