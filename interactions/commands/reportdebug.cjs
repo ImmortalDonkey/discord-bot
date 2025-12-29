@@ -10,18 +10,12 @@ const { getRankName } = require("../../utils/rankSystem.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { calculateAwardedPoints } = require("../../utils/scoring.cjs");
 const { createReportCard } = require("../../renderers/reportCard.debug.cjs");
-const {
-  getChannelForRarity,
-  getRoleForRarity
-} = require("../../utils/reportChannelRouter.cjs");
 
 const STAFF_ROLES = process.env.STAFF_ROLES?.split(",") || [];
 const DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
 
-const IS_DEV = process.env.NODE_ENV === "DEV";
-
 /**
- * Resolve Discord display name using LIVE logic
+ * Resolve Discord display name (matches LIVE logic)
  */
 function getDiscordDisplayName(interaction) {
   return (
@@ -33,7 +27,7 @@ function getDiscordDisplayName(interaction) {
 }
 
 /**
- * Decide grammar: on vs at
+ * Decide grammar: "on" vs "at"
  */
 function routePreposition(route) {
   return /\d$/.test(route?.trim()) ? "on" : "at";
@@ -106,7 +100,7 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // RARITY + POINTS (COMPUTED EVEN IN DEV)
+    // RARITY + POINTS
     // ──────────────────────────────
     const rarityKey = getRarity(pokemon);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
@@ -121,23 +115,12 @@ module.exports = {
     // NAME RESOLUTION
     // ──────────────────────────────
     const reporterName = getDiscordDisplayName(interaction);
-    const reporterType = "discord";
 
     let encountererName = reporterName;
     let encountererType = "discord";
+    let reporterType = "discord";
 
-    // Track guild presence (ALLOWED IN DEV)
-    await db.upsertPlayerProfile({
-      discordId: user.id,
-      username: user.username,
-      nickname: reporterName
-    });
-
-    await db.touchPlayerGuild(user.id, guild.id);
-
-    // ──────────────────────────────
-    // SIGHTING / ENCOUNTER LOGIC
-    // ──────────────────────────────
+    // SIGHTING FLOW
     if (ignInput) {
       const ign = ignInput.trim();
       const foundPlayer = await db.getPlayerByIgn(ign);
@@ -159,28 +142,25 @@ module.exports = {
       }
     }
 
+    // ID FLOW (explicit encounter)
     if (idInput) {
       reportType = "encounter";
     }
 
     // ──────────────────────────────
-    // POINTS + RANK (DEV-SAFE)
+    // AWARD POINTS (DEBUG STILL WRITES)
     // ──────────────────────────────
-    let trainerRank = "—";
+    const updatedUser = await db.addPoints(
+      user.id,
+      user.username,
+      awardedPoints,
+      `Debug Report (${reportType}): ${pokemon}`
+    );
 
-    if (!IS_DEV) {
-      const updatedUser = await db.addPoints(
-        user.id,
-        user.username,
-        awardedPoints,
-        `Debug Report (${reportType}): ${pokemon}`
-      );
-
-      trainerRank = getRankName(updatedUser?.lifetime_points || 0);
-    }
+    const trainerRank = getRankName(updatedUser?.lifetime_points || 0);
 
     // ──────────────────────────────
-    // EXPIRY WINDOW (MATCHES LIVE)
+    // EXPIRY WINDOW
     // ──────────────────────────────
     const expiresAt = new Date(now);
     expiresAt.setMinutes(59, 59, 999);
@@ -189,7 +169,7 @@ module.exports = {
     const reportId = `report_${Date.now()}_${user.id}`;
 
     // ──────────────────────────────
-    // RENDER CARD (DEBUG RENDERER)
+    // BUILD CARD IMAGE (DEBUG RENDERER)
     // ──────────────────────────────
     const cardPath = await createReportCard({
       reportType,
@@ -207,33 +187,25 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // ROUTE TO CHANNEL
+    // DEBUG CHANNEL ONLY (NO ROUTER)
     // ──────────────────────────────
-    let targetChannel = null;
-    let targetChannelId = null;
-
-    const routedChannelId = getChannelForRarity(rarityKey);
-
-    if (routedChannelId) {
-      targetChannel = await guild.channels.fetch(routedChannelId).catch(() => null);
-      targetChannelId = routedChannelId;
-    }
-
-    if (!targetChannel && DEBUG_REPORT_CHANNEL_ID) {
-      targetChannel = await guild.channels.fetch(DEBUG_REPORT_CHANNEL_ID).catch(() => null);
-      targetChannelId = DEBUG_REPORT_CHANNEL_ID;
-    }
-
-    if (!targetChannel) {
+    if (!DEBUG_REPORT_CHANNEL_ID) {
       return interaction.followUp({
-        content: "❌ No valid report channel configured.",
+        content: "❌ REPORT_CARD_CHANNEL_ID is not configured.",
         flags: 64
       });
     }
 
-    const roleId = getRoleForRarity(rarityKey);
-    const mentions = [`<@${user.id}>`];
-    if (roleId) mentions.push(`<@&${roleId}>`);
+    const targetChannel = await guild.channels
+      .fetch(DEBUG_REPORT_CHANNEL_ID)
+      .catch(() => null);
+
+    if (!targetChannel) {
+      return interaction.followUp({
+        content: "❌ Debug report channel not found.",
+        flags: 64
+      });
+    }
 
     // ──────────────────────────────
     // BUTTONS
@@ -253,41 +225,39 @@ module.exports = {
     // SEND MESSAGE
     // ──────────────────────────────
     const sent = await targetChannel.send({
-      content: mentions.join(" "),
+      content: `<@${user.id}>`,
       files: [cardPath],
       components: [controls]
     });
 
     // ──────────────────────────────
-    // SAVE REPORT (LIVE ONLY)
+    // SAVE REPORT (MATCHES LIVE SCHEMA)
     // ──────────────────────────────
-    if (!IS_DEV) {
-      await db.createReport({
-        id: reportId,
-        guildId: guild.id,
-        reporterId: user.id,
-        reporterName,
-        trainerRank,
-        pokemonName: pokemon,
-        rarityKey,
-        rarityLabel,
-        location: route,
-        status: "active",
-        messageId: sent.id,
-        channelId: sent.channelId,
-        points: awardedPoints,
-        expiresAt: expiresAt.getTime(),
-        deleteAt,
-        createdAt: now.getTime(),
-        imagePath: cardPath
-      });
-    }
+    await db.createReport({
+      id: reportId,
+      guildId: guild.id,
+      reporterId: user.id,
+      reporterName,
+      trainerRank,
+      pokemonName: pokemon,
+      rarityKey,
+      rarityLabel,
+      location: route,
+      status: "active",
+      messageId: sent.id,
+      channelId: sent.channelId,
+      points: awardedPoints,
+      expiresAt: expiresAt.getTime(),
+      deleteAt,
+      createdAt: now.getTime(),
+      imagePath: cardPath
+    });
 
     // ──────────────────────────────
     // CONFIRMATION
     // ──────────────────────────────
     return interaction.followUp({
-      content: `☑ Debug report posted in <#${targetChannelId}> — expires **${expiresAt.toLocaleTimeString([], {
+      content: `☑ Debug report posted — expires **${expiresAt.toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit"
       })}**`,
