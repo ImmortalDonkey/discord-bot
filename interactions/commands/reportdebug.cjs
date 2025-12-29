@@ -15,7 +15,7 @@ const STAFF_ROLES = process.env.STAFF_ROLES?.split(",") || [];
 const DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
 
 /**
- * Resolve Discord display name (matches LIVE logic)
+ * Resolve Discord display name using LIVE logic
  */
 function getDiscordDisplayName(interaction) {
   return (
@@ -27,7 +27,7 @@ function getDiscordDisplayName(interaction) {
 }
 
 /**
- * Decide grammar: "on" vs "at"
+ * Decide grammar: on vs at
  */
 function routePreposition(route) {
   return /\d$/.test(route?.trim()) ? "on" : "at";
@@ -70,12 +70,16 @@ module.exports = {
     const guild = interaction.guild;
 
     // ──────────────────────────────
+    // DEFER (MANDATORY – prevents 10062)
+    // ──────────────────────────────
+    await interaction.deferReply({ flags: 64 });
+
+    // ──────────────────────────────
     // STAFF ONLY
     // ──────────────────────────────
     if (!member.roles.cache.some(r => STAFF_ROLES.includes(r.id))) {
-      return interaction.reply({
-        content: "⛔ Staff-only test command.",
-        flags: 64
+      return interaction.editReply({
+        content: "⛔ Staff-only test command."
       });
     }
 
@@ -88,16 +92,10 @@ module.exports = {
     // VALIDATION: EXACTLY ONE OF ID / IGN
     // ──────────────────────────────
     if ((idInput && ignInput) || (!idInput && !ignInput)) {
-      return interaction.reply({
-        content: "❌ You must provide **either** an ID **or** an IGN (not both).",
-        flags: 64
+      return interaction.editReply({
+        content: "❌ You must provide **either** an ID **or** an IGN (not both)."
       });
     }
-
-    await interaction.reply({
-      content: "🎨 Rendering debug report card...",
-      flags: 64
-    });
 
     // ──────────────────────────────
     // RARITY + POINTS
@@ -115,10 +113,10 @@ module.exports = {
     // NAME RESOLUTION
     // ──────────────────────────────
     const reporterName = getDiscordDisplayName(interaction);
+    let reporterType = "discord";
 
     let encountererName = reporterName;
     let encountererType = "discord";
-    let reporterType = "discord";
 
     // SIGHTING FLOW
     if (ignInput) {
@@ -142,7 +140,7 @@ module.exports = {
       }
     }
 
-    // ID FLOW (explicit encounter)
+    // ID FLOW = explicit encounter
     if (idInput) {
       reportType = "encounter";
     }
@@ -160,7 +158,7 @@ module.exports = {
     const trainerRank = getRankName(updatedUser?.lifetime_points || 0);
 
     // ──────────────────────────────
-    // EXPIRY WINDOW
+    // EXPIRY WINDOW (LIVE LOGIC)
     // ──────────────────────────────
     const expiresAt = new Date(now);
     expiresAt.setMinutes(59, 59, 999);
@@ -190,9 +188,8 @@ module.exports = {
     // DEBUG CHANNEL ONLY (NO ROUTER)
     // ──────────────────────────────
     if (!DEBUG_REPORT_CHANNEL_ID) {
-      return interaction.followUp({
-        content: "❌ REPORT_CARD_CHANNEL_ID is not configured.",
-        flags: 64
+      return interaction.editReply({
+        content: "❌ REPORT_CARD_CHANNEL_ID not configured."
       });
     }
 
@@ -201,9 +198,8 @@ module.exports = {
       .catch(() => null);
 
     if (!targetChannel) {
-      return interaction.followUp({
-        content: "❌ Debug report channel not found.",
-        flags: 64
+      return interaction.editReply({
+        content: "❌ Debug report channel not found."
       });
     }
 
@@ -231,7 +227,7 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // SAVE REPORT (MATCHES LIVE SCHEMA)
+    // SAVE REPORT (LIVE SCHEMA)
     // ──────────────────────────────
     await db.createReport({
       id: reportId,
@@ -256,12 +252,11 @@ module.exports = {
     // ──────────────────────────────
     // CONFIRMATION
     // ──────────────────────────────
-    return interaction.followUp({
-      content: `☑ Debug report posted — expires **${expiresAt.toLocaleTimeString([], {
+    return interaction.editReply({
+      content: `☑ Debug report posted in <#${DEBUG_REPORT_CHANNEL_ID}> — expires **${expiresAt.toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit"
-      })}**`,
-      flags: 64
+      })}**`
     });
   }
 };
