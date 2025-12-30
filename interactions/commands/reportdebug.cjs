@@ -1,3 +1,5 @@
+// interactions/commands/reportdebug.cjs
+
 const {
   SlashCommandBuilder,
   ActionRowBuilder,
@@ -15,22 +17,16 @@ const STAFF_ROLES = process.env.STAFF_ROLES?.split(",") || [];
 const DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
 
 /**
- * Resolve Discord display name using LIVE logic
+ * EXACT nickname logic copied from LIVE /report command
+ * ⚠️ Do not “simplify” this — parity is intentional
  */
-function getDiscordDisplayName(interaction) {
+function resolveTrainerName(member, user) {
   return (
-    interaction.member?.displayName ||
-    interaction.member?.nickname ||
-    interaction.user?.globalName ||
-    interaction.user?.username
+    member.displayName ||
+    member.nickname ||
+    user.globalName ||
+    user.username
   );
-}
-
-/**
- * Decide grammar: on vs at
- */
-function routePreposition(route) {
-  return /\d$/.test(route?.trim()) ? "on" : "at";
 }
 
 module.exports = {
@@ -70,16 +66,12 @@ module.exports = {
     const guild = interaction.guild;
 
     // ──────────────────────────────
-    // DEFER (MANDATORY – prevents 10062)
-    // ──────────────────────────────
-    await interaction.deferReply({ flags: 64 });
-
-    // ──────────────────────────────
     // STAFF ONLY
     // ──────────────────────────────
     if (!member.roles.cache.some(r => STAFF_ROLES.includes(r.id))) {
-      return interaction.editReply({
-        content: "⛔ Staff-only test command."
+      return interaction.reply({
+        content: "⛔ Staff-only test command.",
+        flags: 64
       });
     }
 
@@ -92,13 +84,20 @@ module.exports = {
     // VALIDATION: EXACTLY ONE OF ID / IGN
     // ──────────────────────────────
     if ((idInput && ignInput) || (!idInput && !ignInput)) {
-      return interaction.editReply({
-        content: "❌ You must provide **either** an ID **or** an IGN (not both)."
+      return interaction.reply({
+        content: "❌ You must provide **either** an ID **or** an IGN (not both).",
+        flags: 64
       });
     }
 
+    // Single initial reply (prevents Unknown interaction)
+    await interaction.reply({
+      content: "🎨 Rendering debug report card...",
+      flags: 64
+    });
+
     // ──────────────────────────────
-    // RARITY + POINTS
+    // RARITY + BASE POINTS
     // ──────────────────────────────
     const rarityKey = getRarity(pokemon);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
@@ -110,15 +109,16 @@ module.exports = {
     let reportType = "encounter";
 
     // ──────────────────────────────
-    // NAME RESOLUTION
+    // NAME RESOLUTION (LIVE PARITY)
     // ──────────────────────────────
-    const reporterName = getDiscordDisplayName(interaction);
-    let reporterType = "discord";
-
+    const reporterName = resolveTrainerName(member, user);
     let encountererName = reporterName;
     let encountererType = "discord";
+    let reporterType = "discord";
 
+    // ──────────────────────────────
     // SIGHTING FLOW
+    // ──────────────────────────────
     if (ignInput) {
       const ign = ignInput.trim();
       const foundPlayer = await db.getPlayerByIgn(ign);
@@ -140,13 +140,13 @@ module.exports = {
       }
     }
 
-    // ID FLOW = explicit encounter
+    // Explicit encounter via ID
     if (idInput) {
       reportType = "encounter";
     }
 
     // ──────────────────────────────
-    // AWARD POINTS (DEBUG STILL WRITES)
+    // AWARD POINTS (DEBUG WRITES POINTS)
     // ──────────────────────────────
     const updatedUser = await db.addPoints(
       user.id,
@@ -158,7 +158,7 @@ module.exports = {
     const trainerRank = getRankName(updatedUser?.lifetime_points || 0);
 
     // ──────────────────────────────
-    // EXPIRY WINDOW (LIVE LOGIC)
+    // EXPIRY WINDOW (MATCH LIVE)
     // ──────────────────────────────
     const expiresAt = new Date(now);
     expiresAt.setMinutes(59, 59, 999);
@@ -167,7 +167,7 @@ module.exports = {
     const reportId = `report_${Date.now()}_${user.id}`;
 
     // ──────────────────────────────
-    // BUILD CARD IMAGE (DEBUG RENDERER)
+    // BUILD DEBUG CARD
     // ──────────────────────────────
     const cardPath = await createReportCard({
       reportType,
@@ -187,19 +187,14 @@ module.exports = {
     // ──────────────────────────────
     // DEBUG CHANNEL ONLY (NO ROUTER)
     // ──────────────────────────────
-    if (!DEBUG_REPORT_CHANNEL_ID) {
-      return interaction.editReply({
-        content: "❌ REPORT_CARD_CHANNEL_ID not configured."
-      });
-    }
-
     const targetChannel = await guild.channels
       .fetch(DEBUG_REPORT_CHANNEL_ID)
       .catch(() => null);
 
     if (!targetChannel) {
-      return interaction.editReply({
-        content: "❌ Debug report channel not found."
+      return interaction.followUp({
+        content: "❌ REPORT_CARD_CHANNEL_ID is not configured.",
+        flags: 64
       });
     }
 
@@ -252,11 +247,12 @@ module.exports = {
     // ──────────────────────────────
     // CONFIRMATION
     // ──────────────────────────────
-    return interaction.editReply({
-      content: `☑ Debug report posted in <#${DEBUG_REPORT_CHANNEL_ID}> — expires **${expiresAt.toLocaleTimeString([], {
+    return interaction.followUp({
+      content: `☑ Debug report posted — expires **${expiresAt.toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit"
-      })}**`
+      })}**`,
+      flags: 64
     });
   }
 };
