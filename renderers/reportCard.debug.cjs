@@ -27,6 +27,11 @@ const NAME_COLORS = {
   ign: "#f59e0b"
 };
 
+const STATUS_COLORS = {
+  active: "#4ade80",
+  expired: "#ef4444"
+};
+
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -43,7 +48,7 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 }
 
 function wrapText(ctx, text, maxWidth) {
-  const words = String(text).split(" ");
+  const words = String(text || "").split(" ");
   const lines = [];
   let line = "";
 
@@ -79,6 +84,7 @@ async function createReportCard(report) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
+  // ───────── BACKGROUND ─────────
   const bgPath = path.join(
     BG_DIR,
     String(location).toLowerCase().replace(/\s+/g, "-") + ".png"
@@ -113,8 +119,9 @@ async function createReportCard(report) {
   ctx.restore();
 
   // ───────── TEXT CONFIG ─────────
-  const FONT_SIZE = Math.round(55 * 1.2); // +20%
+  const FONT_SIZE = Math.round(55 * 1.2);
   const lineHeight = FONT_SIZE * 1.3;
+
   const LABEL_COLOR = "#facc15";
   const VALUE_COLOR = "#ffffff";
 
@@ -125,31 +132,32 @@ async function createReportCard(report) {
   const contentX = leftX + 60;
   const contentW = leftW - 120;
 
-  // ───────── BUILD NARRATIVE ─────────
-  let narrative = "";
-
+  // ───────── NARRATIVE ─────────
   const prep = /\d$/.test(location.trim()) ? "on" : "at";
 
-  if (reportType === "sighting") {
-    narrative = `${reporterName} reported that ${encountererName} encountered a wild ${pokemonName} ${prep} ${location}`;
-  } else {
-    narrative = `${encountererName} encountered a wild ${pokemonName} ${prep} ${location}`;
-  }
+  const narrative =
+    reportType === "sighting"
+      ? `${reporterName} reported that ${encountererName} encountered a wild ${pokemonName} ${prep} ${location}`
+      : `${encountererName} encountered a wild ${pokemonName} ${prep} ${location}`;
 
   const narrativeLines = wrapText(ctx, narrative, contentW);
 
-  // ───────── METADATA ─────────
-  const fields = [
+  // ───────── META FIELDS ─────────
+  const metaFields = [
     ["Rank:", trainerRank],
     ["Rarity:", rarityLabel],
     ["Points:", String(points)],
     ["Status:", statusText || "Active"]
   ];
 
-  let metaHeight = fields.length * lineHeight;
-  let narrativeHeight = narrativeLines.length * lineHeight;
+  const rarityLines = wrapText(ctx, rarityLabel, contentW * 0.6);
+  const metaHeight =
+    lineHeight * (metaFields.length + rarityLines.length - 1) +
+    lineHeight * 0.4; // extra gap before Status
 
-  const totalHeight = narrativeHeight + lineHeight * 0.8 + metaHeight;
+  const narrativeHeight = narrativeLines.length * lineHeight;
+  const totalHeight =
+    narrativeHeight + lineHeight * 0.8 + metaHeight;
 
   let cursorY =
     leftY + (panelH - totalHeight) / 2 + lineHeight;
@@ -159,7 +167,7 @@ async function createReportCard(report) {
     let x = contentX;
 
     if (line.includes(encountererName)) {
-      ctx.fillStyle = NAME_COLORS[encountererType];
+      ctx.fillStyle = NAME_COLORS[encountererType] || VALUE_COLOR;
       ctx.fillText(encountererName, x, cursorY);
       x += ctx.measureText(encountererName).width + 10;
       ctx.fillStyle = VALUE_COLOR;
@@ -176,16 +184,37 @@ async function createReportCard(report) {
 
   // ───────── DRAW META ─────────
   let maxLabel = 0;
-  for (const [l] of fields) {
-    maxLabel = Math.max(maxLabel, ctx.measureText(l).width);
+  for (const [label] of metaFields) {
+    maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
   }
 
-  for (const [label, value] of fields) {
+  for (const [label, value] of metaFields) {
     ctx.fillStyle = LABEL_COLOR;
     ctx.fillText(label, contentX, cursorY);
-    ctx.fillStyle = VALUE_COLOR;
+
+    if (label === "Rarity:") {
+      ctx.fillStyle = VALUE_COLOR;
+      const lines = wrapText(ctx, value, contentW - maxLabel - 40);
+      for (const l of lines) {
+        ctx.fillText(l, contentX + maxLabel + 40, cursorY);
+        cursorY += lineHeight;
+      }
+      continue;
+    }
+
+    if (label === "Status:") {
+      ctx.fillStyle =
+        STATUS_COLORS[value?.toLowerCase()] || VALUE_COLOR;
+    } else {
+      ctx.fillStyle = VALUE_COLOR;
+    }
+
     ctx.fillText(value, contentX + maxLabel + 40, cursorY);
     cursorY += lineHeight;
+
+    if (label === "Points:") {
+      cursorY += lineHeight * 0.4;
+    }
   }
 
   // ───────── SPRITE ─────────
