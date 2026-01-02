@@ -41,6 +41,7 @@ const handleAutocompleteInteraction = require('./handlers/autocompleteHandler.cj
 // Schedulers
 const { startBountyScheduler } = require('./utils/bountyScheduler.cjs');
 const { runReportScheduler } = require('./utils/reportScheduler.cjs');
+const { startRoamerWatcher } = require('./utils/roamerWatcher.cjs');
 
 // ──────────────────────────────────────
 // DISCORD CLIENT
@@ -126,6 +127,16 @@ client.once('ready', async () => {
     console.log('✅ Database initialised');
   } catch (err) {
     console.error('❌ DB init failed:', err);
+  }
+  
+  // ──────────────────────────────────────
+  // 🛰️ VORTEX ROAMER API WATCHER (DEV ONLY VIA ENV FLAG)
+  // ──────────────────────────────────────
+  try {
+    startRoamerWatcher(client);
+    console.log('🛰️ Vortex roamer watcher initialised');
+  } catch (err) {
+    console.error('❌ Failed to start Vortex roamer watcher:', err);
   }
 
   // ──────────────────────────────────────
