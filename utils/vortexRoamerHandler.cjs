@@ -1,133 +1,112 @@
 // utils/vortexRoamerHandler.cjs
 
 const db = require("../database.cjs");
-
-const { getRankName } = require("./rankSystem.cjs");
 const { getRarity, getRarityDisplayLabel } = require("./rarity.cjs");
 const { calculateAwardedPoints } = require("./scoring.cjs");
-
+const { getRankName } = require("./rankSystem.cjs");
 const { createReportCard } = require("../renderers/reportCard.debug.cjs");
 
-const REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
-
 /**
- * Handles a single roamer entry from the Vortex API.
- * - DB dedup (authoritative)
- * - DEV-only: auto report + points
+ * Handles a single roamer entry from the Vortex API (DEV MODE).
+ * - DB dedup
+ * - Award points
+ * - Post debug report card
  */
 async function handleVortexRoamer(client, roamer) {
+  if (!client) {
+    console.warn("⚠ Vortex handler called without client");
+    return;
+  }
+
   const { roamer_name, time_found, location } = roamer;
 
-  // --------------------------------------------------
   // DB-level dedup (authoritative)
-  // --------------------------------------------------
   const exists = await db.hasVortexRoamer(roamer_name, time_found);
   if (exists) return;
 
   await db.insertVortexRoamer(roamer_name, time_found);
 
-  console.log(
-    `🛰️ New roamer detected: ${roamer_name} @ ${location} (${time_found})`
+  const guild = client.guilds.cache.get(process.env.GUILD_ID);
+  if (!guild) {
+    console.warn("⚠ Vortex guild not found");
+    return;
+  }
+
+  const channelId = process.env.REPORT_CARD_CHANNEL_ID;
+  const channel = await guild.channels.fetch(channelId).catch(() => null);
+
+  if (!channel) {
+    console.warn("⚠ Vortex report channel not found");
+    return;
+  }
+
+  // Rarity + points
+  const rarityKey = getRarity(roamer_name);
+  const rarityLabel = getRarityDisplayLabel(rarityKey);
+  const now = new Date();
+  const points = calculateAwardedPoints(rarityKey, now);
+
+  // Award points to SYSTEM (you can change later)
+  const systemUserId = client.user.id;
+  const updated = await db.addPoints(
+    systemUserId,
+    client.user.username,
+    points,
+    `Vortex Auto Report: ${roamer_name}`
   );
 
-  // --------------------------------------------------
-  // DEV-ONLY AUTO REPORT
-  // --------------------------------------------------
-  const isDev =
-    process.env.NODE_ENV === "dev" ||
-    process.env.ENV === "dev";
+  const trainerRank = getRankName(updated?.lifetime_points || 0);
 
-  if (!isDev) return;
-  if (process.env.VORTEX_API_AUTO_REPORT !== "true") return;
-  if (!REPORT_CHANNEL_ID) return;
+  // Expiry (end of hour)
+  const expiresAt = new Date(now);
+  expiresAt.setMinutes(59, 59, 999);
+  const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
 
-  try {
-    const now = new Date();
+  const reportId = `vortex_${Date.now()}`;
 
-    // RARITY + POINTS (parity)
-    const rarityKey = getRarity(roamer_name);
-    const rarityLabel = getRarityDisplayLabel(rarityKey);
-    const awardedPoints = calculateAwardedPoints(rarityKey, now);
+  const cardPath = await createReportCard({
+    reportType: "vortex",
+    reporterName: "Vortex API",
+    reporterType: "system",
+    encountererName: "Vortex API",
+    encountererType: "system",
+    pokemonName: roamer_name,
+    location,
+    rarityKey,
+    rarityLabel,
+    points,
+    trainerRank,
+    statusText: "Active"
+  });
 
-    // Award points to system user
-    const vortexUserId = "vortex";
-    const vortexUsername = "Vortex API";
+  const sent = await channel.send({
+    content: "🛰️ **Live Vortex Encounter**",
+    files: [cardPath]
+  });
 
-    const updatedUser = await db.addPoints(
-      vortexUserId,
-      vortexUsername,
-      awardedPoints,
-      `Vortex Auto Report: ${roamer_name}`
-    );
+  await db.createReport({
+    id: reportId,
+    guildId: guild.id,
+    reporterId: systemUserId,
+    reporterName: "Vortex API",
+    trainerRank,
+    pokemonName: roamer_name,
+    rarityKey,
+    rarityLabel,
+    location,
+    status: "active",
+    messageId: sent.id,
+    channelId: sent.channelId,
+    points,
+    expiresAt: expiresAt.getTime(),
+    deleteAt,
+    createdAt: now.getTime(),
+    imagePath: cardPath
+  });
 
-    const trainerRank = getRankName(updatedUser?.lifetime_points || 0);
-
-    // Expiry window (match live)
-    const expiresAt = new Date(now);
-    expiresAt.setMinutes(59, 59, 999);
-    const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
-
-    const reportId = `report_${Date.now()}_vortex`;
-
-    // Build card
-    const cardPath = await createReportCard({
-      reportType: "encounter",
-      reporterName: "Vortex API",
-      reporterType: "system",
-      encountererName: "Vortex API",
-      encountererType: "system",
-      pokemonName: roamer_name,
-      location,
-      rarityKey,
-      rarityLabel,
-      points: awardedPoints,
-      trainerRank,
-      statusText: "Active"
-    });
-
-    // Fetch channel via client
-    const channel = await client.channels
-      .fetch(REPORT_CHANNEL_ID)
-      .catch(() => null);
-
-    if (!channel) {
-      console.warn("⚠ Vortex report channel not found:", REPORT_CHANNEL_ID);
-      return;
-    }
-
-    const sent = await channel.send({
-      files: [cardPath]
-    });
-
-    // Save report
-    await db.createReport({
-      id: reportId,
-      guildId: channel.guild.id,
-      reporterId: vortexUserId,
-      reporterName: "Vortex API",
-      trainerRank,
-      pokemonName: roamer_name,
-      rarityKey,
-      rarityLabel,
-      location,
-      status: "active",
-      messageId: sent.id,
-      channelId: sent.channelId,
-      points: awardedPoints,
-      expiresAt: expiresAt.getTime(),
-      deleteAt,
-      createdAt: now.getTime(),
-      imagePath: cardPath
-    });
-
-    console.log(
-      `📨 Vortex report posted: ${roamer_name} (+${awardedPoints} pts)`
-    );
-  } catch (err) {
-    console.error("❌ Vortex auto report failed:", err);
-  }
+  console.log(
+    `🛰️ Vortex report posted: ${roamer_name} @ ${location} (+${points})`
+  );
 }
 
-module.exports = {
-  handleVortexRoamer
-};
+module.exports = { handleVortexRoamer };
