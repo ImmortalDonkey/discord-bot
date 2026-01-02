@@ -16,9 +16,11 @@ async function pollRoamers(client) {
 
     for (const r of roamers) {
       const key = `${r.roamer_name}|${r.time_found}`;
-      if (seen.has(key)) continue;
 
+      if (seen.has(key)) continue;
       seen.add(key);
+
+      // ✅ PASS CLIENT CORRECTLY
       await handleVortexRoamer(client, r);
     }
 
@@ -33,10 +35,16 @@ async function pollRoamers(client) {
 
 function startRoamerWatcher(client) {
   console.log(
-    `🛰️ Vortex watcher active | interval = ${INTERVAL} | env = ${process.env.ENV || process.env.NODE_ENV}`
+    `🛰️ Vortex watcher active | interval = ${INTERVAL} | env = ${
+      process.env.NODE_ENV || process.env.ENV || "unknown"
+    }`
   );
 
-  setInterval(() => pollRoamers(client), INTERVAL);
+  // initial slight delay to ensure Discord cache is ready
+  setTimeout(() => {
+    pollRoamers(client);
+    setInterval(() => pollRoamers(client), INTERVAL);
+  }, 5000);
 }
 
 module.exports = { startRoamerWatcher };
