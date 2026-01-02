@@ -63,6 +63,28 @@ function all(sql, params = []) {
 }
 
 // ------------------------------------------------------
+// VORTEX ROAMER DEDUP HELPERS
+// ------------------------------------------------------
+
+async function hasVortexRoamer(roamerName, timeFound) {
+  const row = await get(
+    `SELECT 1 FROM vortex_roamers
+     WHERE roamer_name = ? AND time_found = ?
+     LIMIT 1`,
+    [roamerName, timeFound]
+  );
+  return !!row;
+}
+
+async function insertVortexRoamer(roamerName, timeFound) {
+  await run(
+    `INSERT OR IGNORE INTO vortex_roamers (roamer_name, time_found)
+     VALUES (?, ?)`,
+    [roamerName, timeFound]
+  );
+}
+
+// ------------------------------------------------------
 // BOT META HELPERS (persistent bot state)
 // ------------------------------------------------------
 async function getMeta(key) {
@@ -90,6 +112,13 @@ async function init() {
   await run(`CREATE TABLE IF NOT EXISTS bot_meta (
     key TEXT PRIMARY KEY,
     value TEXT
+  )`);
+
+    // -------- VORTEX ROAMERS (API DEDUP) --------
+  await run(`CREATE TABLE IF NOT EXISTS vortex_roamers (
+    roamer_name TEXT NOT NULL,
+    time_found TEXT NOT NULL,
+    PRIMARY KEY (roamer_name, time_found)
   )`);
 
   // -------- POINTS TABLES --------
@@ -1030,5 +1059,9 @@ module.exports = {
   deleteReport,
   getReportsToExpire,
   getReportsToCleanup,
-  findActiveReportThisHour
+  findActiveReportThisHour,
+
+  // Vortex API dedup
+  hasVortexRoamer,
+  insertVortexRoamer
 };
