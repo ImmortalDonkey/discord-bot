@@ -15,7 +15,7 @@ const REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
  * - DB dedup (authoritative)
  * - DEV-only: auto report + points
  */
-async function handleVortexRoamer(roamer) {
+async function handleVortexRoamer(client, roamer) {
   const { roamer_name, time_found, location } = roamer;
 
   // --------------------------------------------------
@@ -44,16 +44,12 @@ async function handleVortexRoamer(roamer) {
   try {
     const now = new Date();
 
-    // -------------------------------
-    // RARITY + POINTS (PARITY)
-    // -------------------------------
+    // RARITY + POINTS (parity)
     const rarityKey = getRarity(roamer_name);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
     const awardedPoints = calculateAwardedPoints(rarityKey, now);
 
-    // -------------------------------
-    // AWARD POINTS (VORTEX USER)
-    // -------------------------------
+    // Award points to system user
     const vortexUserId = "vortex";
     const vortexUsername = "Vortex API";
 
@@ -66,18 +62,14 @@ async function handleVortexRoamer(roamer) {
 
     const trainerRank = getRankName(updatedUser?.lifetime_points || 0);
 
-    // -------------------------------
-    // EXPIRY WINDOW (MATCH LIVE)
-    // -------------------------------
+    // Expiry window (match live)
     const expiresAt = new Date(now);
     expiresAt.setMinutes(59, 59, 999);
     const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
 
     const reportId = `report_${Date.now()}_vortex`;
 
-    // -------------------------------
-    // BUILD REPORT CARD
-    // -------------------------------
+    // Build card
     const cardPath = await createReportCard({
       reportType: "encounter",
       reporterName: "Vortex API",
@@ -93,36 +85,24 @@ async function handleVortexRoamer(roamer) {
       statusText: "Active"
     });
 
-    // -------------------------------
-    // POST TO DEV REPORT CHANNEL
-    // -------------------------------
-    const guildId = process.env.GUILD_ID;
-    const client = require("../index.cjs")?.client;
+    // Fetch channel via client
+    const channel = await client.channels
+      .fetch(REPORT_CHANNEL_ID)
+      .catch(() => null);
 
-    // Fallback: fetch via cache through any connected guild
-    let targetChannel = null;
-    for (const guild of client?.guilds?.cache?.values() || []) {
-      targetChannel = await guild.channels
-        .fetch(REPORT_CHANNEL_ID)
-        .catch(() => null);
-      if (targetChannel) break;
-    }
-
-    if (!targetChannel) {
-      console.warn("⚠ Vortex report channel not found");
+    if (!channel) {
+      console.warn("⚠ Vortex report channel not found:", REPORT_CHANNEL_ID);
       return;
     }
 
-    const sent = await targetChannel.send({
+    const sent = await channel.send({
       files: [cardPath]
     });
 
-    // -------------------------------
-    // SAVE REPORT (LIVE SCHEMA)
-    // -------------------------------
+    // Save report
     await db.createReport({
       id: reportId,
-      guildId: targetChannel.guild.id,
+      guildId: channel.guild.id,
       reporterId: vortexUserId,
       reporterName: "Vortex API",
       trainerRank,
@@ -143,7 +123,6 @@ async function handleVortexRoamer(roamer) {
     console.log(
       `📨 Vortex report posted: ${roamer_name} (+${awardedPoints} pts)`
     );
-
   } catch (err) {
     console.error("❌ Vortex auto report failed:", err);
   }
