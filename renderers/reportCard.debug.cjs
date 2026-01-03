@@ -14,9 +14,10 @@ if (!fs.existsSync(REPORT_DIR)) {
   fs.mkdirSync(REPORT_DIR, { recursive: true });
 }
 
-// ──────────────────────────────
-// COLOUR SYSTEMS
-// ──────────────────────────────
+/* ────────────────────────────── */
+/* COLOUR SYSTEMS                 */
+/* ────────────────────────────── */
+
 const rarityOutline = {
   common: "#4ade80",
   rare: "#38bdf8",
@@ -26,22 +27,30 @@ const rarityOutline = {
 };
 
 const rarityTextColors = {
-  common: "#86efac",
-  rare: "#7dd3fc",
-  legendary: "#67e8f9",
-  paradox: "#c084fc",
-  roamerMonth: "#f472b6"
+  common: "#bbf7d0",
+  rare: "#bae6fd",
+  legendary: "#a5f3fc",
+  paradox: "#e9d5ff",
+  roamerMonth: "#fbcfe8"
+};
+
+const rarityGlowStrength = {
+  common: 8,
+  rare: 14,
+  legendary: 18,
+  roamerMonth: 26,
+  paradox: 30
 };
 
 const RANK_COLORS = {
-  "Rookie Trainer": "#4ade80",
-  Trainer: "#38bdf8",
-  "Ace Trainer": "#60a5fa",
-  "Gym Challenger": "#facc15",
-  "Gym Leader": "#f97316",
-  "Elite Four": "#ec4899",
-  Champion: "#a855f7",
-  Master: "#e879f9"
+  "Rookie Trainer": "#86efac",
+  Trainer: "#7dd3fc",
+  "Ace Trainer": "#93c5fd",
+  "Gym Challenger": "#fde047",
+  "Gym Leader": "#fb923c",
+  "Elite Four": "#f472b6",
+  Champion: "#c084fc",
+  Master: "#f0abfc"
 };
 
 const STATUS_COLORS = {
@@ -53,13 +62,10 @@ function hasRankGlow(rank) {
   return ["Gym Leader", "Elite Four", "Champion", "Master"].includes(rank);
 }
 
-function hasParadoxGlow(rarityKey) {
-  return rarityKey === "paradox";
-}
+/* ────────────────────────────── */
+/* HELPERS                        */
+/* ────────────────────────────── */
 
-// ──────────────────────────────
-// HELPERS
-// ──────────────────────────────
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -93,9 +99,10 @@ function wrapText(ctx, text, maxWidth) {
   return lines;
 }
 
-// ──────────────────────────────
-// MAIN RENDER
-// ──────────────────────────────
+/* ────────────────────────────── */
+/* MAIN RENDER                    */
+/* ────────────────────────────── */
+
 async function createReportCard(report) {
   const {
     reporterName,
@@ -111,7 +118,7 @@ async function createReportCard(report) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // ───────── BACKGROUND ─────────
+  /* BACKGROUND */
   const bgPath = path.join(
     BG_DIR,
     String(location).toLowerCase().replace(/\s+/g, "-") + ".png"
@@ -128,25 +135,23 @@ async function createReportCard(report) {
 
   const innerW = CARD_WIDTH - MARGIN * 2;
   const innerH = CARD_HEIGHT - MARGIN * 2;
-
   const leftW = Math.floor(innerW * 0.58);
   const rightW = innerW - leftW;
-
   const leftX = MARGIN;
   const leftY = MARGIN;
   const panelH = innerH - 160;
 
-  // ───────── PANEL ─────────
+  /* PANEL */
   ctx.save();
   roundedRectPath(ctx, leftX, leftY, leftW, panelH, 40);
-  ctx.fillStyle = "rgba(40,40,40,0.7)";
+  ctx.fillStyle = "rgba(35,35,35,0.72)";
   ctx.fill();
   ctx.lineWidth = 10;
   ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
   ctx.stroke();
   ctx.restore();
 
-  // ───────── TEXT SETUP ─────────
+  /* TEXT SETUP */
   const FONT_SIZE = 66;
   const lineHeight = FONT_SIZE * 1.3;
 
@@ -157,17 +162,11 @@ async function createReportCard(report) {
   const contentX = leftX + 60;
   const contentW = leftW - 120;
 
-  // ───────── NARRATIVE ─────────
-  const narrativeTokens = [
-    { type: "name", text: reporterName },
-    { type: "text", text: " has found a roaming " },
-    { type: "pokemon", text: pokemonName }
-  ];
+  /* NARRATIVE */
+  const narrative = `${reporterName} has found a roaming ${pokemonName}`;
+  const narrativeLines = wrapText(ctx, narrative, contentW);
 
-  const narrativeFull = narrativeTokens.map(t => t.text).join("");
-  const narrativeLines = wrapText(ctx, narrativeFull, contentW);
-
-  // ───────── META ─────────
+  /* META */
   const metaFields = [
     ["Rank:", trainerRank],
     ["Rarity:", rarityLabel],
@@ -177,73 +176,58 @@ async function createReportCard(report) {
 
   const rarityWrapped = wrapText(ctx, rarityLabel, contentW * 0.6);
 
-  // ───────── HEIGHT CALC (TRUE CENTERING) ─────────
-  const gapAfterNarrative = lineHeight * 0.8;
-  const extraAfterPoints = lineHeight * 0.4;
-
+  /* HEIGHT CALC */
   const narrativeHeight = narrativeLines.length * lineHeight;
   const metaHeight =
-    (1 + rarityWrapped.length + 1 + 1) * lineHeight + extraAfterPoints;
+    (1 + rarityWrapped.length + 1 + 1) * lineHeight +
+    lineHeight * 0.4;
 
-  const totalHeight = narrativeHeight + gapAfterNarrative + metaHeight;
+  const totalHeight =
+    narrativeHeight + lineHeight * 0.8 + metaHeight;
 
   let cursorY = leftY + (panelH - totalHeight) / 2;
 
-  // ───────── DRAW NARRATIVE ─────────
+  /* DRAW NARRATIVE */
   for (const line of narrativeLines) {
     let x = contentX;
-    let remaining = line;
 
-    for (const token of narrativeTokens) {
-      const idx = remaining.indexOf(token.text);
-      if (idx === -1) continue;
-
-      const before = remaining.slice(0, idx);
-      if (before) {
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText(before, x, cursorY);
-        x += ctx.measureText(before).width;
-      }
-
+    // Username
+    if (line.startsWith(reporterName)) {
       ctx.save();
-
-      if (token.type === "name") {
-        ctx.fillStyle = RANK_COLORS[trainerRank] || "#ffffff";
-        if (hasRankGlow(trainerRank)) {
-          ctx.shadowColor = ctx.fillStyle;
-          ctx.shadowBlur = 18;
-        }
+      ctx.fillStyle = RANK_COLORS[trainerRank] || "#ffffff";
+      ctx.strokeStyle = "rgba(0,0,0,0.6)";
+      ctx.lineWidth = 6;
+      ctx.strokeText(reporterName, x, cursorY);
+      if (hasRankGlow(trainerRank)) {
+        ctx.shadowColor = ctx.fillStyle;
+        ctx.shadowBlur = 22;
       }
-
-      if (token.type === "pokemon") {
-        ctx.fillStyle = rarityTextColors[rarityKey] || "#ffffff";
-        if (hasParadoxGlow(rarityKey)) {
-          ctx.shadowColor = ctx.fillStyle;
-          ctx.shadowBlur = 24;
-        }
-      }
-
-      ctx.fillText(token.text, x, cursorY);
-      x += ctx.measureText(token.text).width;
+      ctx.fillText(reporterName, x, cursorY);
       ctx.restore();
 
-      remaining = remaining.slice(idx + token.text.length);
+      x += ctx.measureText(reporterName).width;
+      const rest = line.slice(reporterName.length);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(rest.replace(pokemonName, ""), x, cursorY);
+      x += ctx.measureText(rest.replace(pokemonName, "")).width;
     }
 
-    if (remaining) {
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(remaining, x, cursorY);
-    }
+    // Pokémon name
+    ctx.save();
+    ctx.fillStyle = rarityTextColors[rarityKey] || "#ffffff";
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.shadowBlur = rarityGlowStrength[rarityKey] || 14;
+    ctx.fillText(pokemonName, x, cursorY);
+    ctx.restore();
 
     cursorY += lineHeight;
   }
 
-  cursorY += gapAfterNarrative;
+  cursorY += lineHeight * 0.8;
 
-  // ───────── DRAW META ─────────
+  /* META */
   const LABEL_COLOR = "#facc15";
   let maxLabel = 0;
-
   for (const [label] of metaFields) {
     maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
   }
@@ -263,16 +247,16 @@ async function createReportCard(report) {
 
     ctx.fillStyle =
       label === "Status:"
-        ? STATUS_COLORS[String(value).toLowerCase()] || "#ffffff"
+        ? STATUS_COLORS[value.toLowerCase()] || "#ffffff"
         : "#ffffff";
 
     ctx.fillText(value, contentX + maxLabel + 40, cursorY);
     cursorY += lineHeight;
 
-    if (label === "Points:") cursorY += extraAfterPoints;
+    if (label === "Points:") cursorY += lineHeight * 0.4;
   }
 
-  // ───────── SPRITE ─────────
+  /* SPRITE */
   const spritePath = path.join(SPRITES_DIR, `${pokemonName}.png`);
   if (fs.existsSync(spritePath)) {
     const sprite = await loadImage(spritePath);
@@ -286,7 +270,7 @@ async function createReportCard(report) {
     );
   }
 
-  // ───────── ROUTE BAR ─────────
+  /* ROUTE BAR */
   const barY = CARD_HEIGHT - MARGIN - 120;
   ctx.save();
   roundedRectPath(ctx, MARGIN, barY, innerW, 120, 35);
