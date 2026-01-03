@@ -14,6 +14,7 @@ if (!fs.existsSync(REPORT_DIR)) {
   fs.mkdirSync(REPORT_DIR, { recursive: true });
 }
 
+/* ───────── RARITY STYLES ───────── */
 const rarityOutline = {
   paradox: "#a855f7",
   roamerMonth: "#ec4899",
@@ -22,11 +23,29 @@ const rarityOutline = {
   common: "#4ade80"
 };
 
+/* ───────── NAME + RANK COLORS ───────── */
 const NAME_COLORS = {
   discord: "#38bdf8",
-  ign: "#f59e0b",
-  system: "#94a3b8"
+  ign: "#f59e0b"
 };
+
+const RANK_NAME_COLORS = {
+  "Rookie Trainer": "#facc15",
+  "Trainer": "#fde047",
+  "Ace Trainer": "#60a5fa",
+  "Gym Challenger": "#22c55e",
+  "Gym Leader": "#4ade80",
+  "Elite Four": "#a855f7",
+  "Champion": "#f59e0b",
+  "Master": "#fbbf24"
+};
+
+const GLOW_RANKS = new Set([
+  "Gym Leader",
+  "Elite Four",
+  "Champion",
+  "Master"
+]);
 
 const POKEMON_COLOR = "#f472b6";
 
@@ -35,6 +54,7 @@ const STATUS_COLORS = {
   expired: "#ef4444"
 };
 
+/* ───────── HELPERS ───────── */
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -68,74 +88,11 @@ function wrapText(ctx, text, maxWidth) {
   return lines;
 }
 
-/**
- * Draw a single line, highlighting name + pokemon ONLY if they appear in that line.
- */
-function drawNarrativeLine(ctx, line, x, y, opts) {
-  const {
-    valueColor,
-    name,
-    nameColor,
-    pokemon,
-    pokemonColor
-  } = opts;
-
-  let cursorX = x;
-  let remaining = String(line || "");
-
-  // Highlight name if present in this line
-  if (name && remaining.includes(name)) {
-    const parts = remaining.split(name);
-    const before = parts.shift() || "";
-    const after = parts.join(name); // in case name appears multiple times
-
-    ctx.fillStyle = valueColor;
-    if (before) {
-      ctx.fillText(before, cursorX, y);
-      cursorX += ctx.measureText(before).width;
-    }
-
-    ctx.fillStyle = nameColor;
-    ctx.fillText(name, cursorX, y);
-    cursorX += ctx.measureText(name).width;
-
-    remaining = after;
-  }
-
-  // Highlight pokemon if present in the remaining text
-  if (pokemon && remaining.includes(pokemon)) {
-    const parts = remaining.split(pokemon);
-    const before = parts.shift() || "";
-    const after = parts.join(pokemon);
-
-    ctx.fillStyle = valueColor;
-    if (before) {
-      ctx.fillText(before, cursorX, y);
-      cursorX += ctx.measureText(before).width;
-    }
-
-    ctx.fillStyle = pokemonColor;
-    ctx.fillText(pokemon, cursorX, y);
-    cursorX += ctx.measureText(pokemon).width;
-
-    ctx.fillStyle = valueColor;
-    if (after) ctx.fillText(after, cursorX, y);
-
-    return;
-  }
-
-  // No pokemon in this line, just draw remaining normally
-  ctx.fillStyle = valueColor;
-  if (remaining) ctx.fillText(remaining, cursorX, y);
-}
-
+/* ───────── MAIN RENDER ───────── */
 async function createReportCard(report) {
   const {
-    reportType,
     reporterName,
     reporterType,
-    encountererName,
-    encountererType,
     pokemonName,
     location,
     rarityKey,
@@ -148,7 +105,7 @@ async function createReportCard(report) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // ───────── BACKGROUND ─────────
+  /* ───────── BACKGROUND ───────── */
   const bgPath = path.join(
     BG_DIR,
     String(location).toLowerCase().replace(/\s+/g, "-") + ".png"
@@ -173,7 +130,6 @@ async function createReportCard(report) {
   const leftY = MARGIN;
   const panelH = innerH - 160;
 
-  // ───────── PANEL ─────────
   ctx.save();
   roundedRectPath(ctx, leftX, leftY, leftW, panelH, 40);
   ctx.fillStyle = "rgba(50,50,50,0.7)";
@@ -183,7 +139,7 @@ async function createReportCard(report) {
   ctx.stroke();
   ctx.restore();
 
-  // ───────── TEXT CONFIG ─────────
+  /* ───────── TEXT CONFIG ───────── */
   const FONT_SIZE = Math.round(55 * 1.2);
   const lineHeight = FONT_SIZE * 1.3;
 
@@ -197,27 +153,10 @@ async function createReportCard(report) {
   const contentX = leftX + 60;
   const contentW = leftW - 120;
 
-  // ───────── NARRATIVE ─────────
-  // Keep your canonical format for “encounter/vortex”.
-  // For sighting, keep the older descriptive flow so /report doesn’t get weird.
-  const nameForNarrative =
-    String(encountererName || reporterName || "Unknown").trim();
-
-  const prep = /\d$/.test(String(location || "").trim()) ? "on" : "at";
-
-  let narrative = "";
-  if (reportType === "sighting") {
-    // Reporter is telling us someone (maybe IGN) encountered
-    narrative = `${reporterName} reported that ${nameForNarrative} encountered a wild ${pokemonName} ${prep} ${location}`;
-  } else {
-    // Encounter / vortex / default
-    // (This matches your “stick with my existing narrative format” requirement)
-    narrative = `${nameForNarrative} has encountered a wild roaming ${pokemonName}`;
-  }
-
+  /* ───────── NARRATIVE ───────── */
+  const narrative = `${reporterName} has encountered a wild roaming ${pokemonName}`;
   const narrativeLines = wrapText(ctx, narrative, contentW);
 
-  // ───────── META ─────────
   const metaFields = [
     ["Rank:", trainerRank],
     ["Rarity:", rarityLabel],
@@ -225,37 +164,71 @@ async function createReportCard(report) {
     ["Status:", statusText || "Active"]
   ];
 
-  // ───────── HEIGHT CALC (centering) ─────────
   const narrativeHeight = narrativeLines.length * lineHeight;
-  const metaRows = 4 + 0.4; // 4 lines + extra spacing after Points
-  const metaHeight = metaRows * lineHeight;
+  const metaHeight = lineHeight * metaFields.length;
+  const totalHeight = narrativeHeight + lineHeight * 0.8 + metaHeight;
 
-  const totalHeight =
-    narrativeHeight +
-    lineHeight * 0.8 + // gap between narrative + meta
-    metaHeight;
+  let cursorY =
+    leftY + (panelH - totalHeight) / 2 + lineHeight;
 
-  let cursorY = leftY + (panelH - totalHeight) / 2 + lineHeight;
+  /* ───────── DRAW NARRATIVE ───────── */
+  const rankColor =
+    RANK_NAME_COLORS[trainerRank] || VALUE_COLOR;
 
-  // ───────── DRAW NARRATIVE (SAFE HIGHLIGHTS) ─────────
   const nameColor =
-    NAME_COLORS[encountererType || reporterType] || VALUE_COLOR;
+    reporterType === "ign"
+      ? rankColor
+      : NAME_COLORS[reporterType] || VALUE_COLOR;
+
+  const useGlow =
+    reporterType === "ign" && GLOW_RANKS.has(trainerRank);
 
   for (const line of narrativeLines) {
-    drawNarrativeLine(ctx, line, contentX, cursorY, {
-      valueColor: VALUE_COLOR,
-      name: nameForNarrative,
-      nameColor,
-      pokemon: pokemonName,
-      pokemonColor: POKEMON_COLOR
-    });
+    let x = contentX;
+
+    if (line.includes(reporterName)) {
+      ctx.save();
+
+      if (useGlow) {
+        ctx.shadowColor = nameColor;
+        ctx.shadowBlur = 20;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+      }
+
+      ctx.fillStyle = nameColor;
+      ctx.fillText(reporterName, x, cursorY);
+      x += ctx.measureText(reporterName).width + 10;
+
+      ctx.restore();
+    }
+
+    const remainder = line.replace(reporterName, "").trim();
+
+    if (remainder.includes(pokemonName)) {
+      const [before, after] = remainder.split(pokemonName);
+
+      ctx.fillStyle = VALUE_COLOR;
+      ctx.fillText(before, x, cursorY);
+      x += ctx.measureText(before).width + 10;
+
+      ctx.fillStyle = POKEMON_COLOR;
+      ctx.fillText(pokemonName, x, cursorY);
+      x += ctx.measureText(pokemonName).width + 10;
+
+      ctx.fillStyle = VALUE_COLOR;
+      ctx.fillText(after || "", x, cursorY);
+    } else {
+      ctx.fillStyle = VALUE_COLOR;
+      ctx.fillText(remainder, x, cursorY);
+    }
 
     cursorY += lineHeight;
   }
 
   cursorY += lineHeight * 0.8;
 
-  // ───────── DRAW META ─────────
+  /* ───────── META ───────── */
   let maxLabel = 0;
   for (const [label] of metaFields) {
     maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
@@ -267,7 +240,7 @@ async function createReportCard(report) {
 
     ctx.fillStyle =
       label === "Status:"
-        ? STATUS_COLORS[String(value || "").toLowerCase()] || VALUE_COLOR
+        ? STATUS_COLORS[value?.toLowerCase()] || VALUE_COLOR
         : VALUE_COLOR;
 
     ctx.fillText(value, contentX + maxLabel + 40, cursorY);
@@ -276,7 +249,7 @@ async function createReportCard(report) {
     if (label === "Points:") cursorY += lineHeight * 0.4;
   }
 
-  // ───────── SPRITE ─────────
+  /* ───────── SPRITE ───────── */
   const spritePath = path.join(SPRITES_DIR, `${pokemonName}.png`);
   if (fs.existsSync(spritePath)) {
     const sprite = await loadImage(spritePath);
@@ -290,7 +263,7 @@ async function createReportCard(report) {
     );
   }
 
-  // ───────── ROUTE BAR ─────────
+  /* ───────── ROUTE BAR ───────── */
   const barY = CARD_HEIGHT - MARGIN - 120;
   ctx.save();
   roundedRectPath(ctx, MARGIN, barY, innerW, 120, 35);
