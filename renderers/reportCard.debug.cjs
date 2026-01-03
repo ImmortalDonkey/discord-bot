@@ -139,6 +139,7 @@ function drawPiece(ctx, text, x, y, kind, theme) {
       ctx.shadowColor = theme.rankColor;
       ctx.shadowBlur = 22;
     }
+
     ctx.fillText(text, x, y);
     ctx.restore();
     return;
@@ -216,7 +217,7 @@ async function createReportCard(report) {
   ctx.stroke();
   ctx.restore();
 
-  // ───────── TEXT ─────────
+  // ───────── TEXT CONFIG ─────────
   const FONT_SIZE = 66;
   const lineHeight = FONT_SIZE * 1.3;
 
@@ -246,24 +247,23 @@ async function createReportCard(report) {
   ];
 
   let maxLabel = 0;
-  for (const [l] of metaFields) maxLabel = Math.max(maxLabel, ctx.measureText(l).width);
+  for (const [label] of metaFields) {
+    maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
+  }
 
   const valueX = contentX + maxLabel + 40;
   const valueW = contentW - (maxLabel + 40);
   const rarityLines = wrapPlainText(ctx, rarityLabel, valueW);
 
   let metaLines = 0;
-  for (const [l] of metaFields) {
-    metaLines += l === "Rarity:" ? rarityLines.length : 1;
-    if (l === "Points:") metaLines += 0.4;
+  for (const [label] of metaFields) {
+    metaLines += label === "Rarity:" ? rarityLines.length : 1;
+    if (label === "Points:") metaLines += 0.4;
   }
 
-  const totalHeight =
-    narrativeLines.length * lineHeight +
-    lineHeight * 0.8 +
-    metaLines * lineHeight;
-
-  let cursorY = leftY + (panelH - totalHeight) / 2;
+  const narrativeHeight = narrativeLines.length * lineHeight;
+  const metaHeight = metaLines * lineHeight;
+  let cursorY = leftY + (panelH - (narrativeHeight + lineHeight * 0.8 + metaHeight)) / 2;
 
   const theme = {
     rankColor: RANK_COLORS[trainerRank] || "#fff",
@@ -287,41 +287,44 @@ async function createReportCard(report) {
     ctx.fillStyle = "#facc15";
     ctx.fillText(label, contentX, cursorY);
 
-    ctx.fillStyle =
-      label === "Status:"
-        ? STATUS_COLORS[String(value).toLowerCase()] || "#fff"
-        : "#fff";
-
     if (label === "Rarity:") {
-      for (const r of rarityLines) {
-        ctx.fillText(r, valueX, cursorY);
+      ctx.fillStyle = "#fff";
+      for (const l of rarityLines) {
+        ctx.fillText(l, valueX, cursorY);
         cursorY += lineHeight;
       }
       continue;
     }
 
-    ctx.fillText(String(value), valueX, cursorY);
+    ctx.fillStyle =
+      label === "Status:"
+        ? STATUS_COLORS[String(value).toLowerCase()] || "#fff"
+        : "#fff";
+
+    ctx.fillText(value, valueX, cursorY);
     cursorY += lineHeight;
+
     if (label === "Points:") cursorY += lineHeight * 0.4;
   }
 
-  // ───────── SPRITE (aspect ratio preserved) ─────────
+  // ───────── SPRITE (ASPECT SAFE) ─────────
   const spritePath = path.join(SPRITES_DIR, `${mon}.png`);
   if (fs.existsSync(spritePath)) {
     const sprite = await loadImage(spritePath);
-    ctx.imageSmoothingEnabled = false;
-
     const maxW = rightW - 120;
     const maxH = panelH - 120;
     const scale = Math.min(maxW / sprite.width, maxH / sprite.height);
+    const w = sprite.width * scale;
+    const h = sprite.height * scale;
 
-    const drawW = sprite.width * scale;
-    const drawH = sprite.height * scale;
-
-    const sx = leftX + leftW + (rightW - drawW) / 2;
-    const sy = leftY + (panelH - drawH) / 2;
-
-    ctx.drawImage(sprite, sx, sy, drawW, drawH);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+      sprite,
+      leftX + leftW + (rightW - w) / 2,
+      leftY + (panelH - h) / 2,
+      w,
+      h
+    );
   }
 
   // ───────── ROUTE BAR ─────────
@@ -341,9 +344,9 @@ async function createReportCard(report) {
   ctx.textBaseline = "middle";
   ctx.fillText(location, CARD_WIDTH / 2, barY + 60);
 
-  // ───────── OUTER EDGE BORDER ONLY ─────────
-  const EDGE_RADIUS = 70;
+  // ───────── OUTER EDGE BORDER (FINAL FIX) ─────────
   const EDGE_WIDTH = 26;
+  const EDGE_RADIUS = EDGE_WIDTH * 3;
 
   ctx.save();
   roundedRectPath(
@@ -354,6 +357,9 @@ async function createReportCard(report) {
     CARD_HEIGHT - EDGE_WIDTH,
     EDGE_RADIUS
   );
+  ctx.fillStyle = rarityOutline[rarityKey] || "#fff";
+  ctx.fill();
+
   ctx.lineWidth = EDGE_WIDTH;
   ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
   ctx.stroke();
