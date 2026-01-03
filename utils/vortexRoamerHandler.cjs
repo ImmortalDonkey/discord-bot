@@ -1,5 +1,3 @@
-// utils/vortexRoamerHandler.cjs
-
 const db = require("../database.cjs");
 const { getRarity, getRarityDisplayLabel } = require("./rarity.cjs");
 const { calculateAwardedPoints } = require("./scoring.cjs");
@@ -9,7 +7,8 @@ const { createReportCard } = require("../renderers/reportCard.debug.cjs");
 /**
  * Handles a single roamer entry from the Vortex API (DEV MODE).
  * - DB dedup
- * - Award points
+ * - Auto-create IGN player if missing
+ * - Award points to IGN
  * - Post debug report card
  */
 async function handleVortexRoamer(client, roamer) {
@@ -18,58 +17,97 @@ async function handleVortexRoamer(client, roamer) {
     return;
   }
 
-  const { roamer_name, time_found, location } = roamer;
+  const {
+    roamer_name,
+    time_found,
+    location,
+    found_by_username // 👈 IGN from Vortex API
+  } = roamer;
 
+  const ign = String(found_by_username || "").trim();
+  if (!ign) {
+    console.warn("⚠ Vortex roamer missing IGN, skipping:", roamer_name);
+    return;
+  }
+
+  // ──────────────────────────────
   // DB-level dedup (authoritative)
+  // ──────────────────────────────
   const exists = await db.hasVortexRoamer(roamer_name, time_found);
   if (exists) return;
 
   await db.insertVortexRoamer(roamer_name, time_found);
 
+  // ──────────────────────────────
+  // Ensure IGN exists in players table
+  // (discord_id intentionally NULL)
+  // ──────────────────────────────
+  let player = await db.getPlayerByIgn(ign);
+
+  if (!player) {
+    await db.upsertPlayerProfile({
+      discordId: null,
+      username: null,
+      nickname: null,
+      ign
+    });
+
+    player = await db.getPlayerByIgn(ign);
+  }
+
+  // ──────────────────────────────
+  // Resolve guild + channel
+  // ──────────────────────────────
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
   if (!guild) {
     console.warn("⚠ Vortex guild not found");
     return;
   }
 
-  const channelId = process.env.REPORT_CARD_CHANNEL_ID;
-  const channel = await guild.channels.fetch(channelId).catch(() => null);
+  const channel = await guild.channels
+    .fetch(process.env.REPORT_CARD_CHANNEL_ID)
+    .catch(() => null);
 
   if (!channel) {
     console.warn("⚠ Vortex report channel not found");
     return;
   }
 
+  // ──────────────────────────────
   // Rarity + points
+  // ──────────────────────────────
   const rarityKey = getRarity(roamer_name);
   const rarityLabel = getRarityDisplayLabel(rarityKey);
   const now = new Date();
   const points = calculateAwardedPoints(rarityKey, now);
 
-  // Award points to SYSTEM (you can change later)
-  const systemUserId = client.user.id;
-  const updated = await db.addPoints(
-    systemUserId,
-    client.user.username,
+  // Award points to IGN (authoritative)
+  const updated = await db.addPointsByIgn(
+    ign,
     points,
     `Vortex Auto Report: ${roamer_name}`
   );
 
   const trainerRank = getRankName(updated?.lifetime_points || 0);
 
-  // Expiry (end of hour)
+  // ──────────────────────────────
+  // Expiry window (end of hour)
+  // ──────────────────────────────
   const expiresAt = new Date(now);
   expiresAt.setMinutes(59, 59, 999);
   const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
 
   const reportId = `vortex_${Date.now()}`;
 
+  // ──────────────────────────────
+  // Build report card (IGN FIRST)
+  // ──────────────────────────────
   const cardPath = await createReportCard({
-    reportType: "vortex",
-    reporterName: "Vortex API",
-    reporterType: "system",
-    encountererName: "Vortex API",
-    encountererType: "system",
+    reportType: "encounter",
+    reporterName: ign,
+    reporterType: "ign",
+    encountererName: ign,
+    encountererType: "ign",
     pokemonName: roamer_name,
     location,
     rarityKey,
@@ -84,11 +122,14 @@ async function handleVortexRoamer(client, roamer) {
     files: [cardPath]
   });
 
+  // ──────────────────────────────
+  // Persist report
+  // ──────────────────────────────
   await db.createReport({
     id: reportId,
     guildId: guild.id,
-    reporterId: systemUserId,
-    reporterName: "Vortex API",
+    reporterId: null,
+    reporterName: ign,
     trainerRank,
     pokemonName: roamer_name,
     rarityKey,
@@ -105,7 +146,7 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   console.log(
-    `🛰️ Vortex report posted: ${roamer_name} @ ${location} (+${points})`
+    `🛰️ Vortex report posted: ${ign} encountered ${roamer_name} @ ${location} (+${points})`
   );
 }
 
