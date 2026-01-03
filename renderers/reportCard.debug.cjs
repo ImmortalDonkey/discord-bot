@@ -27,6 +27,8 @@ const NAME_COLORS = {
   ign: "#f59e0b"
 };
 
+const POKEMON_COLOR = "#f472b6"; // NEW – Pokémon highlight
+
 const STATUS_COLORS = {
   active: "#4ade80",
   expired: "#ef4444"
@@ -67,11 +69,8 @@ function wrapText(ctx, text, maxWidth) {
 
 async function createReportCard(report) {
   const {
-    reportType,
     reporterName,
     reporterType,
-    encountererName,
-    encountererType,
     pokemonName,
     location,
     rarityKey,
@@ -132,17 +131,11 @@ async function createReportCard(report) {
   const contentX = leftX + 60;
   const contentW = leftW - 120;
 
-  // ───────── NARRATIVE ─────────
-  const prep = /\d$/.test(location.trim()) ? "on" : "at";
-
-  const narrative =
-    reportType === "sighting"
-      ? `${reporterName} reported that ${encountererName} encountered a wild ${pokemonName} ${prep} ${location}`
-      : `${encountererName} encountered a wild ${pokemonName} ${prep} ${location}`;
-
+  // ───────── NARRATIVE (NEW CANONICAL FORMAT) ─────────
+  const narrative = `${reporterName} has encountered a wild roaming ${pokemonName}`;
   const narrativeLines = wrapText(ctx, narrative, contentW);
 
-  // ───────── META FIELDS ─────────
+  // ───────── META ─────────
   const metaFields = [
     ["Rank:", trainerRank],
     ["Rarity:", rarityLabel],
@@ -150,31 +143,40 @@ async function createReportCard(report) {
     ["Status:", statusText || "Active"]
   ];
 
-  const rarityLines = wrapText(ctx, rarityLabel, contentW * 0.6);
-  const metaHeight =
-    lineHeight * (metaFields.length + rarityLines.length - 1) +
-    lineHeight * 0.4; // extra gap before Status
-
   const narrativeHeight = narrativeLines.length * lineHeight;
-  const totalHeight =
-    narrativeHeight + lineHeight * 0.8 + metaHeight;
+  const metaHeight = lineHeight * (metaFields.length + 0.4);
 
   let cursorY =
-    leftY + (panelH - totalHeight) / 2 + lineHeight;
+    leftY + (panelH - (narrativeHeight + metaHeight)) / 2 + lineHeight;
 
-  // ───────── DRAW NARRATIVE ─────────
+  // ───────── DRAW NARRATIVE (HIGHLIGHTS) ─────────
   for (const line of narrativeLines) {
     let x = contentX;
 
-    if (line.includes(encountererName)) {
-      ctx.fillStyle = NAME_COLORS[encountererType] || VALUE_COLOR;
-      ctx.fillText(encountererName, x, cursorY);
-      x += ctx.measureText(encountererName).width + 10;
+    if (line.includes(reporterName)) {
+      ctx.fillStyle = NAME_COLORS[reporterType] || VALUE_COLOR;
+      ctx.fillText(reporterName, x, cursorY);
+      x += ctx.measureText(reporterName).width + 10;
+    }
+
+    const remainder = line.replace(reporterName, "").trim();
+
+    if (remainder.includes(pokemonName)) {
+      const [before, after] = remainder.split(pokemonName);
+
       ctx.fillStyle = VALUE_COLOR;
-      ctx.fillText(line.replace(encountererName, ""), x, cursorY);
+      ctx.fillText(before, x, cursorY);
+      x += ctx.measureText(before).width + 10;
+
+      ctx.fillStyle = POKEMON_COLOR;
+      ctx.fillText(pokemonName, x, cursorY);
+      x += ctx.measureText(pokemonName).width + 10;
+
+      ctx.fillStyle = VALUE_COLOR;
+      ctx.fillText(after || "", x, cursorY);
     } else {
       ctx.fillStyle = VALUE_COLOR;
-      ctx.fillText(line, x, cursorY);
+      ctx.fillText(remainder, x, cursorY);
     }
 
     cursorY += lineHeight;
@@ -192,29 +194,15 @@ async function createReportCard(report) {
     ctx.fillStyle = LABEL_COLOR;
     ctx.fillText(label, contentX, cursorY);
 
-    if (label === "Rarity:") {
-      ctx.fillStyle = VALUE_COLOR;
-      const lines = wrapText(ctx, value, contentW - maxLabel - 40);
-      for (const l of lines) {
-        ctx.fillText(l, contentX + maxLabel + 40, cursorY);
-        cursorY += lineHeight;
-      }
-      continue;
-    }
-
-    if (label === "Status:") {
-      ctx.fillStyle =
-        STATUS_COLORS[value?.toLowerCase()] || VALUE_COLOR;
-    } else {
-      ctx.fillStyle = VALUE_COLOR;
-    }
+    ctx.fillStyle =
+      label === "Status:"
+        ? STATUS_COLORS[value?.toLowerCase()] || VALUE_COLOR
+        : VALUE_COLOR;
 
     ctx.fillText(value, contentX + maxLabel + 40, cursorY);
     cursorY += lineHeight;
 
-    if (label === "Points:") {
-      cursorY += lineHeight * 0.4;
-    }
+    if (label === "Points:") cursorY += lineHeight * 0.4;
   }
 
   // ───────── SPRITE ─────────
@@ -248,11 +236,7 @@ async function createReportCard(report) {
   ctx.textBaseline = "middle";
   ctx.fillText(location, CARD_WIDTH / 2, barY + 60);
 
-  const outPath = path.join(
-    REPORT_DIR,
-    `report_debug_${Date.now()}.png`
-  );
-
+  const outPath = path.join(REPORT_DIR, `report_debug_${Date.now()}.png`);
   fs.writeFileSync(outPath, canvas.toBuffer("image/png"));
   return outPath;
 }
