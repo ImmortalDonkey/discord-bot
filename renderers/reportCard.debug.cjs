@@ -24,7 +24,8 @@ const rarityOutline = {
 
 const NAME_COLORS = {
   discord: "#38bdf8",
-  ign: "#f59e0b"
+  ign: "#f59e0b",
+  system: "#94a3b8"
 };
 
 const POKEMON_COLOR = "#f472b6";
@@ -67,10 +68,74 @@ function wrapText(ctx, text, maxWidth) {
   return lines;
 }
 
+/**
+ * Draw a single line, highlighting name + pokemon ONLY if they appear in that line.
+ */
+function drawNarrativeLine(ctx, line, x, y, opts) {
+  const {
+    valueColor,
+    name,
+    nameColor,
+    pokemon,
+    pokemonColor
+  } = opts;
+
+  let cursorX = x;
+  let remaining = String(line || "");
+
+  // Highlight name if present in this line
+  if (name && remaining.includes(name)) {
+    const parts = remaining.split(name);
+    const before = parts.shift() || "";
+    const after = parts.join(name); // in case name appears multiple times
+
+    ctx.fillStyle = valueColor;
+    if (before) {
+      ctx.fillText(before, cursorX, y);
+      cursorX += ctx.measureText(before).width;
+    }
+
+    ctx.fillStyle = nameColor;
+    ctx.fillText(name, cursorX, y);
+    cursorX += ctx.measureText(name).width;
+
+    remaining = after;
+  }
+
+  // Highlight pokemon if present in the remaining text
+  if (pokemon && remaining.includes(pokemon)) {
+    const parts = remaining.split(pokemon);
+    const before = parts.shift() || "";
+    const after = parts.join(pokemon);
+
+    ctx.fillStyle = valueColor;
+    if (before) {
+      ctx.fillText(before, cursorX, y);
+      cursorX += ctx.measureText(before).width;
+    }
+
+    ctx.fillStyle = pokemonColor;
+    ctx.fillText(pokemon, cursorX, y);
+    cursorX += ctx.measureText(pokemon).width;
+
+    ctx.fillStyle = valueColor;
+    if (after) ctx.fillText(after, cursorX, y);
+
+    return;
+  }
+
+  // No pokemon in this line, just draw remaining normally
+  ctx.fillStyle = valueColor;
+  if (remaining) ctx.fillText(remaining, cursorX, y);
+}
+
 async function createReportCard(report) {
   const {
+    reportType,
     reporterName,
     reporterType,
+    encountererName,
+    encountererType,
     pokemonName,
     location,
     rarityKey,
@@ -108,6 +173,7 @@ async function createReportCard(report) {
   const leftY = MARGIN;
   const panelH = innerH - 160;
 
+  // ───────── PANEL ─────────
   ctx.save();
   roundedRectPath(ctx, leftX, leftY, leftW, panelH, 40);
   ctx.fillStyle = "rgba(50,50,50,0.7)";
@@ -132,9 +198,26 @@ async function createReportCard(report) {
   const contentW = leftW - 120;
 
   // ───────── NARRATIVE ─────────
-  const narrative = `${reporterName} has encountered a wild roaming ${pokemonName}`;
+  // Keep your canonical format for “encounter/vortex”.
+  // For sighting, keep the older descriptive flow so /report doesn’t get weird.
+  const nameForNarrative =
+    String(encountererName || reporterName || "Unknown").trim();
+
+  const prep = /\d$/.test(String(location || "").trim()) ? "on" : "at";
+
+  let narrative = "";
+  if (reportType === "sighting") {
+    // Reporter is telling us someone (maybe IGN) encountered
+    narrative = `${reporterName} reported that ${nameForNarrative} encountered a wild ${pokemonName} ${prep} ${location}`;
+  } else {
+    // Encounter / vortex / default
+    // (This matches your “stick with my existing narrative format” requirement)
+    narrative = `${nameForNarrative} has encountered a wild roaming ${pokemonName}`;
+  }
+
   const narrativeLines = wrapText(ctx, narrative, contentW);
 
+  // ───────── META ─────────
   const metaFields = [
     ["Rank:", trainerRank],
     ["Rarity:", rarityLabel],
@@ -142,13 +225,9 @@ async function createReportCard(report) {
     ["Status:", statusText || "Active"]
   ];
 
-  // ───────── HEIGHT CALC (FIXED) ─────────
+  // ───────── HEIGHT CALC (centering) ─────────
   const narrativeHeight = narrativeLines.length * lineHeight;
-
-  const metaRows =
-    4 +        // Rank, Rarity, Points, Status
-    0.4;       // extra spacing after Points
-
+  const metaRows = 4 + 0.4; // 4 lines + extra spacing after Points
   const metaHeight = metaRows * lineHeight;
 
   const totalHeight =
@@ -156,38 +235,27 @@ async function createReportCard(report) {
     lineHeight * 0.8 + // gap between narrative + meta
     metaHeight;
 
-  let cursorY =
-    leftY + (panelH - totalHeight) / 2 + lineHeight;
+  let cursorY = leftY + (panelH - totalHeight) / 2 + lineHeight;
 
-  // ───────── DRAW NARRATIVE ─────────
+  // ───────── DRAW NARRATIVE (SAFE HIGHLIGHTS) ─────────
+  const nameColor =
+    NAME_COLORS[encountererType || reporterType] || VALUE_COLOR;
+
   for (const line of narrativeLines) {
-    let x = contentX;
-
-    ctx.fillStyle = NAME_COLORS[reporterType] || VALUE_COLOR;
-    ctx.fillText(reporterName, x, cursorY);
-    x += ctx.measureText(reporterName).width + 10;
-
-    const rest = line.replace(reporterName, "").trim();
-
-    const [before, after] = rest.split(pokemonName);
-
-    ctx.fillStyle = VALUE_COLOR;
-    ctx.fillText(before, x, cursorY);
-    x += ctx.measureText(before).width + 10;
-
-    ctx.fillStyle = POKEMON_COLOR;
-    ctx.fillText(pokemonName, x, cursorY);
-    x += ctx.measureText(pokemonName).width + 10;
-
-    ctx.fillStyle = VALUE_COLOR;
-    ctx.fillText(after || "", x, cursorY);
+    drawNarrativeLine(ctx, line, contentX, cursorY, {
+      valueColor: VALUE_COLOR,
+      name: nameForNarrative,
+      nameColor,
+      pokemon: pokemonName,
+      pokemonColor: POKEMON_COLOR
+    });
 
     cursorY += lineHeight;
   }
 
   cursorY += lineHeight * 0.8;
 
-  // ───────── META ─────────
+  // ───────── DRAW META ─────────
   let maxLabel = 0;
   for (const [label] of metaFields) {
     maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
@@ -199,7 +267,7 @@ async function createReportCard(report) {
 
     ctx.fillStyle =
       label === "Status:"
-        ? STATUS_COLORS[value?.toLowerCase()] || VALUE_COLOR
+        ? STATUS_COLORS[String(value || "").toLowerCase()] || VALUE_COLOR
         : VALUE_COLOR;
 
     ctx.fillText(value, contentX + maxLabel + 40, cursorY);
