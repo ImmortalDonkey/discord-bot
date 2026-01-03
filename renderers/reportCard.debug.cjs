@@ -27,7 +27,7 @@ const NAME_COLORS = {
   ign: "#f59e0b"
 };
 
-const POKEMON_COLOR = "#f472b6"; // NEW – Pokémon highlight
+const POKEMON_COLOR = "#f472b6";
 
 const STATUS_COLORS = {
   active: "#4ade80",
@@ -131,11 +131,10 @@ async function createReportCard(report) {
   const contentX = leftX + 60;
   const contentW = leftW - 120;
 
-  // ───────── NARRATIVE (NEW CANONICAL FORMAT) ─────────
+  // ───────── NARRATIVE ─────────
   const narrative = `${reporterName} has encountered a wild roaming ${pokemonName}`;
   const narrativeLines = wrapText(ctx, narrative, contentW);
 
-  // ───────── META ─────────
   const metaFields = [
     ["Rank:", trainerRank],
     ["Rarity:", rarityLabel],
@@ -143,48 +142,52 @@ async function createReportCard(report) {
     ["Status:", statusText || "Active"]
   ];
 
+  // ───────── HEIGHT CALC (FIXED) ─────────
   const narrativeHeight = narrativeLines.length * lineHeight;
-  const metaHeight = lineHeight * (metaFields.length + 0.4);
+
+  const metaRows =
+    4 +        // Rank, Rarity, Points, Status
+    0.4;       // extra spacing after Points
+
+  const metaHeight = metaRows * lineHeight;
+
+  const totalHeight =
+    narrativeHeight +
+    lineHeight * 0.8 + // gap between narrative + meta
+    metaHeight;
 
   let cursorY =
-    leftY + (panelH - (narrativeHeight + metaHeight)) / 2 + lineHeight;
+    leftY + (panelH - totalHeight) / 2 + lineHeight;
 
-  // ───────── DRAW NARRATIVE (HIGHLIGHTS) ─────────
+  // ───────── DRAW NARRATIVE ─────────
   for (const line of narrativeLines) {
     let x = contentX;
 
-    if (line.includes(reporterName)) {
-      ctx.fillStyle = NAME_COLORS[reporterType] || VALUE_COLOR;
-      ctx.fillText(reporterName, x, cursorY);
-      x += ctx.measureText(reporterName).width + 10;
-    }
+    ctx.fillStyle = NAME_COLORS[reporterType] || VALUE_COLOR;
+    ctx.fillText(reporterName, x, cursorY);
+    x += ctx.measureText(reporterName).width + 10;
 
-    const remainder = line.replace(reporterName, "").trim();
+    const rest = line.replace(reporterName, "").trim();
 
-    if (remainder.includes(pokemonName)) {
-      const [before, after] = remainder.split(pokemonName);
+    const [before, after] = rest.split(pokemonName);
 
-      ctx.fillStyle = VALUE_COLOR;
-      ctx.fillText(before, x, cursorY);
-      x += ctx.measureText(before).width + 10;
+    ctx.fillStyle = VALUE_COLOR;
+    ctx.fillText(before, x, cursorY);
+    x += ctx.measureText(before).width + 10;
 
-      ctx.fillStyle = POKEMON_COLOR;
-      ctx.fillText(pokemonName, x, cursorY);
-      x += ctx.measureText(pokemonName).width + 10;
+    ctx.fillStyle = POKEMON_COLOR;
+    ctx.fillText(pokemonName, x, cursorY);
+    x += ctx.measureText(pokemonName).width + 10;
 
-      ctx.fillStyle = VALUE_COLOR;
-      ctx.fillText(after || "", x, cursorY);
-    } else {
-      ctx.fillStyle = VALUE_COLOR;
-      ctx.fillText(remainder, x, cursorY);
-    }
+    ctx.fillStyle = VALUE_COLOR;
+    ctx.fillText(after || "", x, cursorY);
 
     cursorY += lineHeight;
   }
 
   cursorY += lineHeight * 0.8;
 
-  // ───────── DRAW META ─────────
+  // ───────── META ─────────
   let maxLabel = 0;
   for (const [label] of metaFields) {
     maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
