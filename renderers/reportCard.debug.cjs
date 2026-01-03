@@ -14,37 +14,25 @@ if (!fs.existsSync(REPORT_DIR)) {
   fs.mkdirSync(REPORT_DIR, { recursive: true });
 }
 
-/* ───────── STYLES ───────── */
 const rarityOutline = {
-  paradox: "#a855f7",
-  roamerMonth: "#ec4899",
-  legendary: "#22d3ee",
+  common: "#4ade80",
   rare: "#38bdf8",
-  common: "#4ade80"
+  legendary: "#22d3ee",
+  paradox: "#a855f7",
+  roamerMonth: "#ec4899"
 };
 
-const NAME_COLORS = {
-  discord: "#38bdf8",
-  ign: "#f59e0b"
-};
-
-const RANK_NAME_COLORS = {
-  "Rookie Trainer": "#facc15",
-  "Trainer": "#fde047",
+// Rank-based username colours
+const RANK_COLORS = {
+  "Rookie Trainer": "#4ade80",
+  Trainer: "#38bdf8",
   "Ace Trainer": "#60a5fa",
-  "Gym Challenger": "#22c55e",
-  "Gym Leader": "#4ade80",
-  "Elite Four": "#a855f7",
-  "Champion": "#f59e0b",
-  "Master": "#fbbf24"
+  "Gym Challenger": "#facc15",
+  "Gym Leader": "#f97316",
+  "Elite Four": "#ec4899",
+  Champion: "#a855f7",
+  Master: "#e879f9"
 };
-
-const GLOW_RANKS = new Set([
-  "Gym Leader",
-  "Elite Four",
-  "Champion",
-  "Master"
-]);
 
 const POKEMON_COLOR = "#f472b6";
 
@@ -53,7 +41,6 @@ const STATUS_COLORS = {
   expired: "#ef4444"
 };
 
-/* ───────── HELPERS ───────── */
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -70,7 +57,7 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 }
 
 function wrapText(ctx, text, maxWidth) {
-  const words = String(text || "").split(" ");
+  const words = String(text).split(" ");
   const lines = [];
   let line = "";
 
@@ -87,11 +74,13 @@ function wrapText(ctx, text, maxWidth) {
   return lines;
 }
 
-/* ───────── MAIN ───────── */
+function hasGlow(rank) {
+  return ["Gym Leader", "Elite Four", "Champion", "Master"].includes(rank);
+}
+
 async function createReportCard(report) {
   const {
     reporterName,
-    reporterType,
     pokemonName,
     location,
     rarityKey,
@@ -104,7 +93,7 @@ async function createReportCard(report) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  /* BACKGROUND */
+  // Background
   const bgPath = path.join(
     BG_DIR,
     String(location).toLowerCase().replace(/\s+/g, "-") + ".png"
@@ -121,26 +110,26 @@ async function createReportCard(report) {
 
   const innerW = CARD_WIDTH - MARGIN * 2;
   const innerH = CARD_HEIGHT - MARGIN * 2;
+
   const leftW = Math.floor(innerW * 0.58);
   const rightW = innerW - leftW;
-
   const leftX = MARGIN;
   const leftY = MARGIN;
   const panelH = innerH - 160;
 
+  // Panel
   ctx.save();
   roundedRectPath(ctx, leftX, leftY, leftW, panelH, 40);
-  ctx.fillStyle = "rgba(50,50,50,0.7)";
+  ctx.fillStyle = "rgba(40,40,40,0.7)";
   ctx.fill();
   ctx.lineWidth = 10;
   ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
   ctx.stroke();
   ctx.restore();
 
-  /* TEXT SETUP */
-  const FONT_SIZE = Math.round(55 * 1.2);
+  // Text config
+  const FONT_SIZE = 66;
   const lineHeight = FONT_SIZE * 1.3;
-
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
@@ -148,119 +137,115 @@ async function createReportCard(report) {
   const contentX = leftX + 60;
   const contentW = leftW - 120;
 
-  /* NARRATIVE */
-  const narrative = `${reporterName} has encountered a wild roaming ${pokemonName}`;
-  const narrativeLines = wrapText(ctx, narrative, contentW);
+  // ───────── Narrative (TOKEN SAFE) ─────────
+  const narrativeParts = [
+    { type: "name", text: reporterName },
+    { type: "text", text: " has encountered a wild roaming " },
+    { type: "pokemon", text: pokemonName }
+  ];
 
-  /* META (pre-calc rarity wrap) */
-  const rarityLines = wrapText(
-    ctx,
-    rarityLabel,
-    contentW * 0.55
-  );
+  const narrativeText = narrativeParts.map(p => p.text).join("");
+  const narrativeLines = wrapText(ctx, narrativeText, contentW);
 
   const metaFields = [
-    ["Rank:", 1],
-    ["Rarity:", rarityLines.length],
-    ["Points:", 1],
-    ["Status:", 1]
+    ["Rank:", trainerRank],
+    ["Rarity:", rarityLabel],
+    ["Points:", String(points)],
+    ["Status:", statusText || "Active"]
   ];
+
+  const rarityWrapped = wrapText(ctx, rarityLabel, contentW * 0.6);
 
   const narrativeHeight = narrativeLines.length * lineHeight;
   const metaHeight =
-    metaFields.reduce((a, [, l]) => a + l, 0) * lineHeight +
+    lineHeight * (metaFields.length + rarityWrapped.length - 1) +
     lineHeight * 0.4;
 
-  const totalHeight =
-    narrativeHeight + lineHeight * 0.8 + metaHeight;
-
   let cursorY =
-    leftY + (panelH - totalHeight) / 2 + lineHeight;
+    leftY + (panelH - (narrativeHeight + metaHeight)) / 2 + lineHeight;
 
-  /* DRAW NARRATIVE */
-  const rankColor =
-    RANK_NAME_COLORS[trainerRank] || "#ffffff";
+  const nameColor = RANK_COLORS[trainerRank] || "#ffffff";
+  const glow = hasGlow(trainerRank);
 
-  const nameColor =
-    reporterType === "ign"
-      ? rankColor
-      : NAME_COLORS[reporterType] || "#ffffff";
-
-  const useGlow =
-    reporterType === "ign" && GLOW_RANKS.has(trainerRank);
-
+  // Draw narrative safely
+  let consumed = 0;
   for (const line of narrativeLines) {
     let x = contentX;
+    let remaining = line;
 
-    ctx.save();
-    if (useGlow) {
-      ctx.shadowColor = nameColor;
-      ctx.shadowBlur = 20;
+    for (const part of narrativeParts) {
+      if (!remaining.includes(part.text)) continue;
+
+      const before = remaining.split(part.text)[0];
+      if (before) {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(before, x, cursorY);
+        x += ctx.measureText(before).width;
+      }
+
+      ctx.save();
+      if (part.type === "name") {
+        ctx.fillStyle = nameColor;
+        if (glow) {
+          ctx.shadowColor = nameColor;
+          ctx.shadowBlur = 18;
+        }
+      } else if (part.type === "pokemon") {
+        ctx.fillStyle = POKEMON_COLOR;
+      } else {
+        ctx.fillStyle = "#ffffff";
+      }
+
+      ctx.fillText(part.text, x, cursorY);
+      x += ctx.measureText(part.text).width;
+      ctx.restore();
+
+      remaining = remaining.replace(part.text, "");
     }
 
-    ctx.fillStyle = nameColor;
-    ctx.fillText(reporterName, x, cursorY);
-    x += ctx.measureText(reporterName).width + 10;
-    ctx.restore();
-
-    const remainder = line.replace(reporterName, "").trim();
-    const [before, after] = remainder.split(pokemonName);
-
-    ctx.fillStyle = "#fff";
-    ctx.fillText(before || "", x, cursorY);
-    x += ctx.measureText(before || "").width + 10;
-
-    ctx.fillStyle = POKEMON_COLOR;
-    ctx.fillText(pokemonName, x, cursorY);
-    x += ctx.measureText(pokemonName).width + 10;
-
-    ctx.fillStyle = "#fff";
-    ctx.fillText(after || "", x, cursorY);
+    if (remaining.trim()) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(remaining, x, cursorY);
+    }
 
     cursorY += lineHeight;
   }
 
   cursorY += lineHeight * 0.8;
 
-  /* DRAW META */
+  // ───────── Meta ─────────
   const LABEL_COLOR = "#facc15";
-  const VALUE_COLOR = "#ffffff";
-
-  const labels = ["Rank:", "Rarity:", "Points:", "Status:"];
-  const maxLabel = Math.max(...labels.map(l => ctx.measureText(l).width));
-
-  // Rank
-  ctx.fillStyle = LABEL_COLOR;
-  ctx.fillText("Rank:", contentX, cursorY);
-  ctx.fillStyle = VALUE_COLOR;
-  ctx.fillText(trainerRank, contentX + maxLabel + 40, cursorY);
-  cursorY += lineHeight;
-
-  // Rarity (wrapped)
-  ctx.fillStyle = LABEL_COLOR;
-  ctx.fillText("Rarity:", contentX, cursorY);
-
-  ctx.fillStyle = VALUE_COLOR;
-  for (const line of rarityLines) {
-    ctx.fillText(line, contentX + maxLabel + 40, cursorY);
-    cursorY += lineHeight;
+  let maxLabel = 0;
+  for (const [label] of metaFields) {
+    maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
   }
 
-  // Points
-  ctx.fillStyle = LABEL_COLOR;
-  ctx.fillText("Points:", contentX, cursorY);
-  ctx.fillStyle = VALUE_COLOR;
-  ctx.fillText(String(points), contentX + maxLabel + 40, cursorY);
-  cursorY += lineHeight * 1.4;
+  for (const [label, value] of metaFields) {
+    ctx.fillStyle = LABEL_COLOR;
+    ctx.fillText(label, contentX, cursorY);
 
-  // Status
-  ctx.fillStyle = LABEL_COLOR;
-  ctx.fillText("Status:", contentX, cursorY);
-  ctx.fillStyle =
-    STATUS_COLORS[statusText?.toLowerCase()] || VALUE_COLOR;
-  ctx.fillText(statusText || "Active", contentX + maxLabel + 40, cursorY);
+    if (label === "Rarity:") {
+      ctx.fillStyle = "#ffffff";
+      const lines = wrapText(ctx, value, contentW - maxLabel - 40);
+      for (const l of lines) {
+        ctx.fillText(l, contentX + maxLabel + 40, cursorY);
+        cursorY += lineHeight;
+      }
+      continue;
+    }
 
-  /* SPRITE */
+    ctx.fillStyle =
+      label === "Status:"
+        ? STATUS_COLORS[value?.toLowerCase()] || "#fff"
+        : "#ffffff";
+
+    ctx.fillText(value, contentX + maxLabel + 40, cursorY);
+    cursorY += lineHeight;
+
+    if (label === "Points:") cursorY += lineHeight * 0.4;
+  }
+
+  // Sprite
   const spritePath = path.join(SPRITES_DIR, `${pokemonName}.png`);
   if (fs.existsSync(spritePath)) {
     const sprite = await loadImage(spritePath);
@@ -274,7 +259,7 @@ async function createReportCard(report) {
     );
   }
 
-  /* ROUTE BAR */
+  // Route bar
   const barY = CARD_HEIGHT - MARGIN - 120;
   ctx.save();
   roundedRectPath(ctx, MARGIN, barY, innerW, 120, 35);
