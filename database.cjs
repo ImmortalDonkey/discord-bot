@@ -399,6 +399,36 @@ async function updateLifetimePoints(discordId, newLifetime) {
 }
 
 // ------------------------------------------------------
+// ⭐⭐ IGN-FIRST POINTS (CUMULATIVE PATCH) ⭐⭐
+// - Stores IGN points in the SAME points/point_logs tables
+// - Uses a synthetic key: discord_id = "ign:<ign_norm>"
+// - Does NOT affect existing Discord-linked points
+// ------------------------------------------------------
+
+function ignToPointsKey(ign) {
+  const norm = normalizeIgn(ign);
+  if (!norm) return null;
+  return `ign:${norm}`;
+}
+
+async function getIgnPointsRow(ign) {
+  const key = ignToPointsKey(ign);
+  if (!key) return null;
+  return getUserById(key);
+}
+
+async function addIgnPoints(ign, delta, reason = '') {
+  const key = ignToPointsKey(ign);
+  if (!key) return null;
+
+  // username column will store the display IGN (original casing if you pass it)
+  const displayName = String(ign || "").trim() || key;
+
+  // Reuse existing addPoints logic but under ign:<norm> identity
+  return addPoints(key, displayName, delta, reason);
+}
+
+// ------------------------------------------------------
 // PLAYER PROFILE (IGN) FUNCTIONS
 // ------------------------------------------------------
 
@@ -483,6 +513,33 @@ async function getPlayerByIgn(ign) {
     [norm]
   );
   return row || null;
+}
+
+/**
+ * ⭐ NEW (CUMULATIVE PATCH):
+ * Ensure an IGN exists in players table even with no Discord link.
+ * This supports Case C: auto-create from API poll.
+ *
+ * - Uses a synthetic discord_id: "ign:<ign_norm>"
+ * - This does NOT interfere with normal Discord user rows.
+ */
+async function ensureIgnProfileExists(ign) {
+  const ignStr = String(ign || "").trim();
+  const ignNorm = normalizeIgn(ignStr);
+  if (!ignNorm) return null;
+
+  const syntheticDiscordId = ignToPointsKey(ignStr); // ign:<norm>
+  const existing = await getPlayerByDiscordId(syntheticDiscordId);
+  if (existing) return existing;
+
+  await upsertPlayerProfile({
+    discordId: syntheticDiscordId,
+    username: null,
+    nickname: null,
+    ign: ignStr
+  });
+
+  return getPlayerByDiscordId(syntheticDiscordId);
 }
 
 /**
@@ -1028,6 +1085,11 @@ module.exports = {
   clearAllPoints,
   incrementCompletedBounties,
   getTotalCompletedBounties,
+
+  // ⭐⭐ IGN-first points (CUMULATIVE PATCH EXPORTS)
+  getIgnPointsRow,
+  addIgnPoints,
+  ensureIgnProfileExists,
 
   // Player profiles (IGN)
   upsertPlayerProfile,
