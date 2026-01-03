@@ -343,7 +343,7 @@ async function createReportCard(report) {
 
   /* OUTER EDGE BORDER (STROKE ONLY – FIXED) */
   const EDGE = 26;
-  const EDGE_RADIUS = EDGE * 3;
+  const EDGE_RADIUS = EDGE * 3.5;
 
   ctx.save();
   roundedRectPath(
@@ -364,4 +364,4 @@ async function createReportCard(report) {
   return outPath;
 }
 
-module.exports = { createReportCard };
+module.exports = { createReportCard }; 
