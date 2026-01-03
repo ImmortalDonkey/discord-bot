@@ -15,31 +15,31 @@ if (!fs.existsSync(REPORT_DIR)) {
 }
 
 /* ────────────────────────────── */
-/* COLOUR SYSTEMS                 */
+/* COLOURS                        */
 /* ────────────────────────────── */
 
 const rarityOutline = {
   common: "#4ade80",
   rare: "#38bdf8",
   legendary: "#22d3ee",
-  paradox: "#a855f7",
-  roamerMonth: "#ec4899"
+  roamerMonth: "#ec4899",
+  paradox: "#a855f7"
 };
 
 const rarityTextColors = {
   common: "#bbf7d0",
   rare: "#bae6fd",
   legendary: "#a5f3fc",
-  paradox: "#e9d5ff",
-  roamerMonth: "#fbcfe8"
+  roamerMonth: "#fbcfe8",
+  paradox: "#e9d5ff"
 };
 
 const rarityGlowStrength = {
-  common: 8,
-  rare: 14,
-  legendary: 18,
-  roamerMonth: 26,
-  paradox: 30
+  common: 6,
+  rare: 12,
+  legendary: 16,
+  roamerMonth: 24,
+  paradox: 28
 };
 
 const RANK_COLORS = {
@@ -82,7 +82,7 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 }
 
 function wrapText(ctx, text, maxWidth) {
-  const words = String(text).split(" ");
+  const words = text.split(" ");
   const lines = [];
   let line = "";
 
@@ -100,7 +100,7 @@ function wrapText(ctx, text, maxWidth) {
 }
 
 /* ────────────────────────────── */
-/* MAIN RENDER                    */
+/* MAIN                           */
 /* ────────────────────────────── */
 
 async function createReportCard(report) {
@@ -137,6 +137,7 @@ async function createReportCard(report) {
   const innerH = CARD_HEIGHT - MARGIN * 2;
   const leftW = Math.floor(innerW * 0.58);
   const rightW = innerW - leftW;
+
   const leftX = MARGIN;
   const leftY = MARGIN;
   const panelH = innerH - 160;
@@ -151,7 +152,7 @@ async function createReportCard(report) {
   ctx.stroke();
   ctx.restore();
 
-  /* TEXT SETUP */
+  /* TEXT CONFIG */
   const FONT_SIZE = 66;
   const lineHeight = FONT_SIZE * 1.3;
 
@@ -162,26 +163,21 @@ async function createReportCard(report) {
   const contentX = leftX + 60;
   const contentW = leftW - 120;
 
-  /* NARRATIVE */
-  const narrative = `${reporterName} has found a roaming ${pokemonName}`;
-  const narrativeLines = wrapText(ctx, narrative, contentW);
+  /* ───────── NARRATIVE (FIXED) ───────── */
+
+  const narrativeStatic = " has found a roaming ";
+  const narrativeFull =
+    reporterName + narrativeStatic + pokemonName;
+
+  const narrativeLines = wrapText(ctx, narrativeFull, contentW);
 
   /* META */
-  const metaFields = [
-    ["Rank:", trainerRank],
-    ["Rarity:", rarityLabel],
-    ["Points:", String(points)],
-    ["Status:", statusText || "Active"]
-  ];
+  const rarityLines = wrapText(ctx, rarityLabel, contentW * 0.6);
 
-  const rarityWrapped = wrapText(ctx, rarityLabel, contentW * 0.6);
-
-  /* HEIGHT CALC */
-  const narrativeHeight = narrativeLines.length * lineHeight;
   const metaHeight =
-    (1 + rarityWrapped.length + 1 + 1) * lineHeight +
-    lineHeight * 0.4;
+    (1 + rarityLines.length + 2) * lineHeight + lineHeight * 0.4;
 
+  const narrativeHeight = narrativeLines.length * lineHeight;
   const totalHeight =
     narrativeHeight + lineHeight * 0.8 + metaHeight;
 
@@ -200,23 +196,24 @@ async function createReportCard(report) {
       ctx.strokeText(reporterName, x, cursorY);
       if (hasRankGlow(trainerRank)) {
         ctx.shadowColor = ctx.fillStyle;
-        ctx.shadowBlur = 22;
+        ctx.shadowBlur = 20;
       }
       ctx.fillText(reporterName, x, cursorY);
       ctx.restore();
 
       x += ctx.measureText(reporterName).width;
-      const rest = line.slice(reporterName.length);
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(rest.replace(pokemonName, ""), x, cursorY);
-      x += ctx.measureText(rest.replace(pokemonName, "")).width;
     }
+
+    // Static text
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(narrativeStatic, x, cursorY);
+    x += ctx.measureText(narrativeStatic).width;
 
     // Pokémon name
     ctx.save();
     ctx.fillStyle = rarityTextColors[rarityKey] || "#ffffff";
     ctx.shadowColor = ctx.fillStyle;
-    ctx.shadowBlur = rarityGlowStrength[rarityKey] || 14;
+    ctx.shadowBlur = rarityGlowStrength[rarityKey] || 12;
     ctx.fillText(pokemonName, x, cursorY);
     ctx.restore();
 
@@ -228,17 +225,25 @@ async function createReportCard(report) {
   /* META */
   const LABEL_COLOR = "#facc15";
   let maxLabel = 0;
-  for (const [label] of metaFields) {
+
+  const meta = [
+    ["Rank:", trainerRank],
+    ["Rarity:", rarityLabel],
+    ["Points:", String(points)],
+    ["Status:", statusText || "Active"]
+  ];
+
+  for (const [label] of meta) {
     maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
   }
 
-  for (const [label, value] of metaFields) {
+  for (const [label, value] of meta) {
     ctx.fillStyle = LABEL_COLOR;
     ctx.fillText(label, contentX, cursorY);
 
     if (label === "Rarity:") {
       ctx.fillStyle = "#ffffff";
-      for (const l of rarityWrapped) {
+      for (const l of rarityLines) {
         ctx.fillText(l, contentX + maxLabel + 40, cursorY);
         cursorY += lineHeight;
       }
