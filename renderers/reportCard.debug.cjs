@@ -133,26 +133,22 @@ async function createReportCard(report) {
 
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
   ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
+  ctx.textBaseline = "top"; // ✅ KEY FIX (centering becomes reliable)
 
   const contentX = leftX + 60;
   const contentW = leftW - 120;
 
-  // ───────── SAFE TOKEN NARRATIVE ─────────
+  // ───────── NARRATIVE TOKENS ─────────
   const narrativeTokens = [
     { type: "name", text: reporterName },
     { type: "text", text: " has encountered a wild roaming " },
     { type: "pokemon", text: pokemonName }
   ];
 
-  // Build wrapped narrative lines WITHOUT mutation
-  const narrativeLines = wrapText(
-    ctx,
-    narrativeTokens.map(t => t.text).join(""),
-    contentW
-  );
+  const narrativeFull = narrativeTokens.map(t => t.text).join("");
+  const narrativeLines = wrapText(ctx, narrativeFull, contentW);
 
-  // ───────── META (RARITY WRAP AWARE) ─────────
+  // ───────── META ─────────
   const metaFields = [
     ["Rank:", trainerRank],
     ["Rarity:", rarityLabel],
@@ -160,20 +156,27 @@ async function createReportCard(report) {
     ["Status:", statusText || "Active"]
   ];
 
+  // Pre-wrap rarity once (and reuse for measuring + drawing)
   const rarityWrapped = wrapText(ctx, rarityLabel, contentW * 0.6);
 
-  const narrativeHeight = narrativeLines.length * lineHeight;
-  const metaHeight =
-    lineHeight * (metaFields.length + rarityWrapped.length - 1) +
-    lineHeight * 0.4;
+  // ───────── TRUE HEIGHT CALC (CENTERING) ─────────
+  const gapAfterNarrative = lineHeight * 0.8;
+  const extraAfterPoints = lineHeight * 0.4;
 
-  let cursorY =
-    leftY + (panelH - (narrativeHeight + metaHeight)) / 2 + lineHeight;
+  // Meta lines: Rank (1) + Rarity (N) + Points (1) + Status (1)
+  const metaLineCount = 1 + rarityWrapped.length + 1 + 1;
+
+  const narrativeHeight = narrativeLines.length * lineHeight;
+  const metaHeight = metaLineCount * lineHeight + extraAfterPoints;
+
+  const totalHeight = narrativeHeight + gapAfterNarrative + metaHeight;
+
+  let cursorY = leftY + (panelH - totalHeight) / 2;
 
   const nameColor = RANK_COLORS[trainerRank] || "#ffffff";
   const glow = hasGlow(trainerRank);
 
-  // ───────── DRAW NARRATIVE (NO STRING REPLACEMENT) ─────────
+  // ───────── DRAW NARRATIVE (TOKEN SAFE) ─────────
   for (const line of narrativeLines) {
     let x = contentX;
     let remaining = line;
@@ -217,12 +220,12 @@ async function createReportCard(report) {
     cursorY += lineHeight;
   }
 
-  cursorY += lineHeight * 0.8;
+  cursorY += gapAfterNarrative;
 
   // ───────── DRAW META ─────────
   const LABEL_COLOR = "#facc15";
-  let maxLabel = 0;
 
+  let maxLabel = 0;
   for (const [label] of metaFields) {
     maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
   }
@@ -233,8 +236,7 @@ async function createReportCard(report) {
 
     if (label === "Rarity:") {
       ctx.fillStyle = "#ffffff";
-      const lines = wrapText(ctx, value, contentW - maxLabel - 40);
-      for (const l of lines) {
+      for (const l of rarityWrapped) {
         ctx.fillText(l, contentX + maxLabel + 40, cursorY);
         cursorY += lineHeight;
       }
@@ -243,13 +245,13 @@ async function createReportCard(report) {
 
     ctx.fillStyle =
       label === "Status:"
-        ? STATUS_COLORS[value?.toLowerCase()] || "#ffffff"
+        ? STATUS_COLORS[String(value).toLowerCase()] || "#ffffff"
         : "#ffffff";
 
     ctx.fillText(value, contentX + maxLabel + 40, cursorY);
     cursorY += lineHeight;
 
-    if (label === "Points:") cursorY += lineHeight * 0.4;
+    if (label === "Points:") cursorY += extraAfterPoints;
   }
 
   // ───────── SPRITE ─────────
