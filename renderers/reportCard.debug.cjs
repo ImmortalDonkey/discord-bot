@@ -22,7 +22,6 @@ const rarityOutline = {
   roamerMonth: "#ec4899"
 };
 
-// Rank-based username colours
 const RANK_COLORS = {
   "Rookie Trainer": "#4ade80",
   Trainer: "#38bdf8",
@@ -93,7 +92,7 @@ async function createReportCard(report) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // Background
+  // ───────── BACKGROUND ─────────
   const bgPath = path.join(
     BG_DIR,
     String(location).toLowerCase().replace(/\s+/g, "-") + ".png"
@@ -113,11 +112,12 @@ async function createReportCard(report) {
 
   const leftW = Math.floor(innerW * 0.58);
   const rightW = innerW - leftW;
+
   const leftX = MARGIN;
   const leftY = MARGIN;
   const panelH = innerH - 160;
 
-  // Panel
+  // ───────── PANEL ─────────
   ctx.save();
   roundedRectPath(ctx, leftX, leftY, leftW, panelH, 40);
   ctx.fillStyle = "rgba(40,40,40,0.7)";
@@ -127,9 +127,10 @@ async function createReportCard(report) {
   ctx.stroke();
   ctx.restore();
 
-  // Text config
+  // ───────── TEXT SETUP ─────────
   const FONT_SIZE = 66;
   const lineHeight = FONT_SIZE * 1.3;
+
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
@@ -137,16 +138,21 @@ async function createReportCard(report) {
   const contentX = leftX + 60;
   const contentW = leftW - 120;
 
-  // ───────── Narrative (TOKEN SAFE) ─────────
-  const narrativeParts = [
+  // ───────── SAFE TOKEN NARRATIVE ─────────
+  const narrativeTokens = [
     { type: "name", text: reporterName },
     { type: "text", text: " has encountered a wild roaming " },
     { type: "pokemon", text: pokemonName }
   ];
 
-  const narrativeText = narrativeParts.map(p => p.text).join("");
-  const narrativeLines = wrapText(ctx, narrativeText, contentW);
+  // Build wrapped narrative lines WITHOUT mutation
+  const narrativeLines = wrapText(
+    ctx,
+    narrativeTokens.map(t => t.text).join(""),
+    contentW
+  );
 
+  // ───────── META (RARITY WRAP AWARE) ─────────
   const metaFields = [
     ["Rank:", trainerRank],
     ["Rarity:", rarityLabel],
@@ -167,16 +173,16 @@ async function createReportCard(report) {
   const nameColor = RANK_COLORS[trainerRank] || "#ffffff";
   const glow = hasGlow(trainerRank);
 
-  // Draw narrative safely
-  let consumed = 0;
+  // ───────── DRAW NARRATIVE (NO STRING REPLACEMENT) ─────────
   for (const line of narrativeLines) {
     let x = contentX;
     let remaining = line;
 
-    for (const part of narrativeParts) {
-      if (!remaining.includes(part.text)) continue;
+    for (const token of narrativeTokens) {
+      const idx = remaining.indexOf(token.text);
+      if (idx === -1) continue;
 
-      const before = remaining.split(part.text)[0];
+      const before = remaining.slice(0, idx);
       if (before) {
         ctx.fillStyle = "#ffffff";
         ctx.fillText(before, x, cursorY);
@@ -184,26 +190,26 @@ async function createReportCard(report) {
       }
 
       ctx.save();
-      if (part.type === "name") {
+      if (token.type === "name") {
         ctx.fillStyle = nameColor;
         if (glow) {
           ctx.shadowColor = nameColor;
           ctx.shadowBlur = 18;
         }
-      } else if (part.type === "pokemon") {
+      } else if (token.type === "pokemon") {
         ctx.fillStyle = POKEMON_COLOR;
       } else {
         ctx.fillStyle = "#ffffff";
       }
 
-      ctx.fillText(part.text, x, cursorY);
-      x += ctx.measureText(part.text).width;
+      ctx.fillText(token.text, x, cursorY);
+      x += ctx.measureText(token.text).width;
       ctx.restore();
 
-      remaining = remaining.replace(part.text, "");
+      remaining = remaining.slice(idx + token.text.length);
     }
 
-    if (remaining.trim()) {
+    if (remaining) {
       ctx.fillStyle = "#ffffff";
       ctx.fillText(remaining, x, cursorY);
     }
@@ -213,9 +219,10 @@ async function createReportCard(report) {
 
   cursorY += lineHeight * 0.8;
 
-  // ───────── Meta ─────────
+  // ───────── DRAW META ─────────
   const LABEL_COLOR = "#facc15";
   let maxLabel = 0;
+
   for (const [label] of metaFields) {
     maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
   }
@@ -236,7 +243,7 @@ async function createReportCard(report) {
 
     ctx.fillStyle =
       label === "Status:"
-        ? STATUS_COLORS[value?.toLowerCase()] || "#fff"
+        ? STATUS_COLORS[value?.toLowerCase()] || "#ffffff"
         : "#ffffff";
 
     ctx.fillText(value, contentX + maxLabel + 40, cursorY);
@@ -245,7 +252,7 @@ async function createReportCard(report) {
     if (label === "Points:") cursorY += lineHeight * 0.4;
   }
 
-  // Sprite
+  // ───────── SPRITE ─────────
   const spritePath = path.join(SPRITES_DIR, `${pokemonName}.png`);
   if (fs.existsSync(spritePath)) {
     const sprite = await loadImage(spritePath);
@@ -259,7 +266,7 @@ async function createReportCard(report) {
     );
   }
 
-  // Route bar
+  // ───────── ROUTE BAR ─────────
   const barY = CARD_HEIGHT - MARGIN - 120;
   ctx.save();
   roundedRectPath(ctx, MARGIN, barY, innerW, 120, 35);
