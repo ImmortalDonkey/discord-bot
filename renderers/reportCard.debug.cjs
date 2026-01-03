@@ -129,15 +129,14 @@ function drawPiece(ctx, text, x, y, kind, theme) {
   ctx.shadowColor = "transparent";
 
   if (kind === "ign") {
-    const col = theme.rankColor || "#ffffff";
     ctx.save();
     ctx.lineWidth = 7;
     ctx.strokeStyle = "rgba(0,0,0,0.65)";
     ctx.strokeText(text, x, y);
 
-    ctx.fillStyle = col;
+    ctx.fillStyle = theme.rankColor;
     if (theme.rankGlow) {
-      ctx.shadowColor = col;
+      ctx.shadowColor = theme.rankColor;
       ctx.shadowBlur = 22;
     }
     ctx.fillText(text, x, y);
@@ -146,15 +145,14 @@ function drawPiece(ctx, text, x, y, kind, theme) {
   }
 
   if (kind === "pokemon") {
-    const col = theme.pokemonColor || "#ffffff";
     ctx.save();
     ctx.lineWidth = 6;
     ctx.strokeStyle = "rgba(0,0,0,0.55)";
     ctx.strokeText(text, x, y);
 
-    ctx.fillStyle = col;
-    ctx.shadowColor = col;
-    ctx.shadowBlur = theme.pokemonGlow || 14;
+    ctx.fillStyle = theme.pokemonColor;
+    ctx.shadowColor = theme.pokemonColor;
+    ctx.shadowBlur = theme.pokemonGlow;
     ctx.fillText(text, x, y);
     ctx.restore();
     return;
@@ -183,11 +181,7 @@ async function createReportCard(report) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  /* ───────── DISCORD BACKGROUND BAKE ───────── */
-  ctx.fillStyle = "#0f1115"; // Discord dark background
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-
-  /* ───────── MAP BACKGROUND ───────── */
+  // ───────── BACKGROUND ─────────
   const bgPath = path.join(
     BG_DIR,
     String(location).toLowerCase().replace(/\s+/g, "-") + ".png"
@@ -196,7 +190,10 @@ async function createReportCard(report) {
   if (fs.existsSync(bgPath)) {
     const bg = await loadImage(bgPath);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(bg, MARGIN / 2, MARGIN / 2, CARD_WIDTH - MARGIN, CARD_HEIGHT - MARGIN);
+    ctx.drawImage(bg, 0, 0, CARD_WIDTH, CARD_HEIGHT);
+  } else {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
   }
 
   const innerW = CARD_WIDTH - MARGIN * 2;
@@ -209,15 +206,7 @@ async function createReportCard(report) {
   const leftY = MARGIN;
   const panelH = innerH - 160;
 
-  /* ───────── OUTER FRAME ───────── */
-  ctx.save();
-  roundedRectPath(ctx, MARGIN - 12, MARGIN - 12, innerW + 24, panelH + 24, 48);
-  ctx.lineWidth = 14;
-  ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
-  ctx.stroke();
-  ctx.restore();
-
-  /* ───────── LEFT PANEL ───────── */
+  // ───────── LEFT PANEL ─────────
   ctx.save();
   roundedRectPath(ctx, leftX, leftY, leftW, panelH, 40);
   ctx.fillStyle = "rgba(35,35,35,0.72)";
@@ -227,7 +216,7 @@ async function createReportCard(report) {
   ctx.stroke();
   ctx.restore();
 
-  /* ───────── TEXT SETUP ───────── */
+  // ───────── TEXT ─────────
   const FONT_SIZE = 66;
   const lineHeight = FONT_SIZE * 1.3;
 
@@ -238,9 +227,8 @@ async function createReportCard(report) {
   const contentX = leftX + 60;
   const contentW = leftW - 120;
 
-  /* ───────── NARRATIVE ───────── */
-  const ign = String(reporterName || "Unknown");
-  const mon = String(pokemonName || "Unknown");
+  const ign = reporterName || "Unknown";
+  const mon = pokemonName || "Unknown";
 
   const narrativeTokens = [
     { kind: "ign", text: ign },
@@ -250,10 +238,6 @@ async function createReportCard(report) {
 
   const narrativeLines = wrapStyledTokens(ctx, narrativeTokens, contentW);
 
-  /* ───────── META ───────── */
-  const LABEL_COLOR = "#facc15";
-  const VALUE_COLOR = "#ffffff";
-
   const metaFields = [
     ["Rank:", trainerRank],
     ["Rarity:", rarityLabel],
@@ -262,39 +246,37 @@ async function createReportCard(report) {
   ];
 
   let maxLabel = 0;
-  for (const [label] of metaFields) {
-    maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
-  }
+  for (const [l] of metaFields) maxLabel = Math.max(maxLabel, ctx.measureText(l).width);
 
   const valueX = contentX + maxLabel + 40;
   const valueW = contentW - (maxLabel + 40);
   const rarityLines = wrapPlainText(ctx, rarityLabel, valueW);
 
   let metaLines = 0;
-  for (const [label] of metaFields) {
-    if (label === "Rarity:") metaLines += Math.max(1, rarityLines.length);
-    else metaLines += 1;
-    if (label === "Points:") metaLines += 0.4;
+  for (const [l] of metaFields) {
+    metaLines += l === "Rarity:" ? rarityLines.length : 1;
+    if (l === "Points:") metaLines += 0.4;
   }
 
-  const narrativeHeight = narrativeLines.length * lineHeight;
-  const metaHeight = metaLines * lineHeight;
-  const totalHeight = narrativeHeight + lineHeight * 0.8 + metaHeight;
+  const totalHeight =
+    narrativeLines.length * lineHeight +
+    lineHeight * 0.8 +
+    metaLines * lineHeight;
 
   let cursorY = leftY + (panelH - totalHeight) / 2;
 
   const theme = {
-    rankColor: RANK_COLORS[trainerRank] || "#ffffff",
+    rankColor: RANK_COLORS[trainerRank] || "#fff",
     rankGlow: hasRankGlow(trainerRank),
-    pokemonColor: rarityTextColors[rarityKey] || "#ffffff",
+    pokemonColor: rarityTextColors[rarityKey] || "#fff",
     pokemonGlow: rarityGlowStrength[rarityKey] || 14
   };
 
   for (const line of narrativeLines) {
     let x = contentX;
-    for (const piece of line) {
-      drawPiece(ctx, piece.text, x, cursorY, piece.kind, theme);
-      x += ctx.measureText(piece.text).width;
+    for (const p of line) {
+      drawPiece(ctx, p.text, x, cursorY, p.kind, theme);
+      x += ctx.measureText(p.text).width;
     }
     cursorY += lineHeight;
   }
@@ -302,55 +284,47 @@ async function createReportCard(report) {
   cursorY += lineHeight * 0.8;
 
   for (const [label, value] of metaFields) {
-    ctx.fillStyle = LABEL_COLOR;
+    ctx.fillStyle = "#facc15";
     ctx.fillText(label, contentX, cursorY);
 
+    ctx.fillStyle =
+      label === "Status:"
+        ? STATUS_COLORS[String(value).toLowerCase()] || "#fff"
+        : "#fff";
+
     if (label === "Rarity:") {
-      ctx.fillStyle = VALUE_COLOR;
-      for (const l of rarityLines.length ? rarityLines : [value]) {
-        ctx.fillText(l, valueX, cursorY);
+      for (const r of rarityLines) {
+        ctx.fillText(r, valueX, cursorY);
         cursorY += lineHeight;
       }
       continue;
     }
 
-    ctx.fillStyle =
-      label === "Status:"
-        ? STATUS_COLORS[String(value).toLowerCase()] || VALUE_COLOR
-        : VALUE_COLOR;
-
-    ctx.fillText(value, valueX, cursorY);
+    ctx.fillText(String(value), valueX, cursorY);
     cursorY += lineHeight;
     if (label === "Points:") cursorY += lineHeight * 0.4;
   }
 
-  /* ───────── SPRITE (ASPECT RATIO SAFE) ───────── */
+  // ───────── SPRITE (aspect ratio preserved) ─────────
   const spritePath = path.join(SPRITES_DIR, `${mon}.png`);
   if (fs.existsSync(spritePath)) {
     const sprite = await loadImage(spritePath);
+    ctx.imageSmoothingEnabled = false;
 
     const maxW = rightW - 120;
     const maxH = panelH - 120;
+    const scale = Math.min(maxW / sprite.width, maxH / sprite.height);
 
-    const scale = Math.min(
-      maxW / sprite.width,
-      maxH / sprite.height
-    );
+    const drawW = sprite.width * scale;
+    const drawH = sprite.height * scale;
 
-    const w = sprite.width * scale;
-    const h = sprite.height * scale;
+    const sx = leftX + leftW + (rightW - drawW) / 2;
+    const sy = leftY + (panelH - drawH) / 2;
 
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(
-      sprite,
-      leftX + leftW + (rightW - w) / 2,
-      leftY + (panelH - h) / 2,
-      w,
-      h
-    );
+    ctx.drawImage(sprite, sx, sy, drawW, drawH);
   }
 
-  /* ───────── ROUTE BAR ───────── */
+  // ───────── ROUTE BAR ─────────
   const barY = CARD_HEIGHT - MARGIN - 120;
   ctx.save();
   roundedRectPath(ctx, MARGIN, barY, innerW, 120, 35);
@@ -366,6 +340,24 @@ async function createReportCard(report) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(location, CARD_WIDTH / 2, barY + 60);
+
+  // ───────── OUTER EDGE BORDER ONLY ─────────
+  const EDGE_RADIUS = 70;
+  const EDGE_WIDTH = 26;
+
+  ctx.save();
+  roundedRectPath(
+    ctx,
+    EDGE_WIDTH / 2,
+    EDGE_WIDTH / 2,
+    CARD_WIDTH - EDGE_WIDTH,
+    CARD_HEIGHT - EDGE_WIDTH,
+    EDGE_RADIUS
+  );
+  ctx.lineWidth = EDGE_WIDTH;
+  ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
+  ctx.stroke();
+  ctx.restore();
 
   const outPath = path.join(REPORT_DIR, `report_debug_${Date.now()}.png`);
   fs.writeFileSync(outPath, canvas.toBuffer("image/png"));
