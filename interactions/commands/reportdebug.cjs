@@ -18,14 +18,14 @@ const DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
 
 /**
  * EXACT nickname logic copied from LIVE /report command
- * ⚠️ Do not “simplify” this — parity is intentional
+ * ⚠️ Do not simplify — parity is intentional
  */
-function resolveTrainerName(member, user) {
+function resolveDisplayName(member, user) {
   return (
-    member.displayName ||
-    member.nickname ||
-    user.globalName ||
-    user.username
+    member?.displayName ||
+    member?.nickname ||
+    user?.globalName ||
+    user?.username
   );
 }
 
@@ -46,18 +46,6 @@ module.exports = {
         .setDescription("Route / Location")
         .setRequired(true)
         .setAutocomplete(true)
-    )
-    .addStringOption(o =>
-      o
-        .setName("id")
-        .setDescription("Encounter Pokémon ID (prefix with #)")
-        .setRequired(false)
-    )
-    .addStringOption(o =>
-      o
-        .setName("ign")
-        .setDescription("IGN for sighting report")
-        .setRequired(false)
     ),
 
   async execute(client, interaction) {
@@ -77,20 +65,7 @@ module.exports = {
 
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
-    const idInput = interaction.options.getString("id");
-    const ignInput = interaction.options.getString("ign");
 
-    // ──────────────────────────────
-    // VALIDATION: EXACTLY ONE OF ID / IGN
-    // ──────────────────────────────
-    if ((idInput && ignInput) || (!idInput && !ignInput)) {
-      return interaction.reply({
-        content: "❌ You must provide **either** an ID **or** an IGN (not both).",
-        flags: 64
-      });
-    }
-
-    // Single initial reply (prevents Unknown interaction)
     await interaction.reply({
       content: "🎨 Rendering debug report card...",
       flags: 64
@@ -105,57 +80,35 @@ module.exports = {
     const now = new Date();
     const basePoints = calculateAwardedPoints(rarityKey, now);
 
-    let awardedPoints = basePoints;
-    let reportType = "encounter";
+    // ──────────────────────────────
+    // IGN RESOLUTION (NEW SOURCE OF TRUTH)
+    // ──────────────────────────────
+    const player = await db.getPlayerByDiscordId(user.id);
+
+    const hasIgn = !!player?.ign;
+    const displayName = hasIgn
+      ? player.ign
+      : resolveDisplayName(member, user);
+
+    const displayType = hasIgn ? "ign" : "discord";
 
     // ──────────────────────────────
-    // NAME RESOLUTION (LIVE PARITY)
+    // POINTS (ONLY IF IGN EXISTS)
     // ──────────────────────────────
-    const reporterName = resolveTrainerName(member, user);
-    let encountererName = reporterName;
-    let encountererType = "discord";
-    let reporterType = "discord";
+    let awardedPoints = 0;
+    let trainerRank = "Unranked";
 
-    // ──────────────────────────────
-    // SIGHTING FLOW
-    // ──────────────────────────────
-    if (ignInput) {
-      const ign = ignInput.trim();
-      const foundPlayer = await db.getPlayerByIgn(ign);
+    if (hasIgn) {
+      const updatedUser = await db.addPoints(
+        user.id,
+        user.username,
+        basePoints,
+        `Debug Report (auto): ${pokemon}`
+      );
 
-      if (foundPlayer) {
-        // Upgrade to encounter
-        reportType = "encounter";
-        encountererName =
-          foundPlayer.nickname ||
-          foundPlayer.username ||
-          ign;
-        encountererType = "discord";
-      } else {
-        // True sighting
-        reportType = "sighting";
-        encountererName = ign;
-        encountererType = "ign";
-        awardedPoints = Math.floor(basePoints * 0.5);
-      }
+      awardedPoints = basePoints;
+      trainerRank = getRankName(updatedUser?.lifetime_points || 0);
     }
-
-    // Explicit encounter via ID
-    if (idInput) {
-      reportType = "encounter";
-    }
-
-    // ──────────────────────────────
-    // AWARD POINTS (DEBUG WRITES POINTS)
-    // ──────────────────────────────
-    const updatedUser = await db.addPoints(
-      user.id,
-      user.username,
-      awardedPoints,
-      `Debug Report (${reportType}): ${pokemon}`
-    );
-
-    const trainerRank = getRankName(updatedUser?.lifetime_points || 0);
 
     // ──────────────────────────────
     // EXPIRY WINDOW (MATCH LIVE)
@@ -168,13 +121,12 @@ module.exports = {
 
     // ──────────────────────────────
     // BUILD DEBUG CARD
+    // Narrative handled by renderer
     // ──────────────────────────────
     const cardPath = await createReportCard({
-      reportType,
-      reporterName,
-      reporterType,
-      encountererName,
-      encountererType,
+      narrativeType: "vortex",
+      reporterName: displayName,
+      reporterType: displayType,
       pokemonName: pokemon,
       location: route,
       rarityKey,
@@ -185,7 +137,7 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // DEBUG CHANNEL ONLY (NO ROUTER)
+    // DEBUG CHANNEL ONLY
     // ──────────────────────────────
     const targetChannel = await guild.channels
       .fetch(DEBUG_REPORT_CHANNEL_ID)
@@ -228,7 +180,7 @@ module.exports = {
       id: reportId,
       guildId: guild.id,
       reporterId: user.id,
-      reporterName,
+      reporterName: displayName,
       trainerRank,
       pokemonName: pokemon,
       rarityKey,
@@ -248,10 +200,9 @@ module.exports = {
     // CONFIRMATION
     // ──────────────────────────────
     return interaction.followUp({
-      content: `☑ Debug report posted — expires **${expiresAt.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit"
-      })}**`,
+      content: hasIgn
+        ? `☑ Debug report posted — **${awardedPoints} point(s)** awarded.`
+        : `⚠ Debug report posted — **no points awarded** (IGN not registered).`,
       flags: 64
     });
   }
