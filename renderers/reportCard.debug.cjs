@@ -111,14 +111,10 @@ function wrapStyledTokens(ctx, tokens, maxWidth) {
   };
 
   for (const t of tokens) {
-    const parts = String(t.text || "").split(/(\s+)/).filter(p => p !== "");
+    const parts = String(t.text || "").split(/(\s+)/).filter(Boolean);
     for (const part of parts) {
       const w = ctx.measureText(part).width;
-
-      if (width + w > maxWidth && current.length) {
-        pushLine();
-      }
-
+      if (width + w > maxWidth && current.length) pushLine();
       current.push({ text: part, kind: t.kind });
       width += w;
     }
@@ -187,7 +183,11 @@ async function createReportCard(report) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // ───────── BACKGROUND ─────────
+  /* ───────── DISCORD BACKGROUND BAKE ───────── */
+  ctx.fillStyle = "#0f1115"; // Discord dark background
+  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+
+  /* ───────── MAP BACKGROUND ───────── */
   const bgPath = path.join(
     BG_DIR,
     String(location).toLowerCase().replace(/\s+/g, "-") + ".png"
@@ -196,10 +196,7 @@ async function createReportCard(report) {
   if (fs.existsSync(bgPath)) {
     const bg = await loadImage(bgPath);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(bg, 0, 0, CARD_WIDTH, CARD_HEIGHT);
-  } else {
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+    ctx.drawImage(bg, MARGIN / 2, MARGIN / 2, CARD_WIDTH - MARGIN, CARD_HEIGHT - MARGIN);
   }
 
   const innerW = CARD_WIDTH - MARGIN * 2;
@@ -212,7 +209,15 @@ async function createReportCard(report) {
   const leftY = MARGIN;
   const panelH = innerH - 160;
 
-  // ───────── LEFT PANEL ─────────
+  /* ───────── OUTER FRAME ───────── */
+  ctx.save();
+  roundedRectPath(ctx, MARGIN - 12, MARGIN - 12, innerW + 24, panelH + 24, 48);
+  ctx.lineWidth = 14;
+  ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
+  ctx.stroke();
+  ctx.restore();
+
+  /* ───────── LEFT PANEL ───────── */
   ctx.save();
   roundedRectPath(ctx, leftX, leftY, leftW, panelH, 40);
   ctx.fillStyle = "rgba(35,35,35,0.72)";
@@ -222,7 +227,7 @@ async function createReportCard(report) {
   ctx.stroke();
   ctx.restore();
 
-  // ───────── TEXT CONFIG ─────────
+  /* ───────── TEXT SETUP ───────── */
   const FONT_SIZE = 66;
   const lineHeight = FONT_SIZE * 1.3;
 
@@ -233,9 +238,9 @@ async function createReportCard(report) {
   const contentX = leftX + 60;
   const contentW = leftW - 120;
 
-  // ───────── NARRATIVE ─────────
-  const ign = String(reporterName || "").trim() || "Unknown";
-  const mon = String(pokemonName || "").trim() || "Unknown";
+  /* ───────── NARRATIVE ───────── */
+  const ign = String(reporterName || "Unknown");
+  const mon = String(pokemonName || "Unknown");
 
   const narrativeTokens = [
     { kind: "ign", text: ign },
@@ -245,7 +250,7 @@ async function createReportCard(report) {
 
   const narrativeLines = wrapStyledTokens(ctx, narrativeTokens, contentW);
 
-  // ───────── META ─────────
+  /* ───────── META ───────── */
   const LABEL_COLOR = "#facc15";
   const VALUE_COLOR = "#ffffff";
 
@@ -263,18 +268,17 @@ async function createReportCard(report) {
 
   const valueX = contentX + maxLabel + 40;
   const valueW = contentW - (maxLabel + 40);
+  const rarityLines = wrapPlainText(ctx, rarityLabel, valueW);
 
-  const rarityLines = wrapPlainText(ctx, String(rarityLabel || ""), valueW);
-
-  let metaLinesCount = 0;
+  let metaLines = 0;
   for (const [label] of metaFields) {
-    if (label === "Rarity:") metaLinesCount += Math.max(1, rarityLines.length);
-    else metaLinesCount += 1;
-    if (label === "Points:") metaLinesCount += 0.4;
+    if (label === "Rarity:") metaLines += Math.max(1, rarityLines.length);
+    else metaLines += 1;
+    if (label === "Points:") metaLines += 0.4;
   }
 
-  const metaHeight = metaLinesCount * lineHeight;
   const narrativeHeight = narrativeLines.length * lineHeight;
+  const metaHeight = metaLines * lineHeight;
   const totalHeight = narrativeHeight + lineHeight * 0.8 + metaHeight;
 
   let cursorY = leftY + (panelH - totalHeight) / 2;
@@ -286,9 +290,9 @@ async function createReportCard(report) {
     pokemonGlow: rarityGlowStrength[rarityKey] || 14
   };
 
-  for (const linePieces of narrativeLines) {
+  for (const line of narrativeLines) {
     let x = contentX;
-    for (const piece of linePieces) {
+    for (const piece of line) {
       drawPiece(ctx, piece.text, x, cursorY, piece.kind, theme);
       x += ctx.measureText(piece.text).width;
     }
@@ -303,7 +307,7 @@ async function createReportCard(report) {
 
     if (label === "Rarity:") {
       ctx.fillStyle = VALUE_COLOR;
-      for (const l of rarityLines.length ? rarityLines : [String(value || "")]) {
+      for (const l of rarityLines.length ? rarityLines : [value]) {
         ctx.fillText(l, valueX, cursorY);
         cursorY += lineHeight;
       }
@@ -312,16 +316,15 @@ async function createReportCard(report) {
 
     ctx.fillStyle =
       label === "Status:"
-        ? STATUS_COLORS[String(value || "").toLowerCase()] || VALUE_COLOR
+        ? STATUS_COLORS[String(value).toLowerCase()] || VALUE_COLOR
         : VALUE_COLOR;
 
-    ctx.fillText(String(value || ""), valueX, cursorY);
+    ctx.fillText(value, valueX, cursorY);
     cursorY += lineHeight;
-
     if (label === "Points:") cursorY += lineHeight * 0.4;
   }
 
-  // ───────── SPRITE (ASPECT-RATIO SAFE) ─────────
+  /* ───────── SPRITE (ASPECT RATIO SAFE) ───────── */
   const spritePath = path.join(SPRITES_DIR, `${mon}.png`);
   if (fs.existsSync(spritePath)) {
     const sprite = await loadImage(spritePath);
@@ -329,27 +332,25 @@ async function createReportCard(report) {
     const maxW = rightW - 120;
     const maxH = panelH - 120;
 
-    const spriteRatio = sprite.width / sprite.height;
-    const boxRatio = maxW / maxH;
+    const scale = Math.min(
+      maxW / sprite.width,
+      maxH / sprite.height
+    );
 
-    let drawW, drawH;
-
-    if (spriteRatio > boxRatio) {
-      drawW = maxW;
-      drawH = Math.round(maxW / spriteRatio);
-    } else {
-      drawH = maxH;
-      drawW = Math.round(maxH * spriteRatio);
-    }
-
-    const drawX = leftX + leftW + 60 + Math.floor((maxW - drawW) / 2);
-    const drawY = leftY + 60 + Math.floor((maxH - drawH) / 2);
+    const w = sprite.width * scale;
+    const h = sprite.height * scale;
 
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
+    ctx.drawImage(
+      sprite,
+      leftX + leftW + (rightW - w) / 2,
+      leftY + (panelH - h) / 2,
+      w,
+      h
+    );
   }
 
-  // ───────── ROUTE BAR ─────────
+  /* ───────── ROUTE BAR ───────── */
   const barY = CARD_HEIGHT - MARGIN - 120;
   ctx.save();
   roundedRectPath(ctx, MARGIN, barY, innerW, 120, 35);
