@@ -1,3 +1,5 @@
+// utils/vortexRoamerHandler.cjs
+
 const db = require("../database.cjs");
 const { getRarity, getRarityDisplayLabel } = require("./rarity.cjs");
 const { calculateAwardedPoints } = require("./scoring.cjs");
@@ -7,8 +9,8 @@ const { createReportCard } = require("../renderers/reportCard.debug.cjs");
 /**
  * Handles a single roamer entry from the Vortex API (DEV MODE).
  * - DB dedup
- * - Auto-create IGN player if missing
- * - Award points to IGN
+ * - Auto-create IGN identity if missing
+ * - Award points to IGN (IGN = source of truth)
  * - Post debug report card
  */
 async function handleVortexRoamer(client, roamer) {
@@ -21,7 +23,7 @@ async function handleVortexRoamer(client, roamer) {
     roamer_name,
     time_found,
     location,
-    found_by_username // 👈 IGN from Vortex API
+    found_by_username // IGN from Vortex API
   } = roamer;
 
   const ign = String(found_by_username || "").trim();
@@ -39,21 +41,10 @@ async function handleVortexRoamer(client, roamer) {
   await db.insertVortexRoamer(roamer_name, time_found);
 
   // ──────────────────────────────
-  // Ensure IGN exists in players table
-  // (discord_id intentionally NULL)
+  // Ensure IGN identity exists
+  // Uses synthetic discord_id: ign:<norm>
   // ──────────────────────────────
-  let player = await db.getPlayerByIgn(ign);
-
-  if (!player) {
-    await db.upsertPlayerProfile({
-      discordId: null,
-      username: null,
-      nickname: null,
-      ign
-    });
-
-    player = await db.getPlayerByIgn(ign);
-  }
+  const ignProfile = await db.ensureIgnProfileExists(ign);
 
   // ──────────────────────────────
   // Resolve guild + channel
@@ -81,8 +72,8 @@ async function handleVortexRoamer(client, roamer) {
   const now = new Date();
   const points = calculateAwardedPoints(rarityKey, now);
 
-  // Award points to IGN (authoritative)
-  const updated = await db.addPointsByIgn(
+  // Award points to IGN (authoritative truth)
+  const updated = await db.addIgnPoints(
     ign,
     points,
     `Vortex Auto Report: ${roamer_name}`
@@ -100,7 +91,9 @@ async function handleVortexRoamer(client, roamer) {
   const reportId = `vortex_${Date.now()}`;
 
   // ──────────────────────────────
-  // Build report card (IGN FIRST)
+  // Build report card (IGN-FIRST)
+  // Narrative:
+  // "<ign> has encountered a wild roaming <pokemon>"
   // ──────────────────────────────
   const cardPath = await createReportCard({
     reportType: "encounter",
@@ -124,6 +117,7 @@ async function handleVortexRoamer(client, roamer) {
 
   // ──────────────────────────────
   // Persist report
+  // reporterId intentionally NULL (not Discord-linked)
   // ──────────────────────────────
   await db.createReport({
     id: reportId,
