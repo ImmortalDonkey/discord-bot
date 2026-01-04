@@ -111,6 +111,11 @@ module.exports = {
     }
 
     // ──────────────────────────────
+    // REPORT CARD USER PREFS (⬅️ FIX)
+    // ──────────────────────────────
+    const reportCardPrefs = await db.getReportCardPrefs(user.id);
+
+    // ──────────────────────────────
     // EXPIRY WINDOW (MATCH LIVE)
     // ──────────────────────────────
     const expiresAt = new Date(now);
@@ -121,7 +126,6 @@ module.exports = {
 
     // ──────────────────────────────
     // BUILD DEBUG CARD
-    // Narrative handled by renderer
     // ──────────────────────────────
     const cardPath = await createReportCard({
       narrativeType: "vortex",
@@ -133,7 +137,10 @@ module.exports = {
       rarityLabel,
       points: awardedPoints,
       trainerRank,
-      statusText: "Active"
+      statusText: "Active",
+
+      // ⬅️ THIS WAS MISSING
+      reportCardPrefs
     });
 
     // ──────────────────────────────
