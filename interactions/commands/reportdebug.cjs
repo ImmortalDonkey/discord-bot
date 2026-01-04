@@ -46,6 +46,13 @@ module.exports = {
         .setDescription("Route / Location")
         .setRequired(true)
         .setAutocomplete(true)
+    )
+    // ⬅️ NEW: force expired render
+    .addBooleanOption(o =>
+      o
+        .setName("expired")
+        .setDescription("Render the card as expired (testing only)")
+        .setRequired(false)
     ),
 
   async execute(client, interaction) {
@@ -65,6 +72,7 @@ module.exports = {
 
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
+    const forceExpired = interaction.options.getBoolean("expired") === true;
 
     await interaction.reply({
       content: "🎨 Rendering debug report card...",
@@ -81,7 +89,7 @@ module.exports = {
     const basePoints = calculateAwardedPoints(rarityKey, now);
 
     // ──────────────────────────────
-    // IGN RESOLUTION (NEW SOURCE OF TRUTH)
+    // IGN RESOLUTION
     // ──────────────────────────────
     const player = await db.getPlayerByDiscordId(user.id);
 
@@ -98,7 +106,7 @@ module.exports = {
     let awardedPoints = 0;
     let trainerRank = "Unranked";
 
-    if (hasIgn) {
+    if (hasIgn && !forceExpired) {
       const updatedUser = await db.addPoints(
         user.id,
         user.username,
@@ -111,7 +119,7 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // REPORT CARD USER PREFS (⬅️ FIX)
+    // REPORT CARD USER PREFS
     // ──────────────────────────────
     const reportCardPrefs = await db.getReportCardPrefs(user.id);
 
@@ -137,9 +145,7 @@ module.exports = {
       rarityLabel,
       points: awardedPoints,
       trainerRank,
-      statusText: "Active",
-
-      // ⬅️ THIS WAS MISSING
+      statusText: forceExpired ? "Expired" : "Active",
       reportCardPrefs
     });
 
@@ -158,18 +164,22 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // BUTTONS
+    // BUTTONS (disabled if expired)
     // ──────────────────────────────
-    const controls = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`reportedit_${reportId}`)
-        .setLabel("✏ Edit")
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId(`reportdelete_${reportId}`)
-        .setLabel("🗑 Delete")
-        .setStyle(ButtonStyle.Danger)
-    );
+    const components = forceExpired
+      ? []
+      : [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`reportedit_${reportId}`)
+              .setLabel("✏ Edit")
+              .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+              .setCustomId(`reportdelete_${reportId}`)
+              .setLabel("🗑 Delete")
+              .setStyle(ButtonStyle.Danger)
+          )
+        ];
 
     // ──────────────────────────────
     // SEND MESSAGE
@@ -177,11 +187,11 @@ module.exports = {
     const sent = await targetChannel.send({
       content: `<@${user.id}>`,
       files: [cardPath],
-      components: [controls]
+      components
     });
 
     // ──────────────────────────────
-    // SAVE REPORT (LIVE SCHEMA)
+    // SAVE REPORT
     // ──────────────────────────────
     await db.createReport({
       id: reportId,
@@ -193,7 +203,7 @@ module.exports = {
       rarityKey,
       rarityLabel,
       location: route,
-      status: "active",
+      status: forceExpired ? "expired" : "active",
       messageId: sent.id,
       channelId: sent.channelId,
       points: awardedPoints,
@@ -207,9 +217,11 @@ module.exports = {
     // CONFIRMATION
     // ──────────────────────────────
     return interaction.followUp({
-      content: hasIgn
-        ? `☑ Debug report posted — **${awardedPoints} point(s)** awarded.`
-        : `⚠ Debug report posted — **no points awarded** (IGN not registered).`,
+      content: forceExpired
+        ? "☑ Debug report posted as **Expired**."
+        : hasIgn
+          ? `☑ Debug report posted — **${awardedPoints} point(s)** awarded.`
+          : `⚠ Debug report posted — **no points awarded** (IGN not registered).`,
       flags: 64
     });
   }
