@@ -67,6 +67,8 @@ const STATUS_COLORS = {
   expired: "#ef4444"
 };
 
+const EXPIRED_OUTLINE_COLOR = "#9ca3af";
+
 /* ────────────────────────────── */
 /* HELPERS                        */
 /* ────────────────────────────── */
@@ -186,10 +188,14 @@ async function createReportCard(report) {
 
   const isExpired = statusText === "Expired";
 
-  const outlineColor =
+  const baseOutlineColor =
     reportCardPrefs?.outline_color ||
     rarityOutline[rarityKey] ||
     "#ffffff";
+
+  const outlineColor = isExpired
+    ? EXPIRED_OUTLINE_COLOR
+    : baseOutlineColor;
 
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
@@ -221,9 +227,9 @@ async function createReportCard(report) {
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
   }
 
-  // ───────── EXPIRED GREY-OUT (ENTIRE CARD) ─────────
+  // ───────── EXPIRED GREY-OUT (GLOBAL) ─────────
   if (isExpired) {
-    ctx.fillStyle = "rgba(0,0,0,0.50)";
+    ctx.fillStyle = "rgba(0,0,0,0.60)";
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
   }
 
@@ -374,7 +380,9 @@ async function createReportCard(report) {
     EDGE_RADIUS
   );
   ctx.lineWidth = EDGE;
-  ctx.strokeStyle = isExpired ? "#9ca3af" : (rarityOutline[rarityKey] || "#fff");
+  ctx.strokeStyle = isExpired
+    ? EXPIRED_OUTLINE_COLOR
+    : (rarityOutline[rarityKey] || "#fff");
   ctx.stroke();
   ctx.restore();
 
