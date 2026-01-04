@@ -3,7 +3,9 @@
 
 const fs = require("fs");
 const db = require("../database.cjs");
-const { createReportCard } = require("../renderers/reportCard.cjs");
+
+// 🔁 IMPORTANT: use the SAME renderer as live/debug cards
+const { createReportCard } = require("../renderers/reportCard.debug.cjs");
 
 /**
  * Expire reports whose hour has ended
@@ -29,22 +31,24 @@ async function expireDueReports(client, nowMs) {
         continue;
       }
 
-      // Re-render card with EXPIRED status
+      // 🔁 Re-render card with EXPIRED status
       const newCardPath = await createReportCard({
-        trainerName: r.reporterName,
-        trainerRank: r.trainerRank || "Trainer",
+        reporterName: r.reporterName,
+        reporterId: r.reporterId || null,
         pokemonName: r.pokemonName,
-        rarityKey: r.rarityKey,       // keeps the same outline colour
+        rarityKey: r.rarityKey,
         rarityLabel: r.rarityLabel,
         points: r.points,
         location: r.location,
-        statusText: "EXPIRED"         // <- your chosen label
+        trainerRank: r.trainerRank || "Trainer",
+        statusText: "Expired",
+        reportCardPrefs: null // prefs already baked into renderer logic
       });
 
       // Update message → new image, remove buttons
       await oldMsg.edit({
         files: [newCardPath],
-        components: []                // remove Edit/Delete buttons
+        components: []
       });
 
       // Delete old local PNG
