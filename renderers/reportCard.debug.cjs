@@ -223,7 +223,7 @@ async function createReportCard(report) {
 
   // ───────── EXPIRED GREY-OUT (ENTIRE CARD) ─────────
   if (isExpired) {
-    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.fillStyle = "rgba(0,0,0,0.50)";
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
   }
 
