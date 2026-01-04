@@ -1,37 +1,32 @@
 const CARD_OUTLINE_PRESETS = {
-  // ── Core / Neutral ──
+  // ── Core / Neutral (4) ──
   white: "#ffffff",
   silver: "#e5e7eb",
   slate: "#94a3b8",
   black: "#0f172a",
 
-  // ── Cool tones ──
+  // ── Cool tones (6) ──
   blue: "#38bdf8",
   sky: "#7dd3fc",
   cyan: "#22d3ee",
   teal: "#2dd4bf",
   indigo: "#818cf8",
+  violet: "#c084fc",
 
-  // ── Warm tones ──
+  // ── Warm tones (6) ──
   red: "#ef4444",
   orange: "#fb923c",
   amber: "#f59e0b",
   gold: "#facc15",
   yellow: "#fde047",
+  rose: "#fb7185",
 
-  // ── Greens ──
+  // ── Greens (3) ──
   green: "#4ade80",
   emerald: "#34d399",
   lime: "#a3e635",
 
-  // ── Pinks / Purples ──
-  pink: "#ec4899",
-  rose: "#fb7185",
-  purple: "#a855f7",
-  violet: "#c084fc",
-  magenta: "#e879f9",
-
-  // ── Special / Themed ──
+  // ── Special / Themed (6) ──
   paradox: "#a855f7",        // matches paradox rarity
   legendary: "#22d3ee",      // matches legendary rarity
   mythic: "#f472b6",
