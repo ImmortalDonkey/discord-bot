@@ -7,7 +7,7 @@ const CARD_HEIGHT = 1300;
 
 // ───────── OUTER EDGE CONFIG ─────────
 const EDGE = 26;
-const EDGE_RADIUS = EDGE * 3.6;
+const EDGE_RADIUS = EDGE * 4.4;
 
 const MARGIN = Math.floor(CARD_WIDTH * 0.05);
 
