@@ -6,12 +6,17 @@ const { calculateAwardedPoints } = require("./scoring.cjs");
 const { getRankName } = require("./rankSystem.cjs");
 const { createReportCard } = require("../renderers/reportCard.debug.cjs");
 
+// ✅ SAME ROUTER USED BY LIVE /REPORT
+const {
+  getReportRouting
+} = require("./reportChannelRouter.cjs");
+
 /**
- * Handles a single roamer entry from the Vortex API (DEV MODE).
+ * Handles a single roamer entry from the Vortex API (LIVE).
  * - DB dedup
  * - Auto-create IGN identity if missing
  * - Award points to IGN (IGN = source of truth)
- * - Post debug report card
+ * - Route card by rarity
  */
 async function handleVortexRoamer(client, roamer) {
   if (!client) {
@@ -44,23 +49,14 @@ async function handleVortexRoamer(client, roamer) {
   // Ensure IGN identity exists
   // Uses synthetic discord_id: ign:<norm>
   // ──────────────────────────────
-  const ignProfile = await db.ensureIgnProfileExists(ign);
+  await db.ensureIgnProfileExists(ign);
 
   // ──────────────────────────────
-  // Resolve guild + channel
+  // Resolve guild
   // ──────────────────────────────
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
   if (!guild) {
     console.warn("⚠ Vortex guild not found");
-    return;
-  }
-
-  const channel = await guild.channels
-    .fetch(process.env.REPORT_CARD_CHANNEL_ID)
-    .catch(() => null);
-
-  if (!channel) {
-    console.warn("⚠ Vortex report channel not found");
     return;
   }
 
@@ -82,6 +78,32 @@ async function handleVortexRoamer(client, roamer) {
   const trainerRank = getRankName(updated?.lifetime_points || 0);
 
   // ──────────────────────────────
+  // ROUTING (RARITY → CHANNEL + ROLE)
+  // ──────────────────────────────
+  const routing = getReportRouting(
+    rarityKey,
+    null // no current channel — API sourced
+  );
+
+  if (!routing.correctChannelId) {
+    console.warn(
+      `⚠ No channel configured for rarity '${rarityKey}', skipping post`
+    );
+    return;
+  }
+
+  const channel = await guild.channels
+    .fetch(routing.correctChannelId)
+    .catch(() => null);
+
+  if (!channel) {
+    console.warn(
+      `⚠ Routed channel not found for rarity '${rarityKey}'`
+    );
+    return;
+  }
+
+  // ──────────────────────────────
   // Expiry window (end of hour)
   // ──────────────────────────────
   const expiresAt = new Date(now);
@@ -93,7 +115,7 @@ async function handleVortexRoamer(client, roamer) {
   // ──────────────────────────────
   // Build report card (IGN-FIRST)
   // Narrative:
-  // "<ign> has encountered a wild roaming <pokemon>"
+  // "<ign> has found a roaming <pokemon>"
   // ──────────────────────────────
   const cardPath = await createReportCard({
     reportType: "encounter",
@@ -110,8 +132,13 @@ async function handleVortexRoamer(client, roamer) {
     statusText: "Active"
   });
 
+  // ──────────────────────────────
+  // SEND (ROLE PING IF CONFIGURED)
+  // ──────────────────────────────
   const sent = await channel.send({
-    content: "🛰️ **Live Vortex Encounter**",
+    content: routing.roleId
+      ? `🛰️ **Live Vortex Encounter** <@&${routing.roleId}>`
+      : "🛰️ **Live Vortex Encounter**",
     files: [cardPath]
   });
 
@@ -140,7 +167,7 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   console.log(
-    `🛰️ Vortex report posted: ${ign} encountered ${roamer_name} @ ${location} (+${points})`
+    `🛰️ Vortex report posted: ${ign} encountered ${roamer_name} @ ${location} (+${points}) → ${rarityKey}`
   );
 }
 
