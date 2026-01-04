@@ -228,7 +228,7 @@ async function createReportCard(report) {
   roundedRectPath(ctx, leftX, leftY, leftW, panelH, 40);
   ctx.fillStyle = "rgba(35,35,35,0.72)";
   ctx.fill();
-  ctx.lineWidth = 10;
+  ctx.lineWidth = 20;
   ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
   ctx.stroke();
   ctx.restore();
