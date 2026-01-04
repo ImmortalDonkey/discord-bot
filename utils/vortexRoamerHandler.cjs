@@ -3,27 +3,9 @@ const { getRarity, getRarityDisplayLabel } = require("./rarity.cjs");
 const { calculateAwardedPoints } = require("./scoring.cjs");
 const { getRankName } = require("./rankSystem.cjs");
 const { createReportCard } = require("../renderers/reportCard.debug.cjs");
-const { getReportRouting } = require("./reportChannelRouter.cjs");
+const { getRoleForRarity } = require("./reportChannelRouter.cjs");
+const { getPokemonRoleId } = require("./pokemonRoleResolver.cjs");
 
-/**
- * Rarity → Discord role name
- */
-const RARITY_ROLE_NAMES = {
-  paradox: "Paradox",
-  legendary: "Legendary",
-  rare: "Rare",
-  common: "Common",
-  roamerMonth: "ROTM"
-};
-
-/**
- * Handles a single roamer entry from the Vortex API (LIVE).
- * - DB dedup
- * - Award points to IGN
- * - Route by rarity
- * - Ping Pokémon role + rarity role
- * - Post image only (no text beyond pings)
- */
 async function handleVortexRoamer(client, roamer) {
   if (!client) return;
 
@@ -37,28 +19,24 @@ async function handleVortexRoamer(client, roamer) {
   const ign = String(found_by_username || "").trim();
   if (!ign) return;
 
-  // ──────────────────────────────
-  // DB dedup
-  // ──────────────────────────────
+  // Dedup
   const exists = await db.hasVortexRoamer(roamer_name, time_found);
   if (exists) return;
-
   await db.insertVortexRoamer(roamer_name, time_found);
 
-  // ──────────────────────────────
-  // Ensure IGN profile
-  // ──────────────────────────────
+  // Ensure IGN identity
   await db.ensureIgnProfileExists(ign);
 
-  // ──────────────────────────────
-  // Resolve guild
-  // ──────────────────────────────
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
   if (!guild) return;
 
-  // ──────────────────────────────
+  const channel = await guild.channels
+    .fetch(process.env.REPORT_CARD_CHANNEL_ID)
+    .catch(() => null);
+
+  if (!channel) return;
+
   // Rarity + points
-  // ──────────────────────────────
   const rarityKey = getRarity(roamer_name);
   const rarityLabel = getRarityDisplayLabel(rarityKey);
   const now = new Date();
@@ -72,52 +50,14 @@ async function handleVortexRoamer(client, roamer) {
 
   const trainerRank = getRankName(updated?.lifetime_points || 0);
 
-  // ──────────────────────────────
-  // Channel routing (rarity-based)
-  // ──────────────────────────────
-  const routing = getReportRouting(rarityKey, null);
-  if (!routing.correctChannelId) return;
-
-  const channel = await guild.channels
-    .fetch(routing.correctChannelId)
-    .catch(() => null);
-
-  if (!channel) return;
-
-  // ──────────────────────────────
-  // Resolve roles
-  // ──────────────────────────────
-
-  // Pokémon role (exact name match)
-  const pokemonRole = guild.roles.cache.find(
-    r => r.name.toLowerCase() === roamer_name.toLowerCase()
-  );
-
-  // Rarity role
-  const rarityRoleName = RARITY_ROLE_NAMES[rarityKey];
-  const rarityRole = rarityRoleName
-    ? guild.roles.cache.find(
-        r => r.name.toLowerCase() === rarityRoleName.toLowerCase()
-      )
-    : null;
-
-  const pingParts = [];
-  if (pokemonRole) pingParts.push(`<@&${pokemonRole.id}>`);
-  if (rarityRole) pingParts.push(`<@&${rarityRole.id}>`);
-
-  const pingText = pingParts.length ? pingParts.join(" ") : undefined;
-
-  // ──────────────────────────────
   // Expiry
-  // ──────────────────────────────
   const expiresAt = new Date(now);
   expiresAt.setMinutes(59, 59, 999);
   const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
+
   const reportId = `vortex_${Date.now()}`;
 
-  // ──────────────────────────────
-  // Render card
-  // ──────────────────────────────
+  // Card
   const cardPath = await createReportCard({
     reportType: "encounter",
     reporterName: ign,
@@ -133,17 +73,24 @@ async function handleVortexRoamer(client, roamer) {
     statusText: "Active"
   });
 
-  // ──────────────────────────────
-  // SEND — PINGS + IMAGE ONLY
-  // ──────────────────────────────
+  // ───────── PINGS ─────────
+  const rarityRoleId = getRoleForRarity(rarityKey);
+  const pokemonRoleId = getPokemonRoleId(roamer_name);
+
+  const mentions = [
+    pokemonRoleId ? `<@&${pokemonRoleId}>` : null,
+    rarityRoleId ? `<@&${rarityRoleId}>` : null
+  ].filter(Boolean);
+
+  // ───────── SEND ─────────
   const sent = await channel.send({
-    content: pingText,
+    content: mentions.join(" "),
+    allowedMentions: {
+      roles: [pokemonRoleId, rarityRoleId].filter(Boolean)
+    },
     files: [cardPath]
   });
 
-  // ──────────────────────────────
-  // Persist report
-  // ──────────────────────────────
   await db.createReport({
     id: reportId,
     guildId: guild.id,
