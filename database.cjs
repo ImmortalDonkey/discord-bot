@@ -602,6 +602,13 @@ async function getReportCardPrefs(discordId) {
   );
 }
 
+async function clearReportCardPrefs(discordId) {
+  await run(
+    `DELETE FROM report_card_prefs WHERE discord_id = ?`,
+    [discordId]
+  );
+}
+
 async function setReportCardPrefs(discordId, patch = {}) {
   const now = Date.now();
 
@@ -1146,6 +1153,7 @@ module.exports = {
   getAllKnownGuildIds,
   getReportCardPrefs,
   setReportCardPrefs,
+  clearReportCardPrefs,
 
   // Bounties
   createBounty,
