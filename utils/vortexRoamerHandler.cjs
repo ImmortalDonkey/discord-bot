@@ -6,12 +6,23 @@ const { createReportCard } = require("../renderers/reportCard.debug.cjs");
 const { getReportRouting } = require("./reportChannelRouter.cjs");
 
 /**
+ * Rarity → Discord role name
+ */
+const RARITY_ROLE_NAMES = {
+  paradox: "Paradox",
+  legendary: "Legendary",
+  rare: "Rare",
+  common: "Common",
+  roamerMonth: "ROTM"
+};
+
+/**
  * Handles a single roamer entry from the Vortex API (LIVE).
  * - DB dedup
  * - Award points to IGN
  * - Route by rarity
- * - Ping Pokémon role ONLY
- * - Post image only (no other text)
+ * - Ping Pokémon role + rarity role
+ * - Post image only (no text beyond pings)
  */
 async function handleVortexRoamer(client, roamer) {
   if (!client) return;
@@ -74,20 +85,33 @@ async function handleVortexRoamer(client, roamer) {
   if (!channel) return;
 
   // ──────────────────────────────
-  // Resolve Pokémon role by NAME
+  // Resolve roles
   // ──────────────────────────────
+
+  // Pokémon role (exact name match)
   const pokemonRole = guild.roles.cache.find(
     r => r.name.toLowerCase() === roamer_name.toLowerCase()
   );
 
-  const pingText = pokemonRole ? `<@&${pokemonRole.id}>` : null;
+  // Rarity role
+  const rarityRoleName = RARITY_ROLE_NAMES[rarityKey];
+  const rarityRole = rarityRoleName
+    ? guild.roles.cache.find(
+        r => r.name.toLowerCase() === rarityRoleName.toLowerCase()
+      )
+    : null;
+
+  const pingParts = [];
+  if (pokemonRole) pingParts.push(`<@&${pokemonRole.id}>`);
+  if (rarityRole) pingParts.push(`<@&${rarityRole.id}>`);
+
+  const pingText = pingParts.length ? pingParts.join(" ") : undefined;
 
   // ──────────────────────────────
   // Expiry
   // ──────────────────────────────
   const expiresAt = new Date(now);
   expiresAt.setMinutes(59, 59, 999);
-
   const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
   const reportId = `vortex_${Date.now()}`;
 
@@ -110,10 +134,10 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   // ──────────────────────────────
-  // SEND — PING + IMAGE ONLY
+  // SEND — PINGS + IMAGE ONLY
   // ──────────────────────────────
   const sent = await channel.send({
-    content: pingText || undefined,
+    content: pingText,
     files: [cardPath]
   });
 
@@ -141,7 +165,7 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   console.log(
-    `🛰️ Vortex card posted: ${roamer_name} (+${points})`
+    `🛰️ Vortex card posted: ${roamer_name} (${rarityKey})`
   );
 }
 
