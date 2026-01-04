@@ -290,6 +290,14 @@ async function init() {
   await run(`CREATE INDEX IF NOT EXISTS idx_player_guilds_guild ON player_guilds(guild_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_player_guilds_user ON player_guilds(discord_id)`);
 
+// -------- REPORT CARD USER PREFERENCES --------
+await run(`CREATE TABLE IF NOT EXISTS report_card_prefs (
+  discord_id TEXT PRIMARY KEY,
+  narrative_name TEXT,
+  outline_color TEXT,
+  updated_at INTEGER
+)`);
+
   await loadBountiesFromDB();
   await loadClaimsFromDB();
 
@@ -581,6 +589,42 @@ async function getGuildIdsForPlayer(discordId) {
 async function getAllKnownGuildIds() {
   const rows = await all(`SELECT DISTINCT guild_id FROM player_guilds`);
   return rows.map(r => r.guild_id);
+}
+
+// ------------------------------------------------------
+// REPORT CARD PREFERENCES
+// ------------------------------------------------------
+
+async function getReportCardPrefs(discordId) {
+  return await get(
+    `SELECT * FROM report_card_prefs WHERE discord_id = ?`,
+    [discordId]
+  );
+}
+
+async function setReportCardPrefs(discordId, patch = {}) {
+  const now = Date.now();
+
+  const existing = await getReportCardPrefs(discordId);
+
+  const narrativeName =
+    patch.narrative_name ??
+    existing?.narrative_name ??
+    null;
+
+  const outlineColor =
+    patch.outline_color ??
+    existing?.outline_color ??
+    null;
+
+  await run(
+    `INSERT OR REPLACE INTO report_card_prefs
+     (discord_id, narrative_name, outline_color, updated_at)
+     VALUES (?, ?, ?, ?)`,
+    [discordId, narrativeName, outlineColor, now]
+  );
+
+  return getReportCardPrefs(discordId);
 }
 
 // ------------------------------------------------------
@@ -1100,6 +1144,8 @@ module.exports = {
   touchPlayerGuild,
   getGuildIdsForPlayer,
   getAllKnownGuildIds,
+  getReportCardPrefs,
+  setReportCardPrefs,
 
   // Bounties
   createBounty,
