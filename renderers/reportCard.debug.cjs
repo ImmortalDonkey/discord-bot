@@ -7,7 +7,7 @@ const CARD_HEIGHT = 1300;
 
 // ───────── OUTER EDGE CONFIG ─────────
 const EDGE = 26;
-const EDGE_RADIUS = EDGE * 4.4;
+const EDGE_RADIUS = EDGE * 4.6;
 
 const MARGIN = Math.floor(CARD_WIDTH * 0.05);
 
@@ -174,7 +174,6 @@ function drawPiece(ctx, text, x, y, kind, theme) {
 async function createReportCard(report) {
   const {
     reporterName,
-    reporterId,
     pokemonName,
     location,
     rarityKey,
@@ -184,6 +183,8 @@ async function createReportCard(report) {
     statusText,
     reportCardPrefs
   } = report;
+
+  const isExpired = statusText === "Expired";
 
   const outlineColor =
     reportCardPrefs?.outline_color ||
@@ -220,6 +221,12 @@ async function createReportCard(report) {
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
   }
 
+  // ───────── EXPIRED GREY-OUT (ENTIRE CARD) ─────────
+  if (isExpired) {
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  }
+
   const innerW = CARD_WIDTH - MARGIN * 2;
   const innerH = CARD_HEIGHT - MARGIN * 2;
 
@@ -230,7 +237,7 @@ async function createReportCard(report) {
   const leftY = MARGIN;
   const panelH = innerH - 160;
 
-  // ───────── LEFT PANEL (USER CONFIG) ─────────
+  // ───────── LEFT PANEL ─────────
   ctx.save();
   roundedRectPath(ctx, leftX, leftY, leftW, panelH, 40);
   ctx.fillStyle = "rgba(35,35,35,0.72)";
@@ -356,7 +363,7 @@ async function createReportCard(report) {
 
   ctx.restore(); // clip restore
 
-  // ───────── OUTER EDGE (RARITY ONLY) ─────────
+  // ───────── OUTER EDGE ─────────
   ctx.save();
   roundedRectPath(
     ctx,
@@ -367,11 +374,11 @@ async function createReportCard(report) {
     EDGE_RADIUS
   );
   ctx.lineWidth = EDGE;
-  ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
+  ctx.strokeStyle = isExpired ? "#9ca3af" : (rarityOutline[rarityKey] || "#fff");
   ctx.stroke();
   ctx.restore();
 
-  // ───────── ROUTE BAR (USER CONFIG) ─────────
+  // ───────── ROUTE BAR ─────────
   const barY = CARD_HEIGHT - MARGIN - 120;
   ctx.save();
   roundedRectPath(ctx, MARGIN, barY, innerW, 120, 35);
