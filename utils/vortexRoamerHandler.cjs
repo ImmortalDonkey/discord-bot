@@ -15,6 +15,7 @@ const {
  * - Award points to IGN (IGN = source of truth)
  * - Route to rarity channel
  * - Ping Pokémon role + rarity role
+ * - Apply user report card prefs if IGN linked to Discord
  * - DEV fallback if roles missing
  */
 async function handleVortexRoamer(client, roamer) {
@@ -49,6 +50,24 @@ async function handleVortexRoamer(client, roamer) {
   // (synthetic discord_id handled in DB layer)
   // ──────────────────────────────
   await db.ensureIgnProfileExists(ign);
+
+  // ──────────────────────────────
+  // OPTIONAL: USER CARD PREFS (IGN → DISCORD)
+  // Only apply if IGN is linked to a REAL Discord user
+  // ──────────────────────────────
+  let reportCardPrefs = null;
+
+  const linkedPlayer = await db.getPlayerByIgn(ign);
+
+  if (
+    linkedPlayer &&
+    linkedPlayer.discord_id &&
+    !linkedPlayer.discord_id.startsWith("ign:")
+  ) {
+    reportCardPrefs = await db.getReportCardPrefs(
+      linkedPlayer.discord_id
+    );
+  }
 
   // ──────────────────────────────
   // RARITY + POINTS
@@ -100,6 +119,7 @@ async function handleVortexRoamer(client, roamer) {
 
   // ──────────────────────────────
   // BUILD REPORT CARD
+  // (custom prefs applied if available)
   // ──────────────────────────────
   const expiresAt = new Date(now);
   expiresAt.setMinutes(59, 59, 999);
@@ -119,7 +139,10 @@ async function handleVortexRoamer(client, roamer) {
     rarityLabel,
     points,
     trainerRank,
-    statusText: "Active"
+    statusText: "Active",
+
+    // ✅ USER CONFIG (if linked)
+    reportCardPrefs
   });
 
   // ──────────────────────────────
