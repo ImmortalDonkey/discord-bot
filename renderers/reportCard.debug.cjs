@@ -186,7 +186,12 @@ async function createReportCard(report) {
     reportCardPrefs
   } = report;
 
-  const isExpired = statusText === "Expired";
+  // ✅ NORMALISE STATUS (logic only)
+  const normalisedStatus = String(statusText || "Active").toLowerCase();
+  const isExpired = normalisedStatus === "expired";
+
+  // ✅ FORCE DISPLAY TEXT
+  const displayStatus = isExpired ? "Expired" : "Active";
 
   const baseOutlineColor =
     reportCardPrefs?.outline_color ||
@@ -227,7 +232,7 @@ async function createReportCard(report) {
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
   }
 
-  // ───────── EXPIRED GREY-OUT (GLOBAL) ─────────
+  // ───────── EXPIRED GREY-OUT ─────────
   if (isExpired) {
     ctx.fillStyle = "rgba(0,0,0,0.60)";
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
@@ -279,7 +284,7 @@ async function createReportCard(report) {
     ["Rank:", trainerRank],
     ["Rarity:", rarityLabel],
     ["Points:", String(points)],
-    ["Status:", statusText || "Active"]
+    ["Status:", displayStatus]
   ];
 
   let maxLabel = 0;
