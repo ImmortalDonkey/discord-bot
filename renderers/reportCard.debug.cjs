@@ -174,19 +174,26 @@ function drawPiece(ctx, text, x, y, kind, theme) {
 async function createReportCard(report) {
   const {
     reporterName,
+    reporterId,
     pokemonName,
     location,
     rarityKey,
     rarityLabel,
     points,
     trainerRank,
-    statusText
+    statusText,
+    reportCardPrefs
   } = report;
+
+  const outlineColor =
+    reportCardPrefs?.outline_color ||
+    rarityOutline[rarityKey] ||
+    "#ffffff";
 
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // ───────── OUTER CLIP (FIXES CORNERS) ─────────
+  // ───────── OUTER CLIP ─────────
   ctx.save();
   roundedRectPath(
     ctx,
@@ -223,13 +230,13 @@ async function createReportCard(report) {
   const leftY = MARGIN;
   const panelH = innerH - 160;
 
-  // ───────── LEFT PANEL ─────────
+  // ───────── LEFT PANEL (USER CONFIG) ─────────
   ctx.save();
   roundedRectPath(ctx, leftX, leftY, leftW, panelH, 40);
   ctx.fillStyle = "rgba(35,35,35,0.72)";
   ctx.fill();
   ctx.lineWidth = 20;
-  ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
+  ctx.strokeStyle = outlineColor;
   ctx.stroke();
   ctx.restore();
 
@@ -326,7 +333,7 @@ async function createReportCard(report) {
     if (label === "Points:") cursorY += lineHeight * 0.4;
   }
 
-  // ───────── SPRITE (ASPECT SAFE) ─────────
+  // ───────── SPRITE ─────────
   const spritePath = path.join(SPRITES_DIR, `${mon}.png`);
   if (fs.existsSync(spritePath)) {
     const sprite = await loadImage(spritePath);
@@ -347,9 +354,9 @@ async function createReportCard(report) {
     );
   }
 
-  ctx.restore(); // ← restore clip
+  ctx.restore(); // clip restore
 
-  // ───────── OUTER BORDER ─────────
+  // ───────── OUTER EDGE (RARITY ONLY) ─────────
   ctx.save();
   roundedRectPath(
     ctx,
@@ -364,14 +371,14 @@ async function createReportCard(report) {
   ctx.stroke();
   ctx.restore();
 
-  // ───────── ROUTE BAR ─────────
+  // ───────── ROUTE BAR (USER CONFIG) ─────────
   const barY = CARD_HEIGHT - MARGIN - 120;
   ctx.save();
   roundedRectPath(ctx, MARGIN, barY, innerW, 120, 35);
   ctx.fillStyle = "#fff";
   ctx.fill();
   ctx.lineWidth = 20;
-  ctx.strokeStyle = rarityOutline[rarityKey] || "#fff";
+  ctx.strokeStyle = outlineColor;
   ctx.stroke();
   ctx.restore();
 
