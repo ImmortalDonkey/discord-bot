@@ -260,8 +260,6 @@ async function init() {
   }
   await ensureReportColumns();
 
-  await run(`DELETE FROM reports WHERE reporter_id IS NULL OR reporter_id = ''`);
-
   // -------- PLAYER PROFILES (IGN LINKS) --------
   // One row per Discord user (global across all guilds)
   await run(`CREATE TABLE IF NOT EXISTS players (
