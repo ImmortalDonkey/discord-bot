@@ -4,7 +4,7 @@
 const fs = require("fs");
 const db = require("../database.cjs");
 
-// 🔁 IMPORTANT: use the SAME renderer as live/debug cards
+// ⬇️ IMPORTANT: use SAME renderer as active cards
 const { createReportCard } = require("../renderers/reportCard.debug.cjs");
 
 /**
@@ -19,30 +19,39 @@ async function expireDueReports(client, nowMs) {
 
   for (const r of dueReports) {
     try {
-      const channel = await client.channels.fetch(r.channelId).catch(() => null);
+      const channel = await client.channels
+        .fetch(r.channelId)
+        .catch(() => null);
+
       if (!channel) {
         console.warn("⚠ Channel missing for report", r.id);
         continue;
       }
 
-      const oldMsg = await channel.messages.fetch(r.messageId).catch(() => null);
+      const oldMsg = await channel.messages
+        .fetch(r.messageId)
+        .catch(() => null);
+
       if (!oldMsg) {
         console.warn("⚠ Message missing for report", r.id);
         continue;
       }
 
-      // 🔁 Re-render card with EXPIRED status
+      // ──────────────────────────────
+      // RE-RENDER CARD (EXPIRED)
+      // SAME renderer + same shape as active
+      // ──────────────────────────────
       const newCardPath = await createReportCard({
         reporterName: r.reporterName,
         reporterId: r.reporterId || null,
         pokemonName: r.pokemonName,
+        location: r.location,
         rarityKey: r.rarityKey,
         rarityLabel: r.rarityLabel,
         points: r.points,
-        location: r.location,
         trainerRank: r.trainerRank || "Trainer",
-        statusText: "Expired",
-        reportCardPrefs: null // prefs already baked into renderer logic
+        statusText: "Expired",              // ⬅️ LOCKED casing
+        reportCardPrefs: r.reportCardPrefs  // may be undefined (safe)
       });
 
       // Update message → new image, remove buttons
@@ -80,9 +89,15 @@ async function cleanupReports(client, nowMs) {
 
   for (const r of stale) {
     try {
-      const channel = await client.channels.fetch(r.channelId).catch(() => null);
+      const channel = await client.channels
+        .fetch(r.channelId)
+        .catch(() => null);
+
       if (channel) {
-        const msg = await channel.messages.fetch(r.messageId).catch(() => null);
+        const msg = await channel.messages
+          .fetch(r.messageId)
+          .catch(() => null);
+
         if (msg) await msg.delete().catch(() => {});
       }
 
