@@ -1,4 +1,3 @@
-// handlers/autocompleteHandler.cjs
 const fs = require("fs");
 const path = require("path");
 
@@ -30,9 +29,14 @@ if (fs.existsSync(autoDir)) {
   }
 }
 
-module.exports = async function (interaction) {
+module.exports = async function autocompleteHandler(interaction) {
+  // Safety: only autocomplete interactions
+  if (!interaction.isAutocomplete()) return;
+
   const command = interaction.commandName;
   const focused = interaction.options.getFocused(true);
+  if (!focused) return;
+
   const option = focused.name;
 
   const handler = autoModules.find(
@@ -42,8 +46,22 @@ module.exports = async function (interaction) {
   if (!handler) return;
 
   try {
+    // ⛔ Do NOT respond if Discord already considers this interaction dead
+    if (interaction.responded) return;
+
     await handler.execute(interaction);
+
   } catch (err) {
+    // 🟡 Expected + safe: interaction expired
+    if (err?.code === 10062) {
+      return;
+    }
+
+    // 🟡 Ignore double-respond attempts
+    if (String(err?.message || "").includes("already been acknowledged")) {
+      return;
+    }
+
     console.error(`❌ Autocomplete error (${command}.${option}):`, err);
   }
 };
