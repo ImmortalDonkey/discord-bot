@@ -1,3 +1,4 @@
+
 const fs = require("fs");
 const path = require("path");
 const { createCanvas, loadImage } = require("canvas");
@@ -20,25 +21,28 @@ if (!fs.existsSync(REPORT_DIR)) {
 }
 
 /* ────────────────────────────── */
-/* COLOURS                        */
+/* COLOURS (GACHA STYLE)          */
 /* ────────────────────────────── */
 
+// Fallback outline (used only if no user pref)
 const rarityOutline = {
-  common: "#4ade80",
-  rare: "#38bdf8",
-  legendary: "#22d3ee",
-  roamerMonth: "#ec4899",
-  paradox: "#a855f7"
+  common: "#6b7280",        // dull grey
+  rare: "#2563eb",          // sapphire blue
+  legendary: "#facc15",     // gold
+  roamerMonth: "#ec4899",   // banner pink
+  paradox: "#7c3aed"        // cosmic violet
 };
 
+// Pokémon name + rarity text
 const rarityTextColors = {
-  common: "#bbf7d0",
-  rare: "#bae6fd",
-  legendary: "#a5f3fc",
-  roamerMonth: "#fbcfe8",
-  paradox: "#e9d5ff"
+  common: "#9ca3af",        // low-tier pull
+  rare: "#60a5fa",          // decent pull
+  legendary: "#fde047",     // jackpot
+  roamerMonth: "#f472b6",   // limited banner
+  paradox: "#c084fc"        // highest tier
 };
 
+// Glow strength (unchanged)
 const rarityGlowStrength = {
   common: 6,
   rare: 12,
@@ -47,6 +51,7 @@ const rarityGlowStrength = {
   paradox: 28
 };
 
+// Rank colours (UNCHANGED)
 const RANK_COLORS = {
   "Rookie Trainer": "#86efac",
   Trainer: "#7dd3fc",
@@ -186,11 +191,8 @@ async function createReportCard(report) {
     reportCardPrefs
   } = report;
 
-  // ✅ NORMALISE STATUS (logic only)
   const normalisedStatus = String(statusText || "Active").toLowerCase();
   const isExpired = normalisedStatus === "expired";
-
-  // ✅ FORCE DISPLAY TEXT
   const displayStatus = isExpired ? "Expired" : "Active";
 
   const baseOutlineColor =
@@ -232,7 +234,6 @@ async function createReportCard(report) {
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
   }
 
-  // ───────── EXPIRED GREY-OUT ─────────
   if (isExpired) {
     ctx.fillStyle = "rgba(0,0,0,0.60)";
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
@@ -372,7 +373,7 @@ async function createReportCard(report) {
     );
   }
 
-  ctx.restore(); // clip restore
+  ctx.restore();
 
   // ───────── OUTER EDGE ─────────
   ctx.save();
