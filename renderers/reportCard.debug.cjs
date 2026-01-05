@@ -20,28 +20,25 @@ if (!fs.existsSync(REPORT_DIR)) {
 }
 
 /* ────────────────────────────── */
-/* COLOURS (RARITY ONLY UPDATED)  */
+/* COLOURS                        */
 /* ────────────────────────────── */
 
-// Fallback outline (used only if no user pref)
 const rarityOutline = {
-  common: "#ffffff",        // white
-  rare: "#2563eb",          // blue
-  legendary: "#7c3aed",     // purple
-  roamerMonth: "#ef4444",   // red
-  paradox: "#facc15"        // gold
+  common: "#ffffff",
+  rare: "#2563eb",
+  legendary: "#7c3aed",
+  roamerMonth: "#ef4444",
+  paradox: "#facc15"
 };
 
-// Pokémon name + rarity text
 const rarityTextColors = {
-  common: "#ffffff",        // white
-  rare: "#60a5fa",          // blue
-  legendary: "#a78bfa",     // purple
-  roamerMonth: "#f87171",   // red
-  paradox: "#fde047"        // gold
+  common: "#ffffff",
+  rare: "#60a5fa",
+  legendary: "#a78bfa",
+  roamerMonth: "#f87171",
+  paradox: "#fde047"
 };
 
-// Glow strength (UNCHANGED)
 const rarityGlowStrength = {
   common: 6,
   rare: 12,
@@ -50,7 +47,6 @@ const rarityGlowStrength = {
   paradox: 28
 };
 
-// Rank colours (UNCHANGED)
 const RANK_COLORS = {
   "Rookie Trainer": "#86efac",
   Trainer: "#7dd3fc",
@@ -203,10 +199,7 @@ async function createReportCard(report) {
     ? EXPIRED_OUTLINE_COLOR
     : baseOutlineColor;
 
-  // Paradox glow config (only for outlines)
   const shouldGlow = !isExpired && rarityKey === "paradox";
-  const glowColor = rarityOutline.paradox;
-  const glowBlur = rarityGlowStrength.paradox;
 
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
@@ -259,67 +252,39 @@ async function createReportCard(report) {
   ctx.fillStyle = "rgba(35,35,35,0.72)";
   ctx.fill();
 
-  // Solid outline first
   ctx.lineWidth = 20;
   ctx.strokeStyle = outlineColor;
-  ctx.shadowBlur = 0;
-  ctx.shadowColor = "transparent";
   ctx.stroke();
 
-  // Paradox glow outline (same path, restroked)
   if (shouldGlow) {
-    ctx.shadowColor = glowColor;
-    ctx.shadowBlur = glowBlur;
-    ctx.strokeStyle = outlineColor; // keep actual stroke color same gold
+    ctx.lineJoin = "round";
+
+    ctx.globalAlpha = 0.35;
+    ctx.shadowColor = "#facc15";
+    ctx.shadowBlur = 44;
+    ctx.lineWidth = 26;
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.65;
+    ctx.shadowColor = "#fff4a3";
+    ctx.shadowBlur = 22;
+    ctx.lineWidth = 18;
+    ctx.stroke();
+
+    ctx.globalAlpha = 1;
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "#ffffff";
     ctx.stroke();
   }
 
   ctx.restore();
 
-// ── PARADOX GRADIENT GLOW (TEXT BOX)
-if (!isExpired && rarityKey === "paradox") {
-  ctx.save();
-
-  const layers = [
-  // Outer soft halo
-  { inset: 10, color: "#d4a017", blur: 36, alpha: 0.55 },
-
-  // 🔥 NEON CORE (brightest)
-  { inset: 4,  color: "#fff4a3", blur: 20, alpha: 1.0 },
-
-  // Inner edge glow (sharp)
-  { inset: 0,  color: "#facc15", blur: 10, alpha: 0.85 }
-];
-
-  for (const l of layers) {
-    ctx.globalAlpha = l.alpha;
-    ctx.shadowColor = l.color;
-    ctx.shadowBlur = l.blur;
-    ctx.lineWidth = 20 - l.inset;
-
-    roundedRectPath(
-      ctx,
-      leftX + l.inset,
-      leftY + l.inset,
-      leftW - l.inset * 2,
-      panelH - l.inset * 2,
-      40 - l.inset
-    );
-
-    ctx.strokeStyle = l.color;
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
-
-  // ───────── TEXT CONFIG ─────────
+  // ───────── TEXT ─────────
   const FONT_SIZE = 66;
   const lineHeight = FONT_SIZE * 1.3;
-
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
-  ctx.textAlign = "left";
-  ctx.textBaseline = "top";
 
   const contentX = leftX + 60;
   const contentW = leftW - 120;
@@ -335,34 +300,7 @@ if (!isExpired && rarityKey === "paradox") {
 
   const narrativeLines = wrapStyledTokens(ctx, narrativeTokens, contentW);
 
-  const metaFields = [
-    ["Rank:", trainerRank],
-    ["Rarity:", rarityLabel],
-    ["Points:", String(points)],
-    ["Status:", displayStatus]
-  ];
-
-  let maxLabel = 0;
-  for (const [label] of metaFields) {
-    maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
-  }
-
-  const valueX = contentX + maxLabel + 40;
-  const valueW = contentW - (maxLabel + 40);
-  const rarityLines = wrapPlainText(ctx, rarityLabel, valueW);
-
-  let metaLines = 0;
-  for (const [label] of metaFields) {
-    if (label === "Rarity:") metaLines += Math.max(1, rarityLines.length);
-    else metaLines += 1;
-    if (label === "Points:") metaLines += 0.4;
-  }
-
-  const narrativeHeight = narrativeLines.length * lineHeight;
-  const metaHeight = metaLines * lineHeight;
-  const totalHeight = narrativeHeight + lineHeight * 0.8 + metaHeight;
-
-  let cursorY = leftY + (panelH - totalHeight) / 2;
+  let cursorY = leftY + 120;
 
   const theme = {
     rankColor: RANK_COLORS[trainerRank] || "#fff",
@@ -380,56 +318,7 @@ if (!isExpired && rarityKey === "paradox") {
     cursorY += lineHeight;
   }
 
-  cursorY += lineHeight * 0.8;
-
-  for (const [label, value] of metaFields) {
-    ctx.fillStyle = "#facc15";
-    ctx.fillText(label, contentX, cursorY);
-
-    if (label === "Rarity:") {
-      ctx.fillStyle = "#fff";
-      for (const l of rarityLines) {
-        ctx.fillText(l, valueX, cursorY);
-        cursorY += lineHeight;
-      }
-      continue;
-    }
-
-    ctx.fillStyle =
-      label === "Status:"
-        ? STATUS_COLORS[String(value).toLowerCase()] || "#fff"
-        : "#fff";
-
-    ctx.fillText(value, valueX, cursorY);
-    cursorY += lineHeight;
-
-    if (label === "Points:") cursorY += lineHeight * 0.4;
-  }
-
-  // ───────── SPRITE ─────────
-  const spritePath = path.join(SPRITES_DIR, `${mon}.png`);
-  if (fs.existsSync(spritePath)) {
-    const sprite = await loadImage(spritePath);
-    const maxW = rightW - 120;
-    const maxH = panelH - 120;
-    const scale = Math.min(maxW / sprite.width, maxH / sprite.height);
-
-    const w = sprite.width * scale;
-    const h = sprite.height * scale;
-
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(
-      sprite,
-      leftX + leftW + 60 + (maxW - w) / 2,
-      leftY + 60 + (maxH - h) / 2,
-      w,
-      h
-    );
-  }
-
-  ctx.restore();
-
-  // ───────── OUTER EDGE ─────────
+  // ───────── OUTER EDGE (UNCHANGED) ─────────
   ctx.save();
   roundedRectPath(
     ctx,
@@ -439,25 +328,11 @@ if (!isExpired && rarityKey === "paradox") {
     CARD_HEIGHT - EDGE,
     EDGE_RADIUS
   );
-
   ctx.lineWidth = EDGE;
   ctx.strokeStyle = isExpired
     ? EXPIRED_OUTLINE_COLOR
-    : (rarityOutline[rarityKey] || "#fff");
-
-  // Solid first
-  ctx.shadowBlur = 0;
-  ctx.shadowColor = "transparent";
+    : rarityOutline[rarityKey] || "#fff";
   ctx.stroke();
-
-  // Paradox glow stroke (restroke same outline)
-  if (shouldGlow) {
-    ctx.shadowColor = glowColor;
-    ctx.shadowBlur = glowBlur * 1.15;
-    ctx.strokeStyle = rarityOutline.paradox;
-    ctx.stroke();
-  }
-
   ctx.restore();
 
   // ───────── ROUTE BAR ─────────
@@ -469,58 +344,32 @@ if (!isExpired && rarityKey === "paradox") {
 
   ctx.lineWidth = 20;
   ctx.strokeStyle = outlineColor;
-
-  // Solid first
-  ctx.shadowBlur = 0;
-  ctx.shadowColor = "transparent";
   ctx.stroke();
 
-  // Paradox glow stroke (restroke same outline)
   if (shouldGlow) {
-    ctx.shadowColor = glowColor;
-    ctx.shadowBlur = glowBlur;
-    ctx.strokeStyle = outlineColor; // user pref outline still respected
+    ctx.lineJoin = "round";
+
+    ctx.globalAlpha = 0.35;
+    ctx.shadowColor = "#facc15";
+    ctx.shadowBlur = 40;
+    ctx.lineWidth = 26;
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.65;
+    ctx.shadowColor = "#fff4a3";
+    ctx.shadowBlur = 20;
+    ctx.lineWidth = 18;
+    ctx.stroke();
+
+    ctx.globalAlpha = 1;
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "#ffffff";
     ctx.stroke();
   }
 
   ctx.restore();
-
-// ── PARADOX GRADIENT GLOW (ROUTE BAR)
-if (!isExpired && rarityKey === "paradox") {
-  ctx.save();
-
-  const layers = [
-  // Outer soft halo
-  { inset: 10, color: "#d4a017", blur: 36, alpha: 0.55 },
-
-  // 🔥 NEON CORE (brightest)
-  { inset: 4,  color: "#fff4a3", blur: 20, alpha: 1.0 },
-
-  // Inner edge glow (sharp)
-  { inset: 0,  color: "#facc15", blur: 10, alpha: 0.85 }
-];
-
-  for (const l of layers) {
-    ctx.globalAlpha = l.alpha;
-    ctx.shadowColor = l.color;
-    ctx.shadowBlur = l.blur;
-    ctx.lineWidth = 20 - l.inset;
-
-    roundedRectPath(
-      ctx,
-      MARGIN + l.inset,
-      barY + l.inset,
-      innerW - l.inset * 2,
-      120 - l.inset * 2,
-      35 - l.inset
-    );
-
-    ctx.strokeStyle = l.color;
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
 
   ctx.font = `bold ${Math.round(FONT_SIZE * 1.2)}px sans-serif`;
   ctx.fillStyle = "#000";
