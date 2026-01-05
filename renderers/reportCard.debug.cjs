@@ -281,10 +281,15 @@ if (!isExpired && rarityKey === "paradox") {
   ctx.save();
 
   const layers = [
-    { inset: 0,  color: "#facc15", blur: 36, alpha: 0.9 },
-    { inset: 6,  color: "#fde047", blur: 22, alpha: 0.8 },
-    { inset: 12, color: "#fff7d6", blur: 12, alpha: 0.7 }
-  ];
+  // Outer soft halo
+  { inset: 10, color: "#d4a017", blur: 36, alpha: 0.55 },
+
+  // 🔥 NEON CORE (brightest)
+  { inset: 4,  color: "#fff4a3", blur: 20, alpha: 1.0 },
+
+  // Inner edge glow (sharp)
+  { inset: 0,  color: "#facc15", blur: 10, alpha: 0.85 }
+];
 
   for (const l of layers) {
     ctx.globalAlpha = l.alpha;
@@ -485,10 +490,15 @@ if (!isExpired && rarityKey === "paradox") {
   ctx.save();
 
   const layers = [
-    { inset: 0,  color: "#facc15", blur: 30, alpha: 0.9 },
-    { inset: 6,  color: "#fde047", blur: 18, alpha: 0.8 },
-    { inset: 10, color: "#fff7d6", blur: 10, alpha: 0.7 }
-  ];
+  // Outer soft halo
+  { inset: 10, color: "#d4a017", blur: 36, alpha: 0.55 },
+
+  // 🔥 NEON CORE (brightest)
+  { inset: 4,  color: "#fff4a3", blur: 20, alpha: 1.0 },
+
+  // Inner edge glow (sharp)
+  { inset: 0,  color: "#facc15", blur: 10, alpha: 0.85 }
+];
 
   for (const l of layers) {
     ctx.globalAlpha = l.alpha;
