@@ -7,7 +7,7 @@ const {
 const rolesConfig = require('../../utils/rolesConfig.cjs');
 
 module.exports = {
-  ids: ['roles_manage:'],
+  ids: ['roles_manage'],
 
   async execute(client, interaction) {
     const member = interaction.member;
