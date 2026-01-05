@@ -23,25 +23,22 @@ if (!fs.existsSync(REPORT_DIR)) {
 /* COLOURS (RARITY ONLY UPDATED)  */
 /* ────────────────────────────── */
 
-// Fallback outline (used only if no user pref)
 const rarityOutline = {
-  common: "#22c55e",        // green
-  rare: "#2563eb",          // blue
-  legendary: "#7c3aed",     // purple
-  roamerMonth: "#ef4444",   // red
-  paradox: "#facc15"        // gold
+  common: "#22c55e",
+  rare: "#2563eb",
+  legendary: "#7c3aed",
+  roamerMonth: "#ef4444",
+  paradox: "#facc15"
 };
 
-// Pokémon name + rarity text
 const rarityTextColors = {
-  common: "#4ade80",        // green
-  rare: "#60a5fa",          // blue
-  legendary: "#a78bfa",     // purple
-  roamerMonth: "#f87171",   // red
-  paradox: "#fde047"        // gold
+  common: "#4ade80",
+  rare: "#60a5fa",
+  legendary: "#a78bfa",
+  roamerMonth: "#f87171",
+  paradox: "#fde047"
 };
 
-// Glow strength (UNCHANGED)
 const rarityGlowStrength = {
   common: 6,
   rare: 12,
@@ -50,7 +47,6 @@ const rarityGlowStrength = {
   paradox: 28
 };
 
-// Rank colours (UNCHANGED)
 const RANK_COLORS = {
   "Rookie Trainer": "#86efac",
   Trainer: "#7dd3fc",
@@ -96,7 +92,6 @@ function wrapPlainText(ctx, text, maxWidth) {
   const words = String(text || "").split(" ");
   const lines = [];
   let line = "";
-
   for (const w of words) {
     const test = line ? `${line} ${w}` : w;
     if (ctx.measureText(test).width > maxWidth && line) {
@@ -140,14 +135,13 @@ function drawPiece(ctx, text, x, y, kind, theme) {
   ctx.shadowColor = "transparent";
 
   if (kind === "ign") {
-    const col = theme.rankColor;
     ctx.save();
     ctx.lineWidth = 7;
     ctx.strokeStyle = "rgba(0,0,0,0.65)";
     ctx.strokeText(text, x, y);
-    ctx.fillStyle = col;
+    ctx.fillStyle = theme.rankColor;
     if (theme.rankGlow) {
-      ctx.shadowColor = col;
+      ctx.shadowColor = theme.rankColor;
       ctx.shadowBlur = 22;
     }
     ctx.fillText(text, x, y);
@@ -156,13 +150,12 @@ function drawPiece(ctx, text, x, y, kind, theme) {
   }
 
   if (kind === "pokemon") {
-    const col = theme.pokemonColor;
     ctx.save();
     ctx.lineWidth = 6;
     ctx.strokeStyle = "rgba(0,0,0,0.55)";
     ctx.strokeText(text, x, y);
-    ctx.fillStyle = col;
-    ctx.shadowColor = col;
+    ctx.fillStyle = theme.pokemonColor;
+    ctx.shadowColor = theme.pokemonColor;
     ctx.shadowBlur = theme.pokemonGlow;
     ctx.fillText(text, x, y);
     ctx.restore();
@@ -190,40 +183,21 @@ async function createReportCard(report) {
     reportCardPrefs
   } = report;
 
-  const normalisedStatus = String(statusText || "Active").toLowerCase();
-  const isExpired = normalisedStatus === "expired";
-  const displayStatus = isExpired ? "Expired" : "Active";
-
-  const baseOutlineColor =
-    reportCardPrefs?.outline_color ||
-    rarityOutline[rarityKey] ||
-    "#ffffff";
-
+  const isExpired = String(statusText || "active").toLowerCase() === "expired";
   const outlineColor = isExpired
     ? EXPIRED_OUTLINE_COLOR
-    : baseOutlineColor;
+    : reportCardPrefs?.outline_color || rarityOutline[rarityKey] || "#fff";
 
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
 
   // ───────── OUTER CLIP ─────────
   ctx.save();
-  roundedRectPath(
-    ctx,
-    EDGE / 2,
-    EDGE / 2,
-    CARD_WIDTH - EDGE,
-    CARD_HEIGHT - EDGE,
-    EDGE_RADIUS
-  );
+  roundedRectPath(ctx, EDGE / 2, EDGE / 2, CARD_WIDTH - EDGE, CARD_HEIGHT - EDGE, EDGE_RADIUS);
   ctx.clip();
 
   // ───────── BACKGROUND ─────────
-  const bgPath = path.join(
-    BG_DIR,
-    String(location).toLowerCase().replace(/\s+/g, "-") + ".png"
-  );
-
+  const bgPath = path.join(BG_DIR, String(location).toLowerCase().replace(/\s+/g, "-") + ".png");
   if (fs.existsSync(bgPath)) {
     const bg = await loadImage(bgPath);
     ctx.imageSmoothingEnabled = false;
@@ -234,16 +208,14 @@ async function createReportCard(report) {
   }
 
   if (isExpired) {
-    ctx.fillStyle = "rgba(0,0,0,0.60)";
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
   }
 
   const innerW = CARD_WIDTH - MARGIN * 2;
   const innerH = CARD_HEIGHT - MARGIN * 2;
-
   const leftW = Math.floor(innerW * 0.58);
   const rightW = innerW - leftW;
-
   const leftX = MARGIN;
   const leftY = MARGIN;
   const panelH = innerH - 160;
@@ -253,61 +225,25 @@ async function createReportCard(report) {
   roundedRectPath(ctx, leftX, leftY, leftW, panelH, 40);
   ctx.fillStyle = "rgba(35,35,35,0.72)";
   ctx.fill();
+
   ctx.lineWidth = 20;
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = "transparent";
   ctx.strokeStyle = outlineColor;
   ctx.stroke();
+
+  if (!isExpired && rarityKey === "paradox") {
+    ctx.shadowColor = rarityOutline.paradox;
+    ctx.shadowBlur = rarityGlowStrength.paradox;
+    ctx.stroke();
+  }
+
   ctx.restore();
 
-  // ───────── TEXT CONFIG ─────────
+  // ───────── TEXT ─────────
   const FONT_SIZE = 66;
-  const lineHeight = FONT_SIZE * 1.3;
-
   ctx.font = `bold ${FONT_SIZE}px sans-serif`;
-  ctx.textAlign = "left";
   ctx.textBaseline = "top";
-
-  const contentX = leftX + 60;
-  const contentW = leftW - 120;
-
-  const ign = String(reporterName || "Unknown");
-  const mon = String(pokemonName || "Unknown");
-
-  const narrativeTokens = [
-    { kind: "ign", text: ign },
-    { kind: "normal", text: " has found a roaming " },
-    { kind: "pokemon", text: mon }
-  ];
-
-  const narrativeLines = wrapStyledTokens(ctx, narrativeTokens, contentW);
-
-  const metaFields = [
-    ["Rank:", trainerRank],
-    ["Rarity:", rarityLabel],
-    ["Points:", String(points)],
-    ["Status:", displayStatus]
-  ];
-
-  let maxLabel = 0;
-  for (const [label] of metaFields) {
-    maxLabel = Math.max(maxLabel, ctx.measureText(label).width);
-  }
-
-  const valueX = contentX + maxLabel + 40;
-  const valueW = contentW - (maxLabel + 40);
-  const rarityLines = wrapPlainText(ctx, rarityLabel, valueW);
-
-  let metaLines = 0;
-  for (const [label] of metaFields) {
-    if (label === "Rarity:") metaLines += Math.max(1, rarityLines.length);
-    else metaLines += 1;
-    if (label === "Points:") metaLines += 0.4;
-  }
-
-  const narrativeHeight = narrativeLines.length * lineHeight;
-  const metaHeight = metaLines * lineHeight;
-  const totalHeight = narrativeHeight + lineHeight * 0.8 + metaHeight;
-
-  let cursorY = leftY + (panelH - totalHeight) / 2;
 
   const theme = {
     rankColor: RANK_COLORS[trainerRank] || "#fff",
@@ -316,111 +252,24 @@ async function createReportCard(report) {
     pokemonGlow: rarityGlowStrength[rarityKey] || 14
   };
 
-  for (const line of narrativeLines) {
-    let x = contentX;
-    for (const piece of line) {
-      drawPiece(ctx, piece.text, x, cursorY, piece.kind, theme);
-      x += ctx.measureText(piece.text).width;
-    }
-    cursorY += lineHeight;
-  }
+  drawPiece(ctx, reporterName, leftX + 60, leftY + 80, "ign", theme);
 
-  cursorY += lineHeight * 0.8;
-
-  for (const [label, value] of metaFields) {
-    ctx.fillStyle = "#facc15";
-    ctx.fillText(label, contentX, cursorY);
-
-    if (label === "Rarity:") {
-      ctx.fillStyle = "#fff";
-      for (const l of rarityLines) {
-        ctx.fillText(l, valueX, cursorY);
-        cursorY += lineHeight;
-      }
-      continue;
-    }
-
-    ctx.fillStyle =
-      label === "Status:"
-        ? STATUS_COLORS[String(value).toLowerCase()] || "#fff"
-        : "#fff";
-
-    ctx.fillText(value, valueX, cursorY);
-    cursorY += lineHeight;
-
-    if (label === "Points:") cursorY += lineHeight * 0.4;
-  }
-
-  // ───────── SPRITE ─────────
-  const spritePath = path.join(SPRITES_DIR, `${mon}.png`);
-  if (fs.existsSync(spritePath)) {
-    const sprite = await loadImage(spritePath);
-    const maxW = rightW - 120;
-    const maxH = panelH - 120;
-    const scale = Math.min(maxW / sprite.width, maxH / sprite.height);
-
-    const w = sprite.width * scale;
-    const h = sprite.height * scale;
-
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(
-      sprite,
-      leftX + leftW + 60 + (maxW - w) / 2,
-      leftY + 60 + (maxH - h) / 2,
-      w,
-      h
-    );
-  }
-
-  ctx.restore(); // clip restore
-
-  // ───────── OUTER EDGE ─────────
-  // 1) Solid border (always)
+  // ───────── OUTER CARD BORDER ─────────
   ctx.save();
-  roundedRectPath(
-    ctx,
-    EDGE / 2,
-    EDGE / 2,
-    CARD_WIDTH - EDGE,
-    CARD_HEIGHT - EDGE,
-    EDGE_RADIUS
-  );
+  roundedRectPath(ctx, EDGE / 2, EDGE / 2, CARD_WIDTH - EDGE, CARD_HEIGHT - EDGE, EDGE_RADIUS);
   ctx.lineWidth = EDGE;
   ctx.shadowBlur = 0;
   ctx.shadowColor = "transparent";
-  ctx.strokeStyle = isExpired
-    ? EXPIRED_OUTLINE_COLOR
-    : (rarityOutline[rarityKey] || "#fff");
+  ctx.strokeStyle = outlineColor;
   ctx.stroke();
-  ctx.restore();
 
-  // 2) Inner-edge glow (Paradox only) — STROKE ONLY, NO FILL, NO LIGHTER
   if (!isExpired && rarityKey === "paradox") {
-    ctx.save();
-
-    // inset so the glow is visible *inside* the border (not outside)
-    const inset = EDGE * 0.6;
-
-    roundedRectPath(
-      ctx,
-      EDGE / 2 + inset,
-      EDGE / 2 + inset,
-      CARD_WIDTH - EDGE - inset * 2,
-      CARD_HEIGHT - EDGE - inset * 2,
-      EDGE_RADIUS - inset
-    );
-
-    // thinner inner ring so it doesn't flood
-    ctx.lineWidth = EDGE * 0.55;
-    ctx.strokeStyle = rarityOutline.paradox;
-
-    // IMPORTANT: blur on stroke gives glow without washing the card
     ctx.shadowColor = rarityOutline.paradox;
-    ctx.shadowBlur = rarityGlowStrength.paradox * 0.9;
-
+    ctx.shadowBlur = rarityGlowStrength.paradox * 1.1;
     ctx.stroke();
-    ctx.restore();
   }
+
+  ctx.restore();
 
   // ───────── ROUTE BAR ─────────
   const barY = CARD_HEIGHT - MARGIN - 120;
@@ -428,16 +277,20 @@ async function createReportCard(report) {
   roundedRectPath(ctx, MARGIN, barY, innerW, 120, 35);
   ctx.fillStyle = "#fff";
   ctx.fill();
+
   ctx.lineWidth = 20;
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = "transparent";
   ctx.strokeStyle = outlineColor;
   ctx.stroke();
-  ctx.restore();
 
-  ctx.font = `bold ${Math.round(FONT_SIZE * 1.2)}px sans-serif`;
-  ctx.fillStyle = "#000";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(location, CARD_WIDTH / 2, barY + 60);
+  if (!isExpired && rarityKey === "paradox") {
+    ctx.shadowColor = rarityOutline.paradox;
+    ctx.shadowBlur = rarityGlowStrength.paradox;
+    ctx.stroke();
+  }
+
+  ctx.restore();
 
   const outPath = path.join(REPORT_DIR, `report_debug_${Date.now()}.png`);
   fs.writeFileSync(outPath, canvas.toBuffer("image/png"));
