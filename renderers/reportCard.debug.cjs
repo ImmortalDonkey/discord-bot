@@ -375,6 +375,8 @@ async function createReportCard(report) {
   ctx.restore();
 
   // ───────── OUTER EDGE ─────────
+
+// ── SOLID BORDER
 ctx.save();
 roundedRectPath(
   ctx,
@@ -386,15 +388,8 @@ roundedRectPath(
 );
 
 ctx.lineWidth = EDGE;
-
-// Paradox-only outer glow (matches Pokémon name glow style)
-if (!isExpired && rarityKey === "paradox") {
-  ctx.shadowColor = rarityOutline.paradox;
-  ctx.shadowBlur = rarityGlowStrength.paradox;
-} else {
-  ctx.shadowBlur = 0;
-  ctx.shadowColor = "transparent";
-}
+ctx.shadowBlur = 0;
+ctx.shadowColor = "transparent";
 
 ctx.strokeStyle = isExpired
   ? EXPIRED_OUTLINE_COLOR
@@ -402,6 +397,31 @@ ctx.strokeStyle = isExpired
 
 ctx.stroke();
 ctx.restore();
+
+// ── INNER GLOW (Paradox only)
+if (!isExpired && rarityKey === "paradox") {
+  ctx.save();
+
+  // Draw slightly inset so glow stays INSIDE border
+  const inset = EDGE * 0.35;
+
+  roundedRectPath(
+    ctx,
+    EDGE / 2 + inset,
+    EDGE / 2 + inset,
+    CARD_WIDTH - EDGE - inset * 2,
+    CARD_HEIGHT - EDGE - inset * 2,
+    EDGE_RADIUS - inset
+  );
+
+  ctx.lineWidth = EDGE * 0.55;
+  ctx.strokeStyle = rarityOutline.paradox;
+  ctx.shadowColor = rarityOutline.paradox;
+  ctx.shadowBlur = rarityGlowStrength.paradox;
+
+  ctx.stroke();
+  ctx.restore();
+}
 
   // ───────── ROUTE BAR ─────────
   const barY = CARD_HEIGHT - MARGIN - 120;
