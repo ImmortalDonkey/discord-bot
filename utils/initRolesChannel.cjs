@@ -10,10 +10,12 @@ const rolesConfig = require('./rolesConfig.cjs');
 
 /**
  * Initialise the #roles channel.
- * - Posts a single top debrief message
+ * - Creates DB table if missing (DEV SAFE)
+ * - Posts top debrief
  * - Posts category headers
- * - Posts one persistent message per role
- * - Uses DB persistence to avoid reposting on restart
+ * - Posts rarity group role toggles
+ * - Posts individual Pokémon role toggles (grouped)
+ * - Uses DB persistence to avoid reposting
  */
 async function initRolesChannel(client) {
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
@@ -28,9 +30,16 @@ async function initRolesChannel(client) {
     return;
   }
 
-  // ──────────────────────────────
+  // ──────────────────────────────────────
+  // 🧱 ENSURE TABLE EXISTS (DEV DB FIX)
+  // ──────────────────────────────────────
+  await db.initRoleMessagesTable();
+
+  console.log('🧱 role_messages table ensured');
+
+  // ──────────────────────────────────────
   // 🔔 TOP DEBRIEF MESSAGE
-  // ──────────────────────────────
+  // ──────────────────────────────────────
   const DEBRIEF_KEY = '__ROLES_DEBRIEF__';
 
   const existingDebrief = await db.getRoleMessage(DEBRIEF_KEY);
@@ -54,12 +63,12 @@ async function initRolesChannel(client) {
       roleType: 'debrief'
     });
 
-    console.log('✅ Roles debrief message posted');
+    console.log('✅ Roles debrief posted');
   }
 
-  // ──────────────────────────────
+  // ──────────────────────────────────────
   // 📂 CATEGORY HEADERS
-  // ──────────────────────────────
+  // ──────────────────────────────────────
   const categories = [
     { key: '__RARITY_GROUPS__', title: 'Rarity Groups' },
     { key: '__INDIVIDUAL_POKEMON__', title: 'Individual Pokémon' }
@@ -87,16 +96,16 @@ async function initRolesChannel(client) {
     console.log(`✅ Category posted: ${cat.title}`);
   }
 
-  // ──────────────────────────────
+  // ──────────────────────────────────────
   // ⭐ RARITY GROUP ROLES
-  // ──────────────────────────────
+  // ──────────────────────────────────────
   for (const role of rolesConfig.rarityRoles) {
-    // 🔧 ENV PARITY FIX (ROLE_ROAMER_MONTH vs ROLE_ROAMERMONTH)
-    let roleId = process.env[role.env];
-
-    if (!roleId && role.env === 'ROLE_ROAMER_MONTH') {
-      roleId = process.env.ROLE_ROAMERMONTH;
-    }
+    /**
+     * IMPORTANT:
+     * Env is kept EXACTLY as your live env:
+     * ROLE_ROAMERMONTH (NO underscore)
+     */
+    const roleId = process.env[role.env];
 
     if (!roleId) {
       console.warn(`⚠️ Missing env for rarity role: ${role.env}`);
@@ -128,10 +137,9 @@ async function initRolesChannel(client) {
     console.log(`✅ Rarity role posted: ${role.label}`);
   }
 
-  // ──────────────────────────────
-  // 🧩 INDIVIDUAL POKÉMON ROLES
-  // (grouped by rarity section)
-  // ──────────────────────────────
+  // ──────────────────────────────────────
+  // 🧩 INDIVIDUAL POKÉMON ROLES (GROUPED)
+  // ──────────────────────────────────────
   let currentGroup = null;
 
   for (const role of rolesConfig.pokemonRoles) {
@@ -141,16 +149,21 @@ async function initRolesChannel(client) {
       continue;
     }
 
-    // Group header (once per group)
+    // ── Group header ──
     if (role.group !== currentGroup) {
       const headerKey = `__POKEMON_GROUP_${role.group.toUpperCase()}__`;
       const existingHeader = await db.getRoleMessage(headerKey);
 
       if (!existingHeader) {
+        const title =
+          role.group === 'roamerMonth'
+            ? 'Roamer of the Month'
+            : role.group.charAt(0).toUpperCase() + role.group.slice(1);
+
         const msg = await channel.send({
           embeds: [
             new EmbedBuilder()
-              .setTitle(role.group.replace(/([A-Z])/g, ' $1').trim())
+              .setTitle(title)
               .setColor(0x2B2D31)
           ]
         });
@@ -162,13 +175,13 @@ async function initRolesChannel(client) {
           roleType: 'pokemon-group'
         });
 
-        console.log(`✅ Pokémon group header posted: ${role.group}`);
+        console.log(`✅ Pokémon group header posted: ${title}`);
       }
 
       currentGroup = role.group;
     }
 
-    // Individual Pokémon role message
+    // ── Individual Pokémon toggle ──
     const existing = await db.getRoleMessage(roleId);
     if (existing) continue;
 
@@ -194,7 +207,7 @@ async function initRolesChannel(client) {
     console.log(`✅ Pokémon role posted: ${role.label}`);
   }
 
-  console.log('🎉 Roles channel initialised successfully');
+  console.log('🎉 Roles channel fully initialised');
 }
 
 module.exports = { initRolesChannel };
