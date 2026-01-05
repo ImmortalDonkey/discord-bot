@@ -1,110 +1,120 @@
-const {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle
-} = require('discord.js');
+// interactions/buttons/rolesButtons.cjs
 
+const { ButtonStyle } = require('discord.js');
 const rolesConfig = require('../../utils/rolesConfig.cjs');
 
 module.exports = {
-  ids: ['roles_manage'],
+  // IMPORTANT: must end with "_" to trigger prefix matching
+  ids: ['roles_manage_'],
 
   async execute(client, interaction) {
     const member = interaction.member;
-    if (!member) {
-      return interaction.reply({
-        content: '❌ Member not found.',
-        ephemeral: true
-      });
-    }
+    if (!member) return;
 
-    const roleId = interaction.customId.split(':')[1];
-    if (!roleId) {
-      return interaction.reply({
-        content: '❌ Invalid role.',
-        ephemeral: true
-      });
-    }
+    // Extract role ID from customId: roles_manage_<ROLE_ID>
+    const roleId = interaction.customId.replace('roles_manage_', '');
 
     const guild = interaction.guild;
+    if (!guild) return;
+
     const role = guild.roles.cache.get(roleId);
     if (!role) {
-      return interaction.reply({
-        content: '❌ Role no longer exists.',
+      await interaction.reply({
+        content: '❌ This role no longer exists.',
         ephemeral: true
       });
+      return;
     }
 
-    // ──────────────────────────────
-    // Detect rarity group role
-    // ──────────────────────────────
-    const rarityGroup = rolesConfig.rarityRoles.find(r => {
-      const envId = process.env[r.env];
-      return envId === roleId;
-    });
-
-    let rolesToToggle = [roleId];
+    const hasRole = member.roles.cache.has(roleId);
 
     // ──────────────────────────────
-    // If rarity group → toggle all Pokémon in group
+    // 🧠 Is this a rarity group?
     // ──────────────────────────────
-    if (rarityGroup) {
-      const groupKey =
-        rarityGroup.label === 'Roamer of the Month'
-          ? 'roamerMonth'
-          : rarityGroup.label.toLowerCase();
-
-      const pokemonRoles = rolesConfig.pokemonRoles
-        .filter(p => p.group === groupKey)
-        .map(p => process.env[p.env])
-        .filter(Boolean);
-
-      rolesToToggle = [roleId, ...pokemonRoles];
-    }
-
-    // ──────────────────────────────
-    // Determine current state
-    // ──────────────────────────────
-    const hasAny = rolesToToggle.some(rid =>
-      member.roles.cache.has(rid)
+    const rarityEntry = rolesConfig.rarityRoles.find(r =>
+      process.env[r.env] === roleId
     );
 
     // ──────────────────────────────
-    // Toggle roles
+    // ⭐ RARITY GROUP TOGGLE
     // ──────────────────────────────
-    try {
-      if (hasAny) {
-        await member.roles.remove(rolesToToggle);
+    if (rarityEntry) {
+      const groupKey = rarityEntry.label
+        .toLowerCase()
+        .replace(/[^a-z]/g, '');
+
+      const pokemonInGroup = rolesConfig.pokemonRoles.filter(p =>
+        p.group.toLowerCase().replace(/[^a-z]/g, '') === groupKey
+      );
+
+      if (hasRole) {
+        // Remove rarity + all Pokémon in group
+        await member.roles.remove(roleId);
+
+        for (const poke of pokemonInGroup) {
+          const pokeRoleId = process.env[poke.env];
+          if (pokeRoleId && member.roles.cache.has(pokeRoleId)) {
+            await member.roles.remove(pokeRoleId);
+          }
+        }
+
+        await interaction.reply({
+          content: `❌ **${rarityEntry.label}** notifications disabled.`,
+          ephemeral: true
+        });
       } else {
-        await member.roles.add(rolesToToggle);
+        // Add rarity + all Pokémon in group
+        await member.roles.add(roleId);
+
+        for (const poke of pokemonInGroup) {
+          const pokeRoleId = process.env[poke.env];
+          if (pokeRoleId && !member.roles.cache.has(pokeRoleId)) {
+            await member.roles.add(pokeRoleId);
+          }
+        }
+
+        await interaction.reply({
+          content: `✅ **${rarityEntry.label}** notifications enabled.`,
+          ephemeral: true
+        });
       }
-    } catch (err) {
-      console.error('❌ Role toggle failed:', err);
-      return interaction.reply({
-        content: '❌ Failed to update roles. Please try again.',
-        ephemeral: true
-      });
     }
 
     // ──────────────────────────────
-    // Update button visual state
+    // 🧩 INDIVIDUAL POKÉMON TOGGLE
     // ──────────────────────────────
-    const updatedButton = new ButtonBuilder()
-      .setCustomId(interaction.customId)
-      .setLabel('Manage')
-      .setStyle(hasAny ? ButtonStyle.Secondary : ButtonStyle.Success);
+    else {
+      if (hasRole) {
+        await member.roles.remove(roleId);
+        await interaction.reply({
+          content: `❌ **${role.name}** notifications disabled.`,
+          ephemeral: true
+        });
+      } else {
+        await member.roles.add(roleId);
+        await interaction.reply({
+          content: `✅ **${role.name}** notifications enabled.`,
+          ephemeral: true
+        });
+      }
+    }
 
-    const row = new ActionRowBuilder().addComponents(updatedButton);
+    // ──────────────────────────────
+    // 🎨 Update button style
+    // ──────────────────────────────
+    try {
+      const row = interaction.message.components[0];
+      const button = row.components[0];
 
-    await interaction.update({
-      components: [row]
-    });
+      button.setStyle(
+        member.roles.cache.has(roleId)
+          ? ButtonStyle.Success
+          : ButtonStyle.Secondary
+      );
 
-    await interaction.followUp({
-      content: hasAny
-        ? `🔕 **${role.name} notifications disabled**`
-        : `🔔 **${role.name} notifications enabled**`,
-      ephemeral: true
-    });
+      await interaction.message.edit({ components: [row] });
+    } catch {
+      // Non-fatal (message may be old or locked)
+    }
   }
 };
