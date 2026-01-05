@@ -107,7 +107,7 @@ async function initRolesChannel(client) {
       components: [
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId(`roles_manage:${roleId}`)
+            .setCustomId(`roles_manage_${roleId}`)
             .setLabel('Manage')
             .setStyle(ButtonStyle.Primary)
         )
@@ -172,7 +172,7 @@ async function initRolesChannel(client) {
         components: [
           new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-              .setCustomId(`roles_manage:${roleId}`)
+              .setCustomId(`roles_manage_${roleId}`)
               .setLabel('Manage')
               .setStyle(ButtonStyle.Secondary)
           )
