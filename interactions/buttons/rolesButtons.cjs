@@ -11,20 +11,20 @@ module.exports = {
     const member = interaction.member;
     if (!member) return;
 
-    // Extract role ID from customId: roles_manage_<ROLE_ID>
-    const roleId = interaction.customId.replace('roles_manage_', '');
+    // Acknowledge silently (no ephemeral message)
+    await interaction.deferUpdate().catch(() => {});
+
+    // Extract role ID from:
+    // roles_manage_<ROLE_ID>  OR legacy roles_manage:<ROLE_ID>
+    const roleId = interaction.customId
+      .replace('roles_manage_', '')
+      .replace('roles_manage:', '');
 
     const guild = interaction.guild;
     if (!guild) return;
 
     const role = guild.roles.cache.get(roleId);
-    if (!role) {
-      await interaction.reply({
-        content: '❌ This role no longer exists.',
-        ephemeral: true
-      });
-      return;
-    }
+    if (!role) return;
 
     const hasRole = member.roles.cache.has(roleId);
 
@@ -39,12 +39,10 @@ module.exports = {
     // ⭐ RARITY GROUP TOGGLE
     // ──────────────────────────────
     if (rarityEntry) {
-      const groupKey = rarityEntry.label
-        .toLowerCase()
-        .replace(/[^a-z]/g, '');
+      const groupKey = rarityEntry.group;
 
-      const pokemonInGroup = rolesConfig.pokemonRoles.filter(p =>
-        p.group.toLowerCase().replace(/[^a-z]/g, '') === groupKey
+      const pokemonInGroup = rolesConfig.pokemonRoles.filter(
+        p => p.group === groupKey
       );
 
       if (hasRole) {
@@ -57,11 +55,6 @@ module.exports = {
             await member.roles.remove(pokeRoleId);
           }
         }
-
-        await interaction.reply({
-          content: `❌ **${rarityEntry.label}** notifications disabled.`,
-          ephemeral: true
-        });
       } else {
         // Add rarity + all Pokémon in group
         await member.roles.add(roleId);
@@ -72,11 +65,6 @@ module.exports = {
             await member.roles.add(pokeRoleId);
           }
         }
-
-        await interaction.reply({
-          content: `✅ **${rarityEntry.label}** notifications enabled.`,
-          ephemeral: true
-        });
       }
     }
 
@@ -86,35 +74,31 @@ module.exports = {
     else {
       if (hasRole) {
         await member.roles.remove(roleId);
-        await interaction.reply({
-          content: `❌ **${role.name}** notifications disabled.`,
-          ephemeral: true
-        });
       } else {
         await member.roles.add(roleId);
-        await interaction.reply({
-          content: `✅ **${role.name}** notifications enabled.`,
-          ephemeral: true
-        });
       }
     }
 
     // ──────────────────────────────
-    // 🎨 Update button style
+    // 🎨 Update button style (ON / OFF)
     // ──────────────────────────────
     try {
       const row = interaction.message.components[0];
       const button = row.components[0];
 
+      const nowHasRole = member.roles.cache.has(roleId);
+
       button.setStyle(
-        member.roles.cache.has(roleId)
-          ? ButtonStyle.Success
-          : ButtonStyle.Secondary
+        nowHasRole
+          ? ButtonStyle.Success   // 🟢 ON
+          : ButtonStyle.Secondary // ⚫ OFF
       );
 
-      await interaction.message.edit({ components: [row] });
+      await interaction.message.edit({
+        components: [row]
+      });
     } catch {
-      // Non-fatal (message may be old or locked)
+      // Non-fatal (message may be old, locked, or deleted)
     }
   }
 };
