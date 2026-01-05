@@ -39,15 +39,26 @@ function initButtonHandlers(client) {
  * Route button presses using:
  *  - exact match
  *  - PREFIX MATCH if the handler ID ends with "_"
+ *    (supports BOTH "_" and ":" separators for backward compatibility)
  */
 async function handleButtonInteraction(client, interaction) {
   const id = interaction.customId;
 
   const handler = buttonHandlers.find(mod =>
-    mod.ids.some(btnId =>
-      id === btnId ||
-      (btnId.endsWith("_") && id.startsWith(btnId))
-    )
+    mod.ids.some(btnId => {
+      // Exact match
+      if (id === btnId) return true;
+
+      // Prefix match (underscore or legacy colon)
+      if (btnId.endsWith('_')) {
+        if (id.startsWith(btnId)) return true;
+
+        const legacyPrefix = btnId.slice(0, -1) + ':';
+        if (id.startsWith(legacyPrefix)) return true;
+      }
+
+      return false;
+    })
   );
 
   if (!handler) {
