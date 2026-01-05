@@ -12,7 +12,7 @@ module.exports = {
   rarityRoles: [
     {
       label: "Roamer of the Month",
-      env: "ROLE_ROAMER_MONTH"
+      env: "ROLE_ROAMERMONTH"
     },
     {
       label: "Paradox",
