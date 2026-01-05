@@ -12,18 +12,31 @@ const { getRankName } = require("../../utils/rankSystem.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { calculateAwardedPoints } = require("../../utils/scoring.cjs");
 const { createReportCard } = require("../../renderers/reportCard.cjs");
+
 const {
   getChannelForRarity,
   getRoleForRarity
 } = require("../../utils/reportChannelRouter.cjs");
 
-// ⬇️ NEW — Strong Validation
 const {
   isValidPokemon,
   isValidLocation
 } = require("../../utils/validation.cjs");
 
-const DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
+const REPORT_FALLBACK_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
+
+/**
+ * EXACT nickname logic (shared with reportdebug)
+ * ⚠️ Do not simplify — parity is intentional
+ */
+function resolveDisplayName(member, user) {
+  return (
+    member?.displayName ||
+    member?.nickname ||
+    user?.globalName ||
+    user?.username
+  );
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -50,53 +63,76 @@ module.exports = {
     const guild = interaction.guild;
 
     await interaction.reply({
-      content: "🎨 Rendering card...",
+      content: "🎨 Rendering report card...",
       flags: 64
     });
 
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
 
-    // 🔍 NEW VALIDATION — stops junk input
+    // ──────────────────────────────
+    // 🔍 STRONG VALIDATION (LIVE ONLY)
+    // ──────────────────────────────
     if (!isValidPokemon(pokemon)) {
       return interaction.followUp({
-        content: `❌ **"${pokemon}"** is not a valid Pokémon.\nPlease choose from the autocomplete list.`,
+        content: `❌ **"${pokemon}"** is not a valid Pokémon.\nPlease select from the autocomplete list.`,
         flags: 64
       });
     }
 
     if (!isValidLocation(route)) {
       return interaction.followUp({
-        content: `❌ **"${route}"** is not a valid Route.\nPlease select using the autocomplete list.`,
+        content: `❌ **"${route}"** is not a valid Route.\nPlease select from the autocomplete list.`,
         flags: 64
       });
     }
 
     // ──────────────────────────────
-    // RARITY + POINTS
+    // 🧠 RARITY + BASE POINTS
     // ──────────────────────────────
     const rarityKey = getRarity(pokemon);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
     const now = new Date();
-    const points = calculateAwardedPoints(rarityKey, now);
-
-    const updatedUser = await db.addPoints(
-      user.id,
-      user.username,
-      points,
-      `Report: ${pokemon}`
-    );
-
-    const trainerRank = getRankName(updatedUser?.lifetime_points || 0);
-    const trainerName =
-      member.displayName ||
-      member.nickname ||
-      user.globalName ||
-      user.username;
+    const basePoints = calculateAwardedPoints(rarityKey, now);
 
     // ──────────────────────────────
-    // EXPIRY WINDOW
+    // 🧾 IGN RESOLUTION (PRIMARY ID)
+    // ──────────────────────────────
+    const player = await db.getPlayerByDiscordId(user.id);
+
+    const hasIgn = !!player?.ign;
+    const displayName = hasIgn
+      ? player.ign
+      : resolveDisplayName(member, user);
+
+    const displayType = hasIgn ? "ign" : "discord";
+
+    // ──────────────────────────────
+    // ⭐ POINTS (IGN REQUIRED)
+    // ──────────────────────────────
+    let awardedPoints = 0;
+    let trainerRank = "Unranked";
+
+    if (hasIgn) {
+      const updatedUser = await db.addPoints(
+        user.id,
+        user.username,
+        basePoints,
+        `Report: ${pokemon}`
+      );
+
+      awardedPoints = basePoints;
+      trainerRank = getRankName(updatedUser?.lifetime_points || 0);
+    }
+
+    // ──────────────────────────────
+    // 🎨 REPORT CARD PREFS
+    // ──────────────────────────────
+    const reportCardPrefs = await db.getReportCardPrefs(user.id);
+
+    // ──────────────────────────────
+    // ⏱️ EXPIRY WINDOW (MATCH DEV + AUTO)
     // ──────────────────────────────
     const expiresAt = new Date(now);
     expiresAt.setMinutes(59, 59, 999);
@@ -105,21 +141,24 @@ module.exports = {
     const reportId = `report_${Date.now()}_${user.id}`;
 
     // ──────────────────────────────
-    // CARD IMAGE
+    // 🖼️ BUILD LIVE CARD
     // ──────────────────────────────
     const cardPath = await createReportCard({
-      trainerName,
-      trainerRank,
+      narrativeType: "manual",
+      reporterName: displayName,
+      reporterType: displayType,
       pokemonName: pokemon,
+      location: route,
       rarityKey,
       rarityLabel,
-      points,
-      location: route,
-      statusText: "Active"
+      points: awardedPoints,
+      trainerRank,
+      statusText: "Active",
+      reportCardPrefs
     });
 
     // ──────────────────────────────
-    // ROUTING TO CORRECT CHANNEL
+    // 📍 CHANNEL ROUTING
     // ──────────────────────────────
     let targetChannel = null;
     let targetChannelId = null;
@@ -130,11 +169,11 @@ module.exports = {
       targetChannelId = routedChannelId;
     }
 
-    if (!targetChannel && DEBUG_REPORT_CHANNEL_ID) {
+    if (!targetChannel && REPORT_FALLBACK_CHANNEL_ID) {
       targetChannel = await guild.channels
-        .fetch(DEBUG_REPORT_CHANNEL_ID)
+        .fetch(REPORT_FALLBACK_CHANNEL_ID)
         .catch(() => null);
-      targetChannelId = DEBUG_REPORT_CHANNEL_ID;
+      targetChannelId = REPORT_FALLBACK_CHANNEL_ID;
     }
 
     if (!targetChannel) {
@@ -145,12 +184,15 @@ module.exports = {
       });
     }
 
-    const roleId = getRoleForRarity(rarityKey);
+    // ──────────────────────────────
+    // 🔔 MENTIONS (USER + RARITY ROLE)
+    // ──────────────────────────────
     const mentions = [`<@${user.id}>`];
-    if (roleId) mentions.push(`<@&${roleId}>`);
+    const rarityRoleId = getRoleForRarity(rarityKey);
+    if (rarityRoleId) mentions.push(`<@&${rarityRoleId}>`);
 
     // ──────────────────────────────
-    // BUTTONS (Edit + Delete)
+    // 🎛️ CONTROLS
     // ──────────────────────────────
     const controls = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -164,7 +206,7 @@ module.exports = {
     );
 
     // ──────────────────────────────
-    // SEND MESSAGE
+    // 📤 SEND MESSAGE
     // ──────────────────────────────
     const sent = await targetChannel.send({
       content: mentions.join(" "),
@@ -173,36 +215,35 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // SAVE TO DATABASE
+    // 💾 SAVE REPORT
     // ──────────────────────────────
     await db.createReport({
       id: reportId,
       guildId: guild.id,
       reporterId: user.id,
-      reporterName: trainerName,
+      reporterName: displayName,
+      trainerRank,
       pokemonName: pokemon,
       rarityKey,
       rarityLabel,
       location: route,
-      trainerRank,
-      points,
       status: "active",
-      channelId: sent.channelId,
       messageId: sent.id,
-      imagePath: cardPath,
+      channelId: sent.channelId,
+      points: awardedPoints,
       expiresAt: expiresAt.getTime(),
       deleteAt,
-      createdAt: now.getTime()
+      createdAt: now.getTime(),
+      imagePath: cardPath
     });
 
     // ──────────────────────────────
-    // USER FEEDBACK
+    // ✅ CONFIRMATION
     // ──────────────────────────────
     return interaction.followUp({
-      content: `✔ Posted in <#${targetChannelId}> — expires at **${expiresAt.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit"
-      })}**`,
+      content: hasIgn
+        ? `✔ Report posted — **${awardedPoints} point(s)** awarded.`
+        : `⚠ Report posted — **no points awarded** (IGN not registered).`,
       flags: 64
     });
   }
