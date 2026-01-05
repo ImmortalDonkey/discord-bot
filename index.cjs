@@ -138,9 +138,7 @@ client.once('ready', async () => {
     console.error('❌ Failed to initialise roles channel:', err);
   }
 
-  // ──────────────────────────────────────
   // 🛰️ VORTEX ROAMER API WATCHER
-  // ──────────────────────────────────────
   try {
     startRoamerWatcher(client);
     console.log('🛰️ Vortex roamer watcher initialised');
