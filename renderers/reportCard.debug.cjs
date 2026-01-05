@@ -375,21 +375,33 @@ async function createReportCard(report) {
   ctx.restore();
 
   // ───────── OUTER EDGE ─────────
-  ctx.save();
-  roundedRectPath(
-    ctx,
-    EDGE / 2,
-    EDGE / 2,
-    CARD_WIDTH - EDGE,
-    CARD_HEIGHT - EDGE,
-    EDGE_RADIUS
-  );
-  ctx.lineWidth = EDGE;
-  ctx.strokeStyle = isExpired
-    ? EXPIRED_OUTLINE_COLOR
-    : (rarityOutline[rarityKey] || "#fff");
-  ctx.stroke();
-  ctx.restore();
+ctx.save();
+roundedRectPath(
+  ctx,
+  EDGE / 2,
+  EDGE / 2,
+  CARD_WIDTH - EDGE,
+  CARD_HEIGHT - EDGE,
+  EDGE_RADIUS
+);
+
+ctx.lineWidth = EDGE;
+
+// Paradox-only outer glow (matches Pokémon name glow style)
+if (!isExpired && rarityKey === "paradox") {
+  ctx.shadowColor = rarityOutline.paradox;
+  ctx.shadowBlur = rarityGlowStrength.paradox;
+} else {
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = "transparent";
+}
+
+ctx.strokeStyle = isExpired
+  ? EXPIRED_OUTLINE_COLOR
+  : (rarityOutline[rarityKey] || "#fff");
+
+ctx.stroke();
+ctx.restore();
 
   // ───────── ROUTE BAR ─────────
   const barY = CARD_HEIGHT - MARGIN - 120;
