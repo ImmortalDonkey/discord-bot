@@ -9,25 +9,26 @@ const {
 const rolesConfig = require('../../utils/rolesConfig.cjs');
 
 module.exports = {
-  // PREFIX MATCH — required
+  // PREFIX MATCH — REQUIRED
   ids: ['roles_manage_'],
 
   async execute(client, interaction) {
+    // Always ACK immediately (no UI error, no ephemeral spam)
+    await interaction.deferUpdate();
+
     const member = interaction.member;
     const guild = interaction.guild;
-
     if (!member || !guild) return;
 
-    // roles_manage:<ROLE_ID>
-    const roleId = interaction.customId.replace('roles_manage:', '');
+    // Extract role ID
+    const roleId = interaction.customId.replace('roles_manage_', '');
     const role = guild.roles.cache.get(roleId);
-
     if (!role) return;
 
     const hasRole = member.roles.cache.has(roleId);
 
     // ──────────────────────────────
-    // 🧠 Check if this is a rarity group
+    // 🧠 Detect rarity group
     // ──────────────────────────────
     const rarityEntry = rolesConfig.rarityRoles.find(
       r => process.env[r.env] === roleId
@@ -44,9 +45,10 @@ module.exports = {
       );
 
       if (hasRole) {
-        // Remove rarity + all Pokémon roles
+        // Remove rarity role
         await member.roles.remove(roleId);
 
+        // Remove all Pokémon roles in that group
         for (const poke of pokemonInGroup) {
           const pokeRoleId = process.env[poke.env];
           if (pokeRoleId && member.roles.cache.has(pokeRoleId)) {
@@ -54,9 +56,10 @@ module.exports = {
           }
         }
       } else {
-        // Add rarity + all Pokémon roles
+        // Add rarity role
         await member.roles.add(roleId);
 
+        // Add all Pokémon roles in that group
         for (const poke of pokemonInGroup) {
           const pokeRoleId = process.env[poke.env];
           if (pokeRoleId && !member.roles.cache.has(pokeRoleId)) {
@@ -78,30 +81,27 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // 🎨 UPDATE BUTTON COLOUR (v14 SAFE)
+    // 🎨 REBUILD BUTTON (SAFE WAY)
     // ──────────────────────────────
-    try {
-      const oldRow = interaction.message.components[0];
-      if (!oldRow) return;
+    const oldRow = interaction.message.components[0];
+    if (!oldRow) return;
 
-      const oldButton = oldRow.components[0];
-      if (!oldButton) return;
+    const newRow = new ActionRowBuilder();
 
-      const nowHasRole = member.roles.cache.has(roleId);
+    for (const component of oldRow.components) {
+      const newButton = ButtonBuilder.from(component);
 
-      const newButton = ButtonBuilder.from(oldButton).setStyle(
-        nowHasRole
-          ? ButtonStyle.Success   // 🟢 ON
-          : ButtonStyle.Secondary // ⚫ OFF
-      );
+      if (component.customId === interaction.customId) {
+        newButton.setStyle(
+          hasRole ? ButtonStyle.Secondary : ButtonStyle.Success
+        );
+      }
 
-      const newRow = ActionRowBuilder.from(oldRow).setComponents(newButton);
-
-      await interaction.message.edit({
-        components: [newRow]
-      });
-    } catch {
-      // Non-fatal: message may be old, deleted, or locked
+      newRow.addComponents(newButton);
     }
+
+    await interaction.message.edit({
+      components: [newRow]
+    });
   }
 };
