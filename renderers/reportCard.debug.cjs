@@ -1,4 +1,3 @@
-
 const fs = require("fs");
 const path = require("path");
 const { createCanvas, loadImage } = require("canvas");
@@ -21,28 +20,28 @@ if (!fs.existsSync(REPORT_DIR)) {
 }
 
 /* ────────────────────────────── */
-/* COLOURS (GACHA STYLE)          */
+/* COLOURS (RARITY ONLY UPDATED)  */
 /* ────────────────────────────── */
 
 // Fallback outline (used only if no user pref)
 const rarityOutline = {
-  common: "#6b7280",        // dull grey
-  rare: "#2563eb",          // sapphire blue
-  legendary: "#facc15",     // gold
-  roamerMonth: "#ec4899",   // banner pink
-  paradox: "#7c3aed"        // cosmic violet
+  common: "#22c55e",        // green
+  rare: "#2563eb",          // blue
+  legendary: "#7c3aed",     // purple
+  roamerMonth: "#ef4444",   // red
+  paradox: "#facc15"        // gold
 };
 
 // Pokémon name + rarity text
 const rarityTextColors = {
-  common: "#9ca3af",        // low-tier pull
-  rare: "#60a5fa",          // decent pull
-  legendary: "#fde047",     // jackpot
-  roamerMonth: "#f472b6",   // limited banner
-  paradox: "#c084fc"        // highest tier
+  common: "#4ade80",        // green
+  rare: "#60a5fa",          // blue
+  legendary: "#a78bfa",     // purple
+  roamerMonth: "#f87171",   // red
+  paradox: "#fde047"        // gold
 };
 
-// Glow strength (unchanged)
+// Glow strength (UNCHANGED)
 const rarityGlowStrength = {
   common: 6,
   rare: 12,
