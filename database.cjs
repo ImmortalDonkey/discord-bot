@@ -104,6 +104,36 @@ async function setMeta(key, value) {
 }
 
 // ------------------------------------------------------
+// ROLE MESSAGE REGISTRY (roles channel persistence)
+// ------------------------------------------------------
+
+async function initRoleMessagesTable() {
+  await run(`CREATE TABLE IF NOT EXISTS role_messages (
+    role_id TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    role_type TEXT NOT NULL
+  )`);
+}
+
+async function getRoleMessage(roleId) {
+  return await get(
+    `SELECT * FROM role_messages WHERE role_id = ?`,
+    [roleId]
+  );
+}
+
+async function saveRoleMessage({ roleId, messageId, channelId, roleType }) {
+  await run(
+    `INSERT OR REPLACE INTO role_messages
+      (role_id, message_id, channel_id, role_type)
+     VALUES (?, ?, ?, ?)`,
+    [roleId, messageId, channelId, roleType]
+  );
+}
+
+
+// ------------------------------------------------------
 // INITIALISE SQLITE SCHEMA
 // ------------------------------------------------------
 async function init() {
@@ -113,6 +143,9 @@ async function init() {
     key TEXT PRIMARY KEY,
     value TEXT
   )`);
+
+    // -------- ROLE MESSAGE REGISTRY --------
+  await initRoleMessagesTable();
 
     // -------- VORTEX ROAMERS (API DEDUP) --------
   await run(`CREATE TABLE IF NOT EXISTS vortex_roamers (
@@ -1139,6 +1172,12 @@ module.exports = {
   getIgnPointsRow,
   addIgnPoints,
   ensureIgnProfileExists,
+
+  // Roles channel persistence
+  initRoleMessagesTable,
+  getRoleMessage,
+  saveRoleMessage,
+
 
   // Player profiles (IGN)
   upsertPlayerProfile,
