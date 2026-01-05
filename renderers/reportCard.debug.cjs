@@ -276,6 +276,38 @@ async function createReportCard(report) {
 
   ctx.restore();
 
+// ── PARADOX GRADIENT GLOW (TEXT BOX)
+if (!isExpired && rarityKey === "paradox") {
+  ctx.save();
+
+  const layers = [
+    { inset: 0,  color: "#facc15", blur: 36, alpha: 0.9 },
+    { inset: 6,  color: "#fde047", blur: 22, alpha: 0.8 },
+    { inset: 12, color: "#fff7d6", blur: 12, alpha: 0.7 }
+  ];
+
+  for (const l of layers) {
+    ctx.globalAlpha = l.alpha;
+    ctx.shadowColor = l.color;
+    ctx.shadowBlur = l.blur;
+    ctx.lineWidth = 20 - l.inset;
+
+    roundedRectPath(
+      ctx,
+      leftX + l.inset,
+      leftY + l.inset,
+      leftW - l.inset * 2,
+      panelH - l.inset * 2,
+      40 - l.inset
+    );
+
+    ctx.strokeStyle = l.color;
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
   // ───────── TEXT CONFIG ─────────
   const FONT_SIZE = 66;
   const lineHeight = FONT_SIZE * 1.3;
@@ -447,6 +479,38 @@ async function createReportCard(report) {
   }
 
   ctx.restore();
+
+// ── PARADOX GRADIENT GLOW (ROUTE BAR)
+if (!isExpired && rarityKey === "paradox") {
+  ctx.save();
+
+  const layers = [
+    { inset: 0,  color: "#facc15", blur: 30, alpha: 0.9 },
+    { inset: 6,  color: "#fde047", blur: 18, alpha: 0.8 },
+    { inset: 10, color: "#fff7d6", blur: 10, alpha: 0.7 }
+  ];
+
+  for (const l of layers) {
+    ctx.globalAlpha = l.alpha;
+    ctx.shadowColor = l.color;
+    ctx.shadowBlur = l.blur;
+    ctx.lineWidth = 20 - l.inset;
+
+    roundedRectPath(
+      ctx,
+      MARGIN + l.inset,
+      barY + l.inset,
+      innerW - l.inset * 2,
+      120 - l.inset * 2,
+      35 - l.inset
+    );
+
+    ctx.strokeStyle = l.color;
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
 
   ctx.font = `bold ${Math.round(FONT_SIZE * 1.2)}px sans-serif`;
   ctx.fillStyle = "#000";
