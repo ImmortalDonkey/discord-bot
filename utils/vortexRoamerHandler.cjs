@@ -9,6 +9,32 @@ const {
 } = require("./reportChannelRouter.cjs");
 
 /**
+ * Normalizes a Pokémon/roamer name into your env key format:
+ *   ROLE_POKEMON_<NORMALIZED>
+ *
+ * Example:
+ *   "Gimmighoul (Roaming)" -> ROLE_POKEMON_GIMMIGHOUL_ROAMING
+ *   "XD001"                -> ROLE_POKEMON_XD001
+ */
+function getPokemonRoleEnvKey(roamerName) {
+  const normalized = String(roamerName || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  return `ROLE_POKEMON_${normalized}`;
+}
+
+/**
+ * Basic snowflake check (Discord IDs)
+ */
+function isValidSnowflake(id) {
+  return typeof id === "string" && /^[0-9]{17,20}$/.test(id);
+}
+
+/**
  * Handles a single roamer entry from the Vortex API (LIVE FEED).
  * - DB dedup (authoritative)
  * - Auto-create IGN identity if missing
@@ -108,14 +134,21 @@ async function handleVortexRoamer(client, roamer) {
     return;
   }
 
-  const pokemonEnvKey =
-    "ROLE_" +
-    roamer_name
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, "_");
+  // ✅ FIX: your env keys are ROLE_POKEMON_<NAME>, not ROLE_<NAME>
+  const pokemonEnvKey = getPokemonRoleEnvKey(roamer_name);
+  const pokemonRoleIdRaw = process.env[pokemonEnvKey] || null;
 
-  const pokemonRoleId = process.env[pokemonEnvKey] || null;
-  const rarityRoleId = getRoleForRarity(rarityKey);
+  // Keep router logic intact (source of truth for rarity role)
+  const rarityRoleIdRaw = getRoleForRarity(rarityKey);
+
+  // Validate IDs before using in mentions/allowedMentions
+  const pokemonRoleId = isValidSnowflake(pokemonRoleIdRaw)
+    ? pokemonRoleIdRaw
+    : null;
+
+  const rarityRoleId = isValidSnowflake(rarityRoleIdRaw)
+    ? rarityRoleIdRaw
+    : null;
 
   // ──────────────────────────────
   // BUILD REPORT CARD
@@ -158,14 +191,20 @@ async function handleVortexRoamer(client, roamer) {
   if (pokemonRoleId) {
     mentionParts.push(`<@&${pokemonRoleId}>`);
   } else if (isDev) {
-    mentionParts.push(`@${roamer_name} (role missing)`);
+    // Keep the dev fallback concept, but keep messages clean:
+    // log it instead of polluting message content.
+    console.warn(
+      `⚠ Missing/invalid Pokémon role env: ${pokemonEnvKey} for "${roamer_name}"`
+    );
   }
 
   // Rarity role
   if (rarityRoleId) {
     mentionParts.push(`<@&${rarityRoleId}>`);
   } else if (isDev) {
-    mentionParts.push(`@${rarityKey} (role missing)`);
+    console.warn(
+      `⚠ Missing/invalid rarity role for rarityKey="${rarityKey}" (router returned: ${String(rarityRoleIdRaw)})`
+    );
   }
 
   const sent = await channel.send({
