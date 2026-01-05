@@ -91,7 +91,13 @@ async function initRolesChannel(client) {
   // ⭐ RARITY GROUP ROLES
   // ──────────────────────────────
   for (const role of rolesConfig.rarityRoles) {
-    const roleId = process.env[role.env];
+    // 🔧 ENV PARITY FIX (ROLE_ROAMER_MONTH vs ROLE_ROAMERMONTH)
+    let roleId = process.env[role.env];
+
+    if (!roleId && role.env === 'ROLE_ROAMER_MONTH') {
+      roleId = process.env.ROLE_ROAMERMONTH;
+    }
+
     if (!roleId) {
       console.warn(`⚠️ Missing env for rarity role: ${role.env}`);
       continue;
