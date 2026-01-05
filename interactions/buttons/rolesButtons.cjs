@@ -1,38 +1,36 @@
 // interactions/buttons/rolesButtons.cjs
 
-const { ButtonStyle } = require('discord.js');
+const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} = require('discord.js');
+
 const rolesConfig = require('../../utils/rolesConfig.cjs');
 
 module.exports = {
-  // IMPORTANT: must end with "_" to trigger prefix matching
+  // PREFIX MATCH — required
   ids: ['roles_manage_'],
 
   async execute(client, interaction) {
     const member = interaction.member;
-    if (!member) return;
-
-    // Acknowledge silently (no ephemeral message)
-    await interaction.deferUpdate().catch(() => {});
-
-    // Extract role ID from:
-    // roles_manage_<ROLE_ID>  OR legacy roles_manage:<ROLE_ID>
-    const roleId = interaction.customId
-      .replace('roles_manage_', '')
-      .replace('roles_manage:', '');
-
     const guild = interaction.guild;
-    if (!guild) return;
 
+    if (!member || !guild) return;
+
+    // roles_manage:<ROLE_ID>
+    const roleId = interaction.customId.replace('roles_manage:', '');
     const role = guild.roles.cache.get(roleId);
+
     if (!role) return;
 
     const hasRole = member.roles.cache.has(roleId);
 
     // ──────────────────────────────
-    // 🧠 Is this a rarity group?
+    // 🧠 Check if this is a rarity group
     // ──────────────────────────────
-    const rarityEntry = rolesConfig.rarityRoles.find(r =>
-      process.env[r.env] === roleId
+    const rarityEntry = rolesConfig.rarityRoles.find(
+      r => process.env[r.env] === roleId
     );
 
     // ──────────────────────────────
@@ -46,7 +44,7 @@ module.exports = {
       );
 
       if (hasRole) {
-        // Remove rarity + all Pokémon in group
+        // Remove rarity + all Pokémon roles
         await member.roles.remove(roleId);
 
         for (const poke of pokemonInGroup) {
@@ -56,7 +54,7 @@ module.exports = {
           }
         }
       } else {
-        // Add rarity + all Pokémon in group
+        // Add rarity + all Pokémon roles
         await member.roles.add(roleId);
 
         for (const poke of pokemonInGroup) {
@@ -80,25 +78,30 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // 🎨 Update button style (ON / OFF)
+    // 🎨 UPDATE BUTTON COLOUR (v14 SAFE)
     // ──────────────────────────────
     try {
-      const row = interaction.message.components[0];
-      const button = row.components[0];
+      const oldRow = interaction.message.components[0];
+      if (!oldRow) return;
+
+      const oldButton = oldRow.components[0];
+      if (!oldButton) return;
 
       const nowHasRole = member.roles.cache.has(roleId);
 
-      button.setStyle(
+      const newButton = ButtonBuilder.from(oldButton).setStyle(
         nowHasRole
           ? ButtonStyle.Success   // 🟢 ON
           : ButtonStyle.Secondary // ⚫ OFF
       );
 
+      const newRow = ActionRowBuilder.from(oldRow).setComponents(newButton);
+
       await interaction.message.edit({
-        components: [row]
+        components: [newRow]
       });
     } catch {
-      // Non-fatal (message may be old, locked, or deleted)
+      // Non-fatal: message may be old, deleted, or locked
     }
   }
 };
