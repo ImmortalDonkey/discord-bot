@@ -19,6 +19,7 @@ const {
 
 const db = require('./database.cjs');
 const { initGoogleSheet } = require('./utils/googleSheets.cjs');
+const { initRolesChannel } = require('./utils/initRolesChannel.cjs');
 
 // Handlers
 const {
@@ -128,66 +129,23 @@ client.once('ready', async () => {
   } catch (err) {
     console.error('❌ DB init failed:', err);
   }
-  
+
+  // ✅ ROLES CHANNEL (NEW SYSTEM)
+  try {
+    await initRolesChannel(client);
+    console.log('✅ Roles channel initialised');
+  } catch (err) {
+    console.error('❌ Failed to initialise roles channel:', err);
+  }
+
   // ──────────────────────────────────────
-  // 🛰️ VORTEX ROAMER API WATCHER (DEV ONLY VIA ENV FLAG)
+  // 🛰️ VORTEX ROAMER API WATCHER
   // ──────────────────────────────────────
   try {
     startRoamerWatcher(client);
     console.log('🛰️ Vortex roamer watcher initialised');
   } catch (err) {
     console.error('❌ Failed to start Vortex roamer watcher:', err);
-  }
-
-  // ──────────────────────────────────────
-  // 📌 ENSURE #roles "Change roles" MESSAGE
-  // ──────────────────────────────────────
-  try {
-    const guild = client.guilds.cache.get(process.env.GUILD_ID);
-    if (!guild) throw new Error('Guild not found');
-
-    const channel = guild.channels.cache.get(process.env.CHANNEL_ROLES);
-    if (!channel) throw new Error('CHANNEL_ROLES not found');
-
-    const existingId = await db.getMeta('roles_message_id');
-
-    if (existingId) {
-      const existingMsg = await channel.messages.fetch(existingId).catch(() => null);
-      if (existingMsg) {
-        console.log('✅ Roles message already exists');
-      } else {
-        await db.setMeta('roles_message_id', null);
-      }
-    }
-
-    if (!existingId) {
-      const embed = new EmbedBuilder()
-        .setTitle('Choose your roles')
-        .setDescription(
-          'The roles you select will determine what you receive notifications for.\n\n' +
-          '• Roaming Pokémon alerts (by rarity)\n' +
-          '• Gameplay roles (Bounty, Mob, Witch Hunting)\n\n' +
-          'You can change these at any time.\n\n' +
-          '⬇️ Click the button below to update your roles.'
-        );
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('roles_open')
-          .setLabel('Change roles')
-          .setStyle(ButtonStyle.Primary)
-      );
-
-      const msg = await channel.send({
-        embeds: [embed],
-        components: [row]
-      });
-
-      await db.setMeta('roles_message_id', msg.id);
-      console.log('✅ Roles message created');
-    }
-  } catch (err) {
-    console.error('❌ Failed to ensure roles message:', err);
   }
 
   try {
