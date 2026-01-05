@@ -374,9 +374,9 @@ async function createReportCard(report) {
 
   ctx.restore();
 
-  // ───────── OUTER EDGE ─────────
+// ───────── OUTER EDGE ─────────
 
-// ── SOLID BORDER
+// 1️⃣ SOLID BORDER (always first)
 ctx.save();
 roundedRectPath(
   ctx,
@@ -397,6 +397,31 @@ ctx.strokeStyle = isExpired
 
 ctx.stroke();
 ctx.restore();
+
+
+// 2️⃣ INNER GLOW (Paradox only)
+if (!isExpired && rarityKey === "paradox") {
+  ctx.save();
+
+  const inset = EDGE * 0.55;
+
+  roundedRectPath(
+    ctx,
+    EDGE / 2 + inset,
+    EDGE / 2 + inset,
+    CARD_WIDTH - EDGE - inset * 2,
+    CARD_HEIGHT - EDGE - inset * 2,
+    EDGE_RADIUS - inset
+  );
+
+  ctx.globalCompositeOperation = "lighter";
+  ctx.fillStyle = rarityOutline.paradox;
+  ctx.shadowColor = rarityOutline.paradox;
+  ctx.shadowBlur = rarityGlowStrength.paradox * 1.6;
+
+  ctx.fill();
+  ctx.restore();
+}
 
 // ── INNER GLOW (Paradox only)
 if (!isExpired && rarityKey === "paradox") {
