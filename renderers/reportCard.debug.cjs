@@ -25,7 +25,7 @@ if (!fs.existsSync(REPORT_DIR)) {
 
 // Fallback outline (used only if no user pref)
 const rarityOutline = {
-  common: "#22c55e",        // green
+  common: "#ffffff",        // white
   rare: "#2563eb",          // blue
   legendary: "#7c3aed",     // purple
   roamerMonth: "#ef4444",   // red
@@ -34,7 +34,7 @@ const rarityOutline = {
 
 // Pokémon name + rarity text
 const rarityTextColors = {
-  common: "#4ade80",        // green
+  common: "#ffffff",        // white
   rare: "#60a5fa",          // blue
   legendary: "#a78bfa",     // purple
   roamerMonth: "#f87171",   // red
