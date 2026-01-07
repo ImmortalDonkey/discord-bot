@@ -47,7 +47,6 @@ module.exports = {
         .setRequired(true)
         .setAutocomplete(true)
     )
-    // ⬅️ NEW: force expired render
     .addBooleanOption(o =>
       o
         .setName("expired")
@@ -150,7 +149,7 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // DEBUG CHANNEL ONLY
+    // DEBUG CHANNEL (ORIGIN GUILD)
     // ──────────────────────────────
     const targetChannel = await guild.channels
       .fetch(DEBUG_REPORT_CHANNEL_ID)
@@ -182,7 +181,7 @@ module.exports = {
         ];
 
     // ──────────────────────────────
-    // SEND MESSAGE
+    // SEND TO ORIGIN GUILD
     // ──────────────────────────────
     const sent = await targetChannel.send({
       content: `<@${user.id}>`,
@@ -190,12 +189,57 @@ module.exports = {
       components
     });
 
+    // Track origin guild mapping
+    await db.addReportMessageMapping({
+      reportId,
+      guildId: guild.id,
+      channelId: sent.channelId,
+      messageId: sent.id
+    });
+
     // ──────────────────────────────
-    // SAVE REPORT
+    // FAN-OUT TO OTHER KNOWN GUILDS
+    // ──────────────────────────────
+    const allGuildIds = await db.getAllKnownGuildIds();
+    const targetGuildIds = allGuildIds.filter(id => id !== guild.id);
+
+    for (const targetGuildId of targetGuildIds) {
+      try {
+        const targetGuild = await client.guilds.fetch(targetGuildId);
+        if (!targetGuild) continue;
+
+        const channel = await targetGuild.channels
+          .fetch(DEBUG_REPORT_CHANNEL_ID)
+          .catch(() => null);
+
+        if (!channel) continue;
+
+        const msg = await channel.send({
+          content: `<@${user.id}>`,
+          files: [cardPath],
+          components
+        });
+
+        await db.addReportMessageMapping({
+          reportId,
+          guildId: targetGuild.id,
+          channelId: msg.channelId,
+          messageId: msg.id
+        });
+      } catch (err) {
+        console.warn(
+          `[reportdebug] Fan-out failed for guild ${targetGuildId}:`,
+          err.message
+        );
+      }
+    }
+
+    // ──────────────────────────────
+    // SAVE CANONICAL REPORT (ONCE)
     // ──────────────────────────────
     await db.createReport({
       id: reportId,
-      guildId: guild.id,
+      guildId: guild.id, // origin guild only
       reporterId: user.id,
       reporterName: displayName,
       trainerRank,
@@ -218,10 +262,10 @@ module.exports = {
     // ──────────────────────────────
     return interaction.followUp({
       content: forceExpired
-        ? "☑ Debug report posted as **Expired**."
+        ? "☑ Debug report posted as **Expired** (fan-out enabled)."
         : hasIgn
-          ? `☑ Debug report posted — **${awardedPoints} point(s)** awarded.`
-          : `⚠ Debug report posted — **no points awarded** (IGN not registered).`,
+          ? `☑ Debug report posted — **${awardedPoints} point(s)** awarded (fan-out enabled).`
+          : `⚠ Debug report posted — **no points awarded** (IGN not registered, fan-out enabled).`,
       flags: 64
     });
   }
