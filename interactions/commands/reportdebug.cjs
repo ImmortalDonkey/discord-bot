@@ -32,13 +32,23 @@ module.exports = {
     .setName("reportdebug")
     .setDescription("Staff-only: test the report card system")
     .addStringOption(o =>
-      o.setName("pokemon").setDescription("Pokémon name").setRequired(true).setAutocomplete(true)
+      o
+        .setName("pokemon")
+        .setDescription("Pokémon name")
+        .setRequired(true)
+        .setAutocomplete(true)
     )
     .addStringOption(o =>
-      o.setName("route").setDescription("Route / Location").setRequired(true).setAutocomplete(true)
+      o
+        .setName("route")
+        .setDescription("Route / Location")
+        .setRequired(true)
+        .setAutocomplete(true)
     )
     .addBooleanOption(o =>
-      o.setName("expired").setDescription("Render the card as expired (testing only)")
+      o
+        .setName("expired")
+        .setDescription("Render the card as expired (testing only)")
     ),
 
   async execute(client, interaction) {
@@ -159,9 +169,14 @@ module.exports = {
         const targetGuild = await client.guilds.fetch(targetGuildId);
         if (!targetGuild) continue;
 
-        const { channelId, roleId } = await getReportRouting({
+        const {
+          channelId,
+          rarityRoleId,
+          pokemonRoleId
+        } = await getReportRouting({
           guildId: targetGuild.id,
-          rarityKey
+          rarityKey,
+          pokemonKey: pokemon
         });
 
         if (!channelId) continue;
@@ -172,9 +187,11 @@ module.exports = {
 
         if (!channel) continue;
 
-        const content = roleId
-          ? `<@&${roleId}> <@${user.id}>`
-          : `<@${user.id}>`;
+        const content = [
+          pokemonRoleId && `<@&${pokemonRoleId}>`,
+          rarityRoleId && `<@&${rarityRoleId}>`,
+          `<@${user.id}>`
+        ].filter(Boolean).join(" ");
 
         const msg = await channel.send({
           content,
