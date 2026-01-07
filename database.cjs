@@ -132,6 +132,35 @@ async function saveRoleMessage({ roleId, messageId, channelId, roleType }) {
   );
 }
 
+// ------------------------------------------------------
+// REPORT MESSAGE REGISTRY (fan-out persistence)
+// ------------------------------------------------------
+
+async function addReportMessageMapping({ reportId, guildId, channelId, messageId }) {
+  await run(
+    `INSERT OR REPLACE INTO report_messages
+      (report_id, guild_id, channel_id, message_id)
+     VALUES (?, ?, ?, ?)`,
+    [reportId, guildId, channelId, messageId]
+  );
+}
+
+async function getReportMessageMappings(reportId) {
+  return await all(
+    `SELECT guild_id, channel_id, message_id
+     FROM report_messages
+     WHERE report_id = ?`,
+    [reportId]
+  );
+}
+
+async function deleteReportMessageMappings(reportId) {
+  await run(`DELETE FROM report_messages WHERE report_id = ?`, [reportId]);
+}
+
+async function deleteAllReportMappingsForGuild(guildId) {
+  await run(`DELETE FROM report_messages WHERE guild_id = ?`, [guildId]);
+}
 
 // ------------------------------------------------------
 // INITIALISE SQLITE SCHEMA
@@ -292,6 +321,27 @@ async function init() {
     }
   }
   await ensureReportColumns();
+
+    // -------- REPORT → GUILD MESSAGE MAPPING (FAN-OUT) --------
+  // One report can be posted to multiple guilds/channels. This table tracks message IDs per guild.
+  await run(`CREATE TABLE IF NOT EXISTS report_messages (
+    report_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    PRIMARY KEY (report_id, guild_id)
+  )`);
+
+  // Backfill: existing single-guild reports already store message_id/channel_id on the reports row.
+  // We preserve that by inserting a mapping for (report_id, guild_id) if present.
+  await run(`
+    INSERT OR IGNORE INTO report_messages (report_id, guild_id, channel_id, message_id)
+    SELECT id, guild_id, channel_id, message_id
+    FROM reports
+    WHERE guild_id IS NOT NULL
+      AND channel_id IS NOT NULL AND channel_id != ''
+      AND message_id IS NOT NULL AND message_id != ''
+  `);
 
   // -------- PLAYER PROFILES (IGN LINKS) --------
   // One row per Discord user (global across all guilds)
@@ -1096,6 +1146,10 @@ async function updateReport(id, patch) {
 }
 
 async function deleteReport(id) {
+  // Remove fan-out message mappings first
+  await run(`DELETE FROM report_messages WHERE report_id = ?`, [id]);
+
+  // Then remove the canonical report
   await run(`DELETE FROM reports WHERE id = ?`, [id]);
 }
 
@@ -1213,6 +1267,10 @@ module.exports = {
   getReportsToExpire,
   getReportsToCleanup,
   findActiveReportThisHour,
+  addReportMessageMapping,
+  getReportMessageMappings,
+  deleteReportMessageMappings,
+  deleteAllReportMappingsForGuild,
 
   // Vortex API dedup
   hasVortexRoamer,
