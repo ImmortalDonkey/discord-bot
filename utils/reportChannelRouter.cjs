@@ -22,6 +22,14 @@ function getRoleForRarity(rarityKey) {
 /**
  * Resolve routing for BOTH main + subscriber guilds
  *
+ * Returns:
+ * {
+ *   channelId,
+ *   rarityRoleId,
+ *   pokemonRoleId,
+ *   wrongChannel
+ * }
+ *
  * Priority:
  * 1. Subscriber guild override (DB)
  * 2. Main guild rarity routing (ENV)
@@ -29,10 +37,11 @@ function getRoleForRarity(rarityKey) {
 async function getReportRouting({
   guildId,
   rarityKey,
+  pokemonKey = null,
   currentChannelId
 }) {
   // ──────────────────────────────
-  // SUBSCRIBER GUILD OVERRIDE
+  // SUBSCRIBER GUILD OVERRIDE (DB)
   // ──────────────────────────────
   const subscriber =
     typeof db.getSubscriberGuild === 'function'
@@ -44,18 +53,29 @@ async function getReportRouting({
       currentChannelId &&
       currentChannelId !== subscriber.report_channel_id;
 
+    const rarityRoleRow =
+      typeof db.getGuildRarityRole === 'function'
+        ? await db.getGuildRarityRole(guildId, rarityKey)
+        : null;
+
+    const pokemonRoleRow =
+      pokemonKey && typeof db.getGuildPokemonRole === 'function'
+        ? await db.getGuildPokemonRole(guildId, pokemonKey)
+        : null;
+
     return {
       channelId: subscriber.report_channel_id,
-      roleId: subscriber.role_id || null,
+      rarityRoleId: rarityRoleRow?.role_id || null,
+      pokemonRoleId: pokemonRoleRow?.role_id || null,
       wrongChannel
     };
   }
 
   // ──────────────────────────────
-  // MAIN GUILD (RARITY ROUTING)
+  // MAIN GUILD (ENV-BASED ROUTING)
   // ──────────────────────────────
   const channelId = getChannelForRarity(rarityKey);
-  const roleId = getRoleForRarity(rarityKey);
+  const rarityRoleId = getRoleForRarity(rarityKey);
 
   const wrongChannel =
     channelId &&
@@ -64,7 +84,8 @@ async function getReportRouting({
 
   return {
     channelId,
-    roleId,
+    rarityRoleId,
+    pokemonRoleId: null, // main guild unchanged
     wrongChannel
   };
 }
