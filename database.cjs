@@ -208,6 +208,58 @@ async function removeSubscriberGuild(guildId) {
 }
 
 // ------------------------------------------------------
+// GUILD ROLE LOOKUPS (RARITY + POKÉMON)
+// ------------------------------------------------------
+
+async function getGuildRarityRole(guildId, rarityKey) {
+  return await get(
+    `SELECT role_id
+     FROM guild_rarity_roles
+     WHERE guild_id = ? AND rarity_key = ? AND enabled = 1
+     LIMIT 1`,
+    [guildId, rarityKey]
+  );
+}
+
+async function getGuildPokemonRole(guildId, pokemonKey) {
+  return await get(
+    `SELECT role_id
+     FROM guild_pokemon_roles
+     WHERE guild_id = ? AND pokemon_key = ? AND enabled = 1
+     LIMIT 1`,
+    [guildId, pokemonKey]
+  );
+}
+
+async function upsertGuildRarityRole({
+  guildId,
+  rarityKey,
+  roleId,
+  enabled = 1
+}) {
+  await run(
+    `INSERT OR REPLACE INTO guild_rarity_roles
+      (guild_id, rarity_key, role_id, enabled)
+     VALUES (?, ?, ?, ?)`,
+    [guildId, rarityKey, roleId, enabled]
+  );
+}
+
+async function upsertGuildPokemonRole({
+  guildId,
+  pokemonKey,
+  roleId,
+  enabled = 1
+}) {
+  await run(
+    `INSERT OR REPLACE INTO guild_pokemon_roles
+      (guild_id, pokemon_key, role_id, enabled)
+     VALUES (?, ?, ?, ?)`,
+    [guildId, pokemonKey, roleId, enabled]
+  );
+}
+
+// ------------------------------------------------------
 // INITIALISE SQLITE SCHEMA
 // ------------------------------------------------------
 async function init() {
@@ -424,6 +476,26 @@ async function init() {
     role_id TEXT,
     enabled INTEGER DEFAULT 1,
     created_at INTEGER
+  )`);
+
+    // -------- GUILD RARITY ROLES --------
+  // Per-guild rarity group role pings
+  await run(`CREATE TABLE IF NOT EXISTS guild_rarity_roles (
+    guild_id TEXT NOT NULL,
+    rarity_key TEXT NOT NULL,
+    role_id TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    PRIMARY KEY (guild_id, rarity_key)
+  )`);
+
+  // -------- GUILD POKÉMON ROLES --------
+  // Per-guild individual Pokémon role pings
+  await run(`CREATE TABLE IF NOT EXISTS guild_pokemon_roles (
+    guild_id TEXT NOT NULL,
+    pokemon_key TEXT NOT NULL,
+    role_id TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    PRIMARY KEY (guild_id, pokemon_key)
   )`);
 
 // -------- REPORT CARD USER PREFERENCES --------
@@ -1331,6 +1403,12 @@ module.exports = {
   getReportMessageMappings,
   deleteReportMessageMappings,
   deleteAllReportMappingsForGuild,
+
+    // Guild role resolution
+  getGuildRarityRole,
+  getGuildPokemonRole,
+  upsertGuildRarityRole,
+  upsertGuildPokemonRole,
 
   // Vortex API dedup
   hasVortexRoamer,
