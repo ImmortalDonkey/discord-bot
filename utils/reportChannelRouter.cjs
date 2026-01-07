@@ -1,19 +1,24 @@
 // utils/reportChannelRouter.cjs
 
 /**
- * Handles routing a report to the correct rarity channel,
- * and selecting the correct role ping.
+ * Handles routing a report to the correct channel,
+ * with support for:
+ * - main guild (rarity-based routing)
+ * - subscriber guilds (single unified channel)
  *
  * This file centralises:
  * - rarity → channel mapping
  * - rarity → role mapping
+ * - subscriber override logic
  * - wrong-channel detection helper
  */
 
 require('dotenv').config();
+const db = require('../database.cjs');
 
 /**
  * Return environment-configured Discord channel ID for given rarity key.
+ * (MAIN GUILD ONLY)
  */
 function getChannelForRarity(rarityKey) {
   const envKey = `CHANNEL_${rarityKey.toUpperCase()}`;
@@ -22,6 +27,7 @@ function getChannelForRarity(rarityKey) {
 
 /**
  * Return environment-configured role ID for given rarity key.
+ * (MAIN GUILD ONLY)
  */
 function getRoleForRarity(rarityKey) {
   const envKey = `ROLE_${rarityKey.toUpperCase()}`;
@@ -29,25 +35,44 @@ function getRoleForRarity(rarityKey) {
 }
 
 /**
- * Given a rarity key and the current interaction channel,
- * determine whether the report is in the correct place.
+ * Resolve routing for a report, guild-aware.
  *
  * Returns:
  * {
- *   correctChannelId,
+ *   channelId,
  *   roleId,
- *   wrongChannel: true/false
+ *   wrongChannel
  * }
  */
-function getReportRouting(rarityKey, currentChannelId) {
-  const correctChannelId = getChannelForRarity(rarityKey);
+async function getReportRouting({
+  guildId,
+  rarityKey,
+  currentChannelId
+}) {
+  // ──────────────────────────────
+  // SUBSCRIBER GUILD OVERRIDE
+  // ──────────────────────────────
+  const subscriber = await db.getSubscriberGuild?.(guildId);
+
+  if (subscriber?.enabled && subscriber.report_channel_id) {
+    return {
+      channelId: subscriber.report_channel_id,
+      roleId: null,          // no rarity pings for subscribers
+      wrongChannel: false    // only one valid channel
+    };
+  }
+
+  // ──────────────────────────────
+  // MAIN GUILD (RARITY ROUTING)
+  // ──────────────────────────────
+  const channelId = getChannelForRarity(rarityKey);
   const roleId = getRoleForRarity(rarityKey);
 
   const wrongChannel =
-    correctChannelId && currentChannelId !== correctChannelId;
+    channelId && currentChannelId && currentChannelId !== channelId;
 
   return {
-    correctChannelId,
+    channelId,
     roleId,
     wrongChannel
   };
