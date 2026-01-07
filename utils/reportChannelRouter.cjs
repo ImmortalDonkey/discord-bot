@@ -80,6 +80,17 @@ async function getReportRouting({
         ? await db.getGuildPokemonRole(guildId, pokemonKey)
         : null;
 
+    // 🔍 DEBUG: subscriber routing resolution
+    console.log('[ROUTING][SUBSCRIBER]', {
+      guildId,
+      rarityKey,
+      pokemonKey,
+      channelId: subscriber.report_channel_id,
+      rarityRoleId: rarityRoleRow?.role_id || null,
+      pokemonRoleId: pokemonRoleRow?.role_id || null,
+      wrongChannel
+    });
+
     return {
       channelId: subscriber.report_channel_id,
       rarityRoleId: rarityRoleRow?.role_id || null,
@@ -98,6 +109,16 @@ async function getReportRouting({
     channelId &&
     currentChannelId &&
     currentChannelId !== channelId;
+
+  // 🔍 DEBUG: main guild routing resolution
+  console.log('[ROUTING][MAIN]', {
+    guildId,
+    rarityKey,
+    channelId,
+    rarityRoleId,
+    pokemonRoleId: null,
+    wrongChannel
+  });
 
   return {
     channelId,
