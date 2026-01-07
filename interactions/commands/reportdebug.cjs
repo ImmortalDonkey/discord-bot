@@ -12,9 +12,9 @@ const { getRankName } = require("../../utils/rankSystem.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { calculateAwardedPoints } = require("../../utils/scoring.cjs");
 const { createReportCard } = require("../../renderers/reportCard.debug.cjs");
+const { getReportRouting } = require("../../utils/reportChannelRouter.cjs");
 
 const STAFF_ROLES = process.env.STAFF_ROLES?.split(",") || [];
-const DEBUG_REPORT_CHANNEL_ID = process.env.REPORT_CARD_CHANNEL_ID;
 
 /**
  * EXACT nickname logic copied from LIVE /report command
@@ -34,24 +34,13 @@ module.exports = {
     .setName("reportdebug")
     .setDescription("Staff-only: test the report card system")
     .addStringOption(o =>
-      o
-        .setName("pokemon")
-        .setDescription("Pokémon name")
-        .setRequired(true)
-        .setAutocomplete(true)
+      o.setName("pokemon").setDescription("Pokémon name").setRequired(true).setAutocomplete(true)
     )
     .addStringOption(o =>
-      o
-        .setName("route")
-        .setDescription("Route / Location")
-        .setRequired(true)
-        .setAutocomplete(true)
+      o.setName("route").setDescription("Route / Location").setRequired(true).setAutocomplete(true)
     )
     .addBooleanOption(o =>
-      o
-        .setName("expired")
-        .setDescription("Render the card as expired (testing only)")
-        .setRequired(false)
+      o.setName("expired").setDescription("Render the card as expired (testing only)")
     ),
 
   async execute(client, interaction) {
@@ -83,7 +72,6 @@ module.exports = {
     // ──────────────────────────────
     const rarityKey = getRarity(pokemon);
     const rarityLabel = getRarityDisplayLabel(rarityKey);
-
     const now = new Date();
     const basePoints = calculateAwardedPoints(rarityKey, now);
 
@@ -91,8 +79,8 @@ module.exports = {
     // IGN RESOLUTION
     // ──────────────────────────────
     const player = await db.getPlayerByDiscordId(user.id);
-
     const hasIgn = !!player?.ign;
+
     const displayName = hasIgn
       ? player.ign
       : resolveDisplayName(member, user);
@@ -110,7 +98,7 @@ module.exports = {
         user.id,
         user.username,
         basePoints,
-        `Debug Report (auto): ${pokemon}`
+        `Debug Report: ${pokemon}`
       );
 
       awardedPoints = basePoints;
@@ -118,12 +106,12 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // REPORT CARD USER PREFS
+    // REPORT CARD PREFS
     // ──────────────────────────────
     const reportCardPrefs = await db.getReportCardPrefs(user.id);
 
     // ──────────────────────────────
-    // EXPIRY WINDOW (MATCH LIVE)
+    // EXPIRY WINDOW
     // ──────────────────────────────
     const expiresAt = new Date(now);
     expiresAt.setMinutes(59, 59, 999);
@@ -132,7 +120,7 @@ module.exports = {
     const reportId = `report_${Date.now()}_${user.id}`;
 
     // ──────────────────────────────
-    // BUILD DEBUG CARD
+    // RENDER CARD
     // ──────────────────────────────
     const cardPath = await createReportCard({
       narrativeType: "vortex",
@@ -148,48 +136,47 @@ module.exports = {
       reportCardPrefs
     });
 
-    // ──────────────────────────────
-    // DEBUG CHANNEL (ORIGIN GUILD)
-    // ──────────────────────────────
-    const targetChannel = await guild.channels
-      .fetch(DEBUG_REPORT_CHANNEL_ID)
-      .catch(() => null);
-
-    if (!targetChannel) {
-      return interaction.followUp({
-        content: "❌ REPORT_CARD_CHANNEL_ID is not configured.",
-        flags: 64
-      });
-    }
-
-    // ──────────────────────────────
-    // BUTTONS (disabled if expired)
-    // ──────────────────────────────
     const components = forceExpired
       ? []
       : [
           new ActionRowBuilder().addComponents(
             new ButtonBuilder()
               .setCustomId(`reportedit_${reportId}`)
-              .setLabel("✏ Edit")
+              .setLabel("Edit")
               .setStyle(ButtonStyle.Primary),
             new ButtonBuilder()
               .setCustomId(`reportdelete_${reportId}`)
-              .setLabel("🗑 Delete")
+              .setLabel("Delete")
               .setStyle(ButtonStyle.Danger)
           )
         ];
 
     // ──────────────────────────────
-    // SEND TO ORIGIN GUILD
+    // ORIGIN GUILD ROUTING (UTIL)
     // ──────────────────────────────
-    const sent = await targetChannel.send({
+    const originRouting = await getReportRouting({
+      guildId: guild.id,
+      rarityKey,
+      currentChannelId: interaction.channelId
+    });
+
+    const originChannel = await guild.channels
+      .fetch(originRouting.channelId)
+      .catch(() => null);
+
+    if (!originChannel) {
+      return interaction.followUp({
+        content: "❌ Failed to resolve report channel via router.",
+        flags: 64
+      });
+    }
+
+    const sent = await originChannel.send({
       content: `<@${user.id}>`,
       files: [cardPath],
       components
     });
 
-    // Track origin guild mapping
     await db.addReportMessageMapping({
       reportId,
       guildId: guild.id,
@@ -198,23 +185,18 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // FAN-OUT TO OTHER KNOWN GUILDS
+    // FAN-OUT → SUBSCRIBER GUILDS ONLY
     // ──────────────────────────────
-    const allGuildIds = await db.getAllKnownGuildIds();
-    const targetGuildIds = allGuildIds.filter(id => id !== guild.id);
+    const subscribers = await db.getSubscriberGuilds();
 
-    for (const targetGuildId of targetGuildIds) {
+    for (const sub of subscribers) {
+      if (sub.guild_id === guild.id) continue;
+
       try {
-        const targetGuild = await client.guilds.fetch(targetGuildId);
-        if (!targetGuild) continue;
+        const g = await client.guilds.fetch(sub.guild_id);
+        const ch = await g.channels.fetch(sub.report_channel_id);
 
-        const channel = await targetGuild.channels
-          .fetch(DEBUG_REPORT_CHANNEL_ID)
-          .catch(() => null);
-
-        if (!channel) continue;
-
-        const msg = await channel.send({
+        const msg = await ch.send({
           content: `<@${user.id}>`,
           files: [cardPath],
           components
@@ -222,24 +204,24 @@ module.exports = {
 
         await db.addReportMessageMapping({
           reportId,
-          guildId: targetGuild.id,
+          guildId: g.id,
           channelId: msg.channelId,
           messageId: msg.id
         });
       } catch (err) {
         console.warn(
-          `[reportdebug] Fan-out failed for guild ${targetGuildId}:`,
+          `[reportdebug] Fan-out failed for guild ${sub.guild_id}:`,
           err.message
         );
       }
     }
 
     // ──────────────────────────────
-    // SAVE CANONICAL REPORT (ONCE)
+    // SAVE CANONICAL REPORT
     // ──────────────────────────────
     await db.createReport({
       id: reportId,
-      guildId: guild.id, // origin guild only
+      guildId: guild.id,
       reporterId: user.id,
       reporterName: displayName,
       trainerRank,
@@ -257,15 +239,8 @@ module.exports = {
       imagePath: cardPath
     });
 
-    // ──────────────────────────────
-    // CONFIRMATION
-    // ──────────────────────────────
     return interaction.followUp({
-      content: forceExpired
-        ? "☑ Debug report posted as **Expired** (fan-out enabled)."
-        : hasIgn
-          ? `☑ Debug report posted — **${awardedPoints} point(s)** awarded (fan-out enabled).`
-          : `⚠ Debug report posted — **no points awarded** (IGN not registered, fan-out enabled).`,
+      content: "☑ Debug report posted (router + subscriber fan-out active).",
       flags: 64
     });
   }
