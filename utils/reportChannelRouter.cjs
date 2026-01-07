@@ -21,6 +21,10 @@ function getRoleForRarity(rarityKey) {
 
 /**
  * Resolve routing for BOTH main + subscriber guilds
+ *
+ * Priority:
+ * 1. Subscriber guild override (DB)
+ * 2. Main guild rarity routing (ENV)
  */
 async function getReportRouting({
   guildId,
@@ -30,9 +34,12 @@ async function getReportRouting({
   // ──────────────────────────────
   // SUBSCRIBER GUILD OVERRIDE
   // ──────────────────────────────
-  const subscriber = await db.getSubscriberGuild?.(guildId);
+  const subscriber =
+    typeof db.getSubscriberGuild === 'function'
+      ? await db.getSubscriberGuild(guildId)
+      : null;
 
-  if (subscriber?.enabled && subscriber.report_channel_id) {
+  if (subscriber && subscriber.enabled && subscriber.report_channel_id) {
     const wrongChannel =
       currentChannelId &&
       currentChannelId !== subscriber.report_channel_id;
@@ -51,7 +58,9 @@ async function getReportRouting({
   const roleId = getRoleForRarity(rarityKey);
 
   const wrongChannel =
-    channelId && currentChannelId && currentChannelId !== channelId;
+    channelId &&
+    currentChannelId &&
+    currentChannelId !== channelId;
 
   return {
     channelId,
