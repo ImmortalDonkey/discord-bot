@@ -163,6 +163,51 @@ async function deleteAllReportMappingsForGuild(guildId) {
 }
 
 // ------------------------------------------------------
+// SUBSCRIBER GUILD REGISTRY
+// ------------------------------------------------------
+
+async function getSubscriberGuild(guildId) {
+  return await get(
+    `SELECT *
+     FROM subscriber_guilds
+     WHERE guild_id = ? AND enabled = 1
+     LIMIT 1`,
+    [guildId]
+  );
+}
+
+async function getSubscriberGuilds() {
+  return await all(
+    `SELECT *
+     FROM subscriber_guilds
+     WHERE enabled = 1`
+  );
+}
+
+async function upsertSubscriberGuild({
+  guildId,
+  reportChannelId,
+  roleId = null,
+  enabled = 1
+}) {
+  const now = Date.now();
+
+  await run(
+    `INSERT OR REPLACE INTO subscriber_guilds
+      (guild_id, report_channel_id, role_id, enabled, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [guildId, reportChannelId, roleId, enabled, now]
+  );
+}
+
+async function removeSubscriberGuild(guildId) {
+  await run(
+    `DELETE FROM subscriber_guilds WHERE guild_id = ?`,
+    [guildId]
+  );
+}
+
+// ------------------------------------------------------
 // INITIALISE SQLITE SCHEMA
 // ------------------------------------------------------
 async function init() {
@@ -370,6 +415,16 @@ async function init() {
 
   await run(`CREATE INDEX IF NOT EXISTS idx_player_guilds_guild ON player_guilds(guild_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_player_guilds_user ON player_guilds(discord_id)`);
+
+  // -------- SUBSCRIBER GUILDS --------
+  // Subscriber guilds receive reports in a single unified channel
+  await run(`CREATE TABLE IF NOT EXISTS subscriber_guilds (
+    guild_id TEXT PRIMARY KEY,
+    report_channel_id TEXT NOT NULL,
+    role_id TEXT,
+    enabled INTEGER DEFAULT 1,
+    created_at INTEGER
+  )`);
 
 // -------- REPORT CARD USER PREFERENCES --------
 await run(`CREATE TABLE IF NOT EXISTS report_card_prefs (
@@ -1232,6 +1287,11 @@ module.exports = {
   getRoleMessage,
   saveRoleMessage,
 
+  // Subscriber guilds
+  getSubscriberGuild,
+  getSubscriberGuilds,
+  upsertSubscriberGuild,
+  removeSubscriberGuild,
 
   // Player profiles (IGN)
   upsertPlayerProfile,
