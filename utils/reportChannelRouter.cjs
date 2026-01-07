@@ -4,23 +4,40 @@ require('dotenv').config();
 const db = require('../database.cjs');
 
 /**
+ * ──────────────────────────────
+ * LEGACY HELPERS (MAIN GUILD)
+ * ──────────────────────────────
+ * These are REQUIRED by:
+ * - Vortex auto report handler
+ * - Any legacy utilities
+ *
+ * DO NOT REMOVE — migration-safe exports
+ */
+
+/**
  * MAIN GUILD: rarity → channel (env)
+ * Example: CHANNEL_LEGENDARY
  */
 function getChannelForRarity(rarityKey) {
+  if (!rarityKey) return null;
   const envKey = `CHANNEL_${rarityKey.toUpperCase()}`;
   return process.env[envKey] || null;
 }
 
 /**
  * MAIN GUILD: rarity → role (env)
+ * Example: ROLE_LEGENDARY
  */
 function getRoleForRarity(rarityKey) {
+  if (!rarityKey) return null;
   const envKey = `ROLE_${rarityKey.toUpperCase()}`;
   return process.env[envKey] || null;
 }
 
 /**
- * Resolve routing for BOTH main + subscriber guilds
+ * ──────────────────────────────
+ * UNIFIED ROUTER (MAIN + SUBSCRIBERS)
+ * ──────────────────────────────
  *
  * Returns:
  * {
@@ -32,16 +49,16 @@ function getRoleForRarity(rarityKey) {
  *
  * Priority:
  * 1. Subscriber guild override (DB)
- * 2. Main guild rarity routing (ENV)
+ * 2. Main guild env routing
  */
 async function getReportRouting({
   guildId,
   rarityKey,
   pokemonKey = null,
-  currentChannelId
+  currentChannelId = null
 }) {
   // ──────────────────────────────
-  // SUBSCRIBER GUILD OVERRIDE (DB)
+  // SUBSCRIBER GUILD (DB-BASED)
   // ──────────────────────────────
   const subscriber =
     typeof db.getSubscriberGuild === 'function'
@@ -72,7 +89,7 @@ async function getReportRouting({
   }
 
   // ──────────────────────────────
-  // MAIN GUILD (ENV-BASED ROUTING)
+  // MAIN GUILD (ENV-BASED)
   // ──────────────────────────────
   const channelId = getChannelForRarity(rarityKey);
   const rarityRoleId = getRoleForRarity(rarityKey);
@@ -91,5 +108,10 @@ async function getReportRouting({
 }
 
 module.exports = {
+  // ✅ Legacy exports (DO NOT REMOVE)
+  getChannelForRarity,
+  getRoleForRarity,
+
+  // ✅ Unified router
   getReportRouting
 };
