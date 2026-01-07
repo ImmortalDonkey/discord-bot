@@ -1,24 +1,10 @@
 // utils/reportChannelRouter.cjs
 
-/**
- * Handles routing a report to the correct channel,
- * with support for:
- * - main guild (rarity-based routing)
- * - subscriber guilds (single unified channel)
- *
- * This file centralises:
- * - rarity → channel mapping
- * - rarity → role mapping
- * - subscriber override logic
- * - wrong-channel detection helper
- */
-
 require('dotenv').config();
 const db = require('../database.cjs');
 
 /**
- * Return environment-configured Discord channel ID for given rarity key.
- * (MAIN GUILD ONLY)
+ * MAIN GUILD: rarity → channel (env)
  */
 function getChannelForRarity(rarityKey) {
   const envKey = `CHANNEL_${rarityKey.toUpperCase()}`;
@@ -26,8 +12,7 @@ function getChannelForRarity(rarityKey) {
 }
 
 /**
- * Return environment-configured role ID for given rarity key.
- * (MAIN GUILD ONLY)
+ * MAIN GUILD: rarity → role (env)
  */
 function getRoleForRarity(rarityKey) {
   const envKey = `ROLE_${rarityKey.toUpperCase()}`;
@@ -35,14 +20,7 @@ function getRoleForRarity(rarityKey) {
 }
 
 /**
- * Resolve routing for a report, guild-aware.
- *
- * Returns:
- * {
- *   channelId,
- *   roleId,
- *   wrongChannel
- * }
+ * Resolve routing for BOTH main + subscriber guilds
  */
 async function getReportRouting({
   guildId,
@@ -55,10 +33,14 @@ async function getReportRouting({
   const subscriber = await db.getSubscriberGuild?.(guildId);
 
   if (subscriber?.enabled && subscriber.report_channel_id) {
+    const wrongChannel =
+      currentChannelId &&
+      currentChannelId !== subscriber.report_channel_id;
+
     return {
       channelId: subscriber.report_channel_id,
-      roleId: null,          // no rarity pings for subscribers
-      wrongChannel: false    // only one valid channel
+      roleId: subscriber.role_id || null,
+      wrongChannel
     };
   }
 
@@ -79,7 +61,5 @@ async function getReportRouting({
 }
 
 module.exports = {
-  getChannelForRarity,
-  getRoleForRarity,
   getReportRouting
 };
