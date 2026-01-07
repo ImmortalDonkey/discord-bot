@@ -1,5 +1,3 @@
-// interactions/commands/reportdebug.cjs
-
 const {
   SlashCommandBuilder,
   ActionRowBuilder,
@@ -152,72 +150,54 @@ module.exports = {
         ];
 
     // ──────────────────────────────
-    // ORIGIN GUILD ROUTING (UTIL)
+    // FAN-OUT (ALL GUILDS VIA ROUTER)
     // ──────────────────────────────
-    const originRouting = await getReportRouting({
-      guildId: guild.id,
-      rarityKey,
-      currentChannelId: interaction.channelId
-    });
+    const allGuildIds = await db.getAllKnownGuildIds();
 
-    const originChannel = await guild.channels
-      .fetch(originRouting.channelId)
-      .catch(() => null);
-
-    if (!originChannel) {
-      return interaction.followUp({
-        content: "❌ Failed to resolve report channel via router.",
-        flags: 64
-      });
-    }
-
-    const sent = await originChannel.send({
-      content: `<@${user.id}>`,
-      files: [cardPath],
-      components
-    });
-
-    await db.addReportMessageMapping({
-      reportId,
-      guildId: guild.id,
-      channelId: sent.channelId,
-      messageId: sent.id
-    });
-
-    // ──────────────────────────────
-    // FAN-OUT → SUBSCRIBER GUILDS ONLY
-    // ──────────────────────────────
-    const subscribers = await db.getSubscriberGuilds();
-
-    for (const sub of subscribers) {
-      if (sub.guild_id === guild.id) continue;
-
+    for (const targetGuildId of allGuildIds) {
       try {
-        const g = await client.guilds.fetch(sub.guild_id);
-        const ch = await g.channels.fetch(sub.report_channel_id);
+        const targetGuild = await client.guilds.fetch(targetGuildId);
+        if (!targetGuild) continue;
 
-        const msg = await ch.send({
-          content: `<@${user.id}>`,
+        const { channelId, roleId } = await getReportRouting({
+          guildId: targetGuild.id,
+          rarityKey
+        });
+
+        if (!channelId) continue;
+
+        const channel = await targetGuild.channels
+          .fetch(channelId)
+          .catch(() => null);
+
+        if (!channel) continue;
+
+        const content = roleId
+          ? `<@&${roleId}> <@${user.id}>`
+          : `<@${user.id}>`;
+
+        const msg = await channel.send({
+          content,
           files: [cardPath],
           components
         });
 
         await db.addReportMessageMapping({
           reportId,
-          guildId: g.id,
+          guildId: targetGuild.id,
           channelId: msg.channelId,
           messageId: msg.id
         });
       } catch (err) {
         console.warn(
-          `[reportdebug] Fan-out failed for guild ${sub.guild_id}:`,
+          `[reportdebug] Fan-out failed for guild ${targetGuildId}:`,
           err.message
         );
       }
     }
 
     // ──────────────────────────────
-    // SAVE CANONICAL REPORT
+    // SAVE CANONICAL REPORT (ONCE)
     // ──────────────────────────────
     await db.createReport({
       id: reportId,
@@ -230,8 +210,6 @@ module.exports = {
       rarityLabel,
       location: route,
       status: forceExpired ? "expired" : "active",
-      messageId: sent.id,
-      channelId: sent.channelId,
       points: awardedPoints,
       expiresAt: expiresAt.getTime(),
       deleteAt,
@@ -240,7 +218,7 @@ module.exports = {
     });
 
     return interaction.followUp({
-      content: "☑ Debug report posted (router + subscriber fan-out active).",
+      content: "☑ Debug report posted (router-only fan-out active).",
       flags: 64
     });
   }
