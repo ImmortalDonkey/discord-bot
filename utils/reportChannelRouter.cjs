@@ -1,6 +1,5 @@
 // utils/reportChannelRouter.cjs
 
-require('dotenv').config();
 const db = require('../database.cjs');
 
 /**
@@ -80,7 +79,6 @@ async function getReportRouting({
         ? await db.getGuildPokemonRole(guildId, pokemonKey)
         : null;
 
-    // 🔍 DEBUG: subscriber routing resolution
     console.log('[ROUTING][SUBSCRIBER]', {
       guildId,
       rarityKey,
@@ -110,7 +108,6 @@ async function getReportRouting({
     currentChannelId &&
     currentChannelId !== channelId;
 
-  // 🔍 DEBUG: main guild routing resolution
   console.log('[ROUTING][MAIN]', {
     guildId,
     rarityKey,
