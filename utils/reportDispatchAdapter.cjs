@@ -1,15 +1,21 @@
 /**
  * utils/reportDispatchAdapter.cjs
  *
- * Thin adapter to break circular dependency between:
- * - vortexRoamerHandler.cjs
- * - reportDispatcher.cjs
+ * Purpose:
+ * Break circular dependency between vortexRoamerHandler
+ * and reportDispatcher by lazy-loading dispatchReport.
  *
- * DO NOT add logic here.
- * This file exists purely for architectural isolation.
+ * This file MUST stay dependency-light.
  */
 
-const { dispatchReport } = require('./reportDispatcher.cjs');
+/**
+ * Lazy dispatch adapter
+ * Resolves reportDispatcher only at call time
+ */
+function dispatchReport(...args) {
+  const { dispatchReport } = require('./reportDispatcher.cjs');
+  return dispatchReport(...args);
+}
 
 module.exports = {
   dispatchReport
