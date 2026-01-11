@@ -1,61 +1,65 @@
 /**
  * utils/reportDispatcher.cjs
  *
- * Central dispatcher for Vortex roamers.
- *
- * NOTE:
- * handleVortexRoamer MUST be lazy-required to avoid
- * circular dependency with vortexRoamerHandler →
- * reportDispatchAdapter → reportDispatcher.
+ * Responsible for POSTING reports to Discord.
+ * This is the ONLY file that should call channel.send().
  */
 
-async function dispatchVortexRoamer(client, roamer) {
-  // ✅ LAZY REQUIRE (CRITICAL)
-  const { handleVortexRoamer } = require('./vortexRoamerHandler.cjs');
-
+async function dispatchReport({ client, report, renderCard, components = [] }) {
   if (!client) {
-    console.warn('⚠ Dispatcher called without client');
+    console.warn('⚠ dispatchReport called without client');
     return;
   }
 
-  if (!roamer || !roamer.roamer_name) {
-    console.warn('⚠ Invalid roamer payload (missing name):', roamer);
+  if (!report || !report.rarityKey) {
+    console.warn('⚠ dispatchReport called with invalid report:', report);
     return;
   }
 
   // ──────────────────────────────
-  // NORMALISE TIMESTAMP (CRITICAL)
+  // ROUTING (MAIN GUILD)
   // ──────────────────────────────
-  let time_found =
-    typeof roamer._timeFoundMs === 'number'
-      ? roamer._timeFoundMs
-      : roamer.time_found;
+  const guildId = process.env.MAIN_GUILD_ID;
+  const channelId = process.env[`REPORT_CHANNEL_${report.rarityKey.toUpperCase()}`];
 
-  if (typeof time_found === 'string') {
-    const parsed = Date.parse(time_found.replace(' ', 'T'));
-    if (!Number.isNaN(parsed)) {
-      time_found = parsed;
-    }
-  }
-
-  if (!time_found || typeof time_found !== 'number') {
-    console.warn(
-      '⚠ Invalid roamer payload (no usable timestamp):',
-      roamer
-    );
+  if (!guildId || !channelId) {
+    console.warn('⚠ No routing target for report:', report);
     return;
   }
 
-  // Attach canonical timestamp for downstream consumers
-  roamer._timeFoundMs = time_found;
+  const channel = await client.channels.fetch(channelId).catch(() => null);
+  if (!channel) {
+    console.warn('⚠ Failed to fetch channel:', channelId);
+    return;
+  }
 
   // ──────────────────────────────
-  // HAND OFF TO HANDLER
+  // RENDER CARD
   // ──────────────────────────────
+  const { buffer, filename } = await renderCard();
+
+  // ──────────────────────────────
+  // POST TO DISCORD
+  // ──────────────────────────────
+  await channel.send({
+    files: [{ attachment: buffer, name: filename }],
+    components
+  });
+
+  console.log(
+    `📤 Report posted to #${channel.name} (${report.rarityKey})`
+  );
+}
+
+/**
+ * Vortex entry point (used ONLY by watcher/adapter)
+ */
+async function dispatchVortexRoamer(client, roamer) {
+  const { handleVortexRoamer } = require('./vortexRoamerHandler.cjs');
   return handleVortexRoamer(client, roamer);
 }
 
 module.exports = {
-  dispatchVortexRoamer,
-  dispatchReport: dispatchVortexRoamer
+  dispatchReport,
+  dispatchVortexRoamer
 };
