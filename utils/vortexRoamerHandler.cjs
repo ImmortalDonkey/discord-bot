@@ -29,6 +29,12 @@ async function handleVortexRoamer(client, roamer) {
     return;
   }
 
+  const mainGuildId = process.env.GUILD_ID;
+  if (!mainGuildId) {
+    console.warn("⚠ GUILD_ID not set – cannot dispatch Vortex report");
+    return;
+  }
+
   if (!roamer || !roamer.roamer_name) {
     console.warn("⚠ Invalid roamer payload (missing name):", roamer);
     return;
@@ -113,7 +119,11 @@ async function handleVortexRoamer(client, roamer) {
   expiresAt.setMinutes(59, 59, 999);
 
   const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
-  const reportId = `vortex_${Date.now()}`;
+
+  // Stable, collision-safe ID
+  const reportId = `vortex_${time_found}_${roamer_name
+    .replace(/\s+/g, "_")
+    .toLowerCase()}`;
 
   // ──────────────────────────────
   // RENDER REPORT CARD (ONCE)
@@ -136,9 +146,11 @@ async function handleVortexRoamer(client, roamer) {
 
   // ──────────────────────────────
   // CREATE CANONICAL REPORT (NO MESSAGE YET)
+  // 🔒 guildId IS REQUIRED for mapping + expiry
   // ──────────────────────────────
   await db.createReport({
     id: reportId,
+    guildId: mainGuildId,          // ✅ CRITICAL FIX
     reporterId: null,
     reporterName: ign,
     trainerRank,
@@ -161,12 +173,11 @@ async function handleVortexRoamer(client, roamer) {
     client,
     report: {
       id: reportId,
-      guildId: process.env.GUILD_ID, // ✅ CRITICAL FIX
+      guildId: mainGuildId,        // ✅ REQUIRED for report_messages
       rarityKey,
       pokemonKey: roamer_name
     },
 
-    // Dispatcher contract: buffer + filename
     renderCard: async () => ({
       buffer: fs.readFileSync(cardPath),
       filename: path.basename(cardPath)
