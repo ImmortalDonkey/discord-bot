@@ -133,11 +133,23 @@ async function dispatchReport({
   // ──────────────────────────────
   // POST TO DISCORD
   // ──────────────────────────────
-  await channel.send({
+  const sentMessage = await channel.send({
     content: content || undefined,
     files: [{ attachment: buffer, name: filename }],
     components
   });
+
+  // ──────────────────────────────
+  // 🔒 CRITICAL: STORE MESSAGE MAPPING
+  // Enables expiry re-render + cleanup
+  // ──────────────────────────────
+  if (report.id && sentMessage) {
+    await db.addReportMessageMapping({
+      report_id: report.id,
+      channel_id: channel.id,
+      message_id: sentMessage.id
+    });
+  }
 
   console.log(
     `📤 Report posted to #${channel.name} (${report.rarityKey})`
