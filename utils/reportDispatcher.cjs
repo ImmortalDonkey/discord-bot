@@ -6,11 +6,7 @@ const { getRarity, getRarityDisplayLabel } = require("./rarity.cjs");
 const { calculateAwardedPoints } = require("./scoring.cjs");
 const { getRankName } = require("./rankSystem.cjs");
 const { createReportCard } = require("../renderers/reportCard.debug.cjs");
-const { dispatchReport } = require("./reportDispatcher.cjs");
-const {
-  getChannelForRarity,
-  getRoleForRarity
-} = require("./reportChannelRouter.cjs");
+const { getRoleForRarity } = require("./reportChannelRouter.cjs");
 
 /**
  * Normalizes a Pokémon/roamer name into env role format
@@ -45,6 +41,9 @@ async function handleVortexRoamer(client, roamer) {
     console.warn("⚠ Vortex handler called without client");
     return;
   }
+
+  // ✅ CRITICAL: lazy-load adapter INSIDE function (breaks circular deps)
+  const { dispatchReport } = require("./reportDispatchAdapter.cjs");
 
   const {
     roamer_name,
@@ -155,6 +154,7 @@ async function handleVortexRoamer(client, roamer) {
 
   // ──────────────────────────────
   // MAIN GUILD ROLE LOGIC (ENV)
+  // (kept for later use; dispatcher currently handles pings)
   // ──────────────────────────────
   const pokemonEnvKey = getPokemonRoleEnvKey(roamer_name);
   const pokemonRoleIdRaw = process.env[pokemonEnvKey] || null;
@@ -168,10 +168,9 @@ async function handleVortexRoamer(client, roamer) {
     ? rarityRoleIdRaw
     : null;
 
-  const mainGuildMentions = [
-    pokemonRoleId,
-    rarityRoleId
-  ].filter(Boolean);
+  // (not used in Option B message content here; leave computed for future)
+  void pokemonRoleId;
+  void rarityRoleId;
 
   // ──────────────────────────────
   // DISPATCH (MAIN + SUBSCRIBERS)
@@ -184,7 +183,7 @@ async function handleVortexRoamer(client, roamer) {
       pokemonKey: roamer_name
     },
 
-    // ✅ CORRECT CONTRACT: buffer + filename
+    // ✅ contract: buffer + filename
     renderCard: async () => ({
       buffer: fs.readFileSync(cardPath),
       filename: path.basename(cardPath)
