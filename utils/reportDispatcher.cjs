@@ -26,135 +26,106 @@ function normalizePokemonKey(name) {
     .replace(/__+/g, '_');
 }
 
+async function postToGuild({
+  client,
+  guildId,
+  channelId,
+  pokemonRoleId,
+  rarityRoleId,
+  report,
+  renderCard,
+  components
+}) {
+  const channel = await client.channels.fetch(channelId).catch(() => null);
+  if (!channel) {
+    console.warn('⚠ Failed to fetch channel:', channelId);
+    return;
+  }
+
+  const mentions = [];
+  if (pokemonRoleId) mentions.push(`<@&${pokemonRoleId}>`);
+  if (rarityRoleId) mentions.push(`<@&${rarityRoleId}>`);
+
+  const { buffer, filename } = await renderCard();
+
+  const msg = await channel.send({
+    content: mentions.length ? mentions.join(' ') : undefined,
+    files: [{ attachment: buffer, name: filename }],
+    components
+  });
+
+  // 🔒 CRITICAL: persist message mapping
+  await db.addReportMessageMapping({
+    reportId: report.id,
+    guildId,
+    channelId: channel.id,
+    messageId: msg.id
+  });
+
+  console.log(
+    `📤 Report posted to #${channel.name} (${report.rarityKey}) [${guildId}]`
+  );
+}
+
 async function dispatchReport({
   client,
   report,
   renderCard,
   components = []
 }) {
-  if (!client) {
-    console.warn('⚠ dispatchReport called without client');
-    return;
-  }
-
-  if (!report || !report.rarityKey) {
-    console.warn('⚠ dispatchReport called with invalid report:', report);
+  if (!client || !report?.id || !report?.rarityKey) {
+    console.warn('⚠ dispatchReport called with invalid payload:', report);
     return;
   }
 
   const mainGuildId = process.env.GUILD_ID;
-  let channelId = null;
-  let content = '';
 
   // ──────────────────────────────
-  // MAIN GUILD → ENV ROUTING + ROLES
+  // MAIN GUILD
   // ──────────────────────────────
-  if (report.guildId === mainGuildId) {
-    channelId =
-      process.env[`CHANNEL_${report.rarityKey.toUpperCase()}`];
+  const mainChannelId =
+    process.env[`CHANNEL_${report.rarityKey.toUpperCase()}`];
 
-    if (!channelId) {
-      console.warn('⚠ No routing target for MAIN report:', report);
-      return;
-    }
-
-    const mentions = [];
-
-    // Pokémon role (ENV)
+  if (mainChannelId) {
     const pokemonKey = normalizePokemonKey(report.pokemonKey);
-    const pokemonRoleId =
-      process.env[`ROLE_POKEMON_${pokemonKey}`];
 
-    if (pokemonRoleId) {
-      mentions.push(`<@&${pokemonRoleId}>`);
-    }
-
-    // Rarity role (ENV)
-    const rarityRoleId =
-      process.env[`ROLE_${report.rarityKey.toUpperCase()}`];
-
-    if (rarityRoleId) {
-      mentions.push(`<@&${rarityRoleId}>`);
-    }
-
-    content = mentions.join(' ');
+    await postToGuild({
+      client,
+      guildId: mainGuildId,
+      channelId: mainChannelId,
+      pokemonRoleId: process.env[`ROLE_POKEMON_${pokemonKey}`],
+      rarityRoleId: process.env[`ROLE_${report.rarityKey.toUpperCase()}`],
+      report,
+      renderCard,
+      components
+    });
+  } else {
+    console.warn('⚠ No routing target for MAIN report:', report);
   }
 
   // ──────────────────────────────
-  // SUBSCRIBER GUILDS → DB ROUTING + ROLES
+  // SUBSCRIBER GUILDS (FAN-OUT)
   // ──────────────────────────────
-  else {
-    const route = await db.getSubscriberRoute(
-      report.guildId,
-      report.pokemonKey,
-      report.rarityKey
-    );
+  const subscribers = await db.getSubscriberGuilds();
 
-    if (!route || !route.channel_id) {
-      console.warn(
-        '⚠ No routing target for subscriber report:',
-        report
-      );
-      return;
-    }
+  for (const g of subscribers) {
+    const pokemonRole =
+      await db.getGuildPokemonRole(g.guild_id, normalizePokemonKey(report.pokemonKey));
 
-    channelId = route.channel_id;
+    const rarityRole =
+      await db.getGuildRarityRole(g.guild_id, report.rarityKey);
 
-    const mentions = [];
-
-    if (route.pokemon_role_id) {
-      mentions.push(`<@&${route.pokemon_role_id}>`);
-    }
-
-    if (route.rarity_role_id) {
-      mentions.push(`<@&${route.rarity_role_id}>`);
-    }
-
-    content = mentions.join(' ');
-  }
-
-  // ──────────────────────────────
-  // FETCH CHANNEL
-  // ──────────────────────────────
-  const channel = await client.channels
-    .fetch(channelId)
-    .catch(() => null);
-
-  if (!channel) {
-    console.warn('⚠ Failed to fetch channel:', channelId);
-    return;
-  }
-
-  // ──────────────────────────────
-  // RENDER CARD
-  // ──────────────────────────────
-  const { buffer, filename } = await renderCard();
-
-  // ──────────────────────────────
-  // POST TO DISCORD
-  // ──────────────────────────────
-  const sentMessage = await channel.send({
-    content: content || undefined,
-    files: [{ attachment: buffer, name: filename }],
-    components
-  });
-
-  // ──────────────────────────────
-  // 🔒 CRITICAL: STORE MESSAGE MAPPING (CAMELCASE API)
-  // Enables expiry re-render + cleanup
-  // ──────────────────────────────
-  if (report.id && report.guildId && sentMessage) {
-    await db.addReportMessageMapping({
-      reportId: report.id,
-      guildId: report.guildId,
-      channelId: channel.id,
-      messageId: sentMessage.id
+    await postToGuild({
+      client,
+      guildId: g.guild_id,
+      channelId: g.report_channel_id,
+      pokemonRoleId: pokemonRole?.role_id || null,
+      rarityRoleId: rarityRole?.role_id || null,
+      report,
+      renderCard,
+      components
     });
   }
-
-  console.log(
-    `📤 Report posted to #${channel.name} (${report.rarityKey})`
-  );
 }
 
 /**
