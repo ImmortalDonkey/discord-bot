@@ -9,18 +9,11 @@ const { createReportCard } = require("../renderers/reportCard.debug.cjs");
 
 /**
  * Handles a single Vortex roamer entry
- *
- * OPTION B (LOCKED):
- * - Main guild → env-based rarity routing
- * - Subscriber guilds → DB-based single-channel fan-out
- *
- * NOTE:
- * dispatchReport is REQUIRED via lazy-require to break
- * a circular dependency with the watcher/dispatcher stack.
  */
 async function handleVortexRoamer(client, roamer) {
-  // ✅ LAZY REQUIRE (CRITICAL – DO NOT MOVE)
-  const { dispatchReport } = require("./reportDispatchAdapter.cjs");
+  // ✅ CORRECT lazy require
+  // dispatchReport comes from reportDispatcher.cjs
+  const { dispatchReport } = require("./reportDispatcher.cjs");
 
   if (!client) {
     console.warn("⚠ Vortex handler called without client");
@@ -40,7 +33,7 @@ async function handleVortexRoamer(client, roamer) {
   } = roamer;
 
   // ──────────────────────────────
-  // NORMALISED TIMESTAMP (REQUIRED)
+  // NORMALISED TIMESTAMP
   // ──────────────────────────────
   const time_found = _timeFoundMs;
 
@@ -59,20 +52,16 @@ async function handleVortexRoamer(client, roamer) {
   }
 
   // ──────────────────────────────
-  // DB-LEVEL DEDUP (AUTHORITATIVE)
+  // DB-LEVEL DEDUP
   // ──────────────────────────────
   const exists = await db.hasVortexRoamer(roamer_name, time_found);
   if (exists) return;
 
   await db.insertVortexRoamer(roamer_name, time_found);
-
-  // ──────────────────────────────
-  // ENSURE IGN PROFILE EXISTS
-  // ──────────────────────────────
   await db.ensureIgnProfileExists(ign);
 
   // ──────────────────────────────
-  // OPTIONAL CARD PREFS (IGN → DISCORD)
+  // OPTIONAL CARD PREFS
   // ──────────────────────────────
   let reportCardPrefs = null;
 
@@ -105,7 +94,7 @@ async function handleVortexRoamer(client, roamer) {
   const trainerRank = getRankName(updated?.lifetime_points || 0);
 
   // ──────────────────────────────
-  // EXPIRY WINDOW
+  // EXPIRY
   // ──────────────────────────────
   const expiresAt = new Date(now);
   expiresAt.setMinutes(59, 59, 999);
@@ -114,7 +103,7 @@ async function handleVortexRoamer(client, roamer) {
   const reportId = `vortex_${Date.now()}`;
 
   // ──────────────────────────────
-  // RENDER REPORT CARD (ONCE)
+  // RENDER CARD
   // ──────────────────────────────
   const cardPath = await createReportCard({
     reportType: "encounter",
@@ -133,7 +122,7 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   // ──────────────────────────────
-  // CREATE CANONICAL REPORT (NO MESSAGE YET)
+  // CREATE REPORT RECORD
   // ──────────────────────────────
   await db.createReport({
     id: reportId,
@@ -153,7 +142,7 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   // ──────────────────────────────
-  // DISPATCH (MAIN + SUBSCRIBERS)
+  // DISPATCH TO DISCORD
   // ──────────────────────────────
   await dispatchReport({
     client,
@@ -162,13 +151,10 @@ async function handleVortexRoamer(client, roamer) {
       rarityKey,
       pokemonKey: roamer_name
     },
-
-    // Dispatcher contract: buffer + filename
     renderCard: async () => ({
       buffer: fs.readFileSync(cardPath),
       filename: path.basename(cardPath)
     }),
-
     components: []
   });
 
@@ -177,10 +163,6 @@ async function handleVortexRoamer(client, roamer) {
   );
 }
 
-/**
- * ⚠️ THIS EXPORT SHAPE IS CRITICAL
- * reportDispatcher expects a NAMED export
- */
 module.exports = {
   handleVortexRoamer
 };
