@@ -177,4 +177,10 @@ async function handleVortexRoamer(client, roamer) {
   );
 }
 
-module.exports = { handleVortexRoamer };
+/**
+ * ⚠️ THIS EXPORT SHAPE IS CRITICAL
+ * reportDispatcher expects a NAMED export
+ */
+module.exports = {
+  handleVortexRoamer
+};
