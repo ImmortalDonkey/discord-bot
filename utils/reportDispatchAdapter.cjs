@@ -1,13 +1,13 @@
 /**
  * utils/reportDispatchAdapter.cjs
  *
- * Adapter for Vortex watcher → handler.
+ * Adapter for Vortex watcher → Vortex handler.
  * This MUST stay separate from the legacy dispatchReport contract.
  */
 
 function dispatchVortexRoamer(client, roamer) {
-  // Lazy-load to avoid circular dependency
-  const { handleVortexRoamer } = require('./reportDispatcher.cjs');
+  // ✅ LAZY REQUIRE (CRITICAL – avoids circular deps)
+  const { handleVortexRoamer } = require('./vortexRoamerHandler.cjs');
 
   if (!client) {
     console.warn('⚠ dispatchVortexRoamer called without client');
