@@ -2,11 +2,17 @@
  * utils/reportDispatcher.cjs
  *
  * Central dispatcher for Vortex roamers.
+ *
+ * NOTE:
+ * handleVortexRoamer MUST be lazy-required to avoid
+ * circular dependency with vortexRoamerHandler →
+ * reportDispatchAdapter → reportDispatcher.
  */
 
-const { handleVortexRoamer } = require('./vortexRoamerHandler.cjs');
-
 async function dispatchVortexRoamer(client, roamer) {
+  // ✅ LAZY REQUIRE (CRITICAL)
+  const { handleVortexRoamer } = require('./vortexRoamerHandler.cjs');
+
   if (!client) {
     console.warn('⚠ Dispatcher called without client');
     return;
