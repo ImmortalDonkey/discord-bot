@@ -56,5 +56,6 @@ async function dispatchVortexRoamer(client, roamer) {
 }
 
 module.exports = {
-  dispatchVortexRoamer
+  dispatchVortexRoamer,
+  dispatchReport: dispatchVortexRoamer
 };
