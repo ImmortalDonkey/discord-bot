@@ -27,12 +27,30 @@ async function handleVortexRoamer(client, roamer) {
     return;
   }
 
+  if (!roamer || !roamer.roamer_name) {
+    console.warn("⚠ Invalid roamer payload (missing name):", roamer);
+    return;
+  }
+
   const {
     roamer_name,
-    time_found,
     location,
-    found_by_username
+    found_by_username,
+    _timeFoundMs
   } = roamer;
+
+  // ──────────────────────────────
+  // NORMALISED TIMESTAMP (REQUIRED)
+  // ──────────────────────────────
+  const time_found = _timeFoundMs;
+
+  if (!time_found || typeof time_found !== "number") {
+    console.warn(
+      "⚠ Invalid roamer payload (missing normalised timestamp):",
+      roamer
+    );
+    return;
+  }
 
   const ign = String(found_by_username || "").trim();
   if (!ign) {
