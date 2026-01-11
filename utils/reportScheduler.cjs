@@ -1,29 +1,27 @@
 // utils/reportScheduler.cjs
-// Expire & cleanup reports using normalised camelCase fields
+// Expire & cleanup reports (scheduler is guild-agnostic)
 
 const fs = require("fs");
+const path = require("path");
 const db = require("../database.cjs");
 
-// ⬇️ IMPORTANT: use SAME renderer as active cards
+// IMPORTANT: same renderer as active cards
 const { createReportCard } = require("../renderers/reportCard.debug.cjs");
 
 /**
  * Resolve all messages that belong to a report.
- * - If report_messages has mappings → return all mapped messages (subscriber + main)
- * - Else fallback to legacy single message (reports.channelId/messageId)
+ * Supports multi-message mapping but does not care about guilds.
  */
 async function getReportTargets(r) {
   try {
-    const mappings =
-      typeof db.getReportMessageMappings === "function"
-        ? await db.getReportMessageMappings(r.id)
-        : [];
-
-    if (Array.isArray(mappings) && mappings.length > 0) {
-      return mappings.map((m) => ({
-        channelId: m.channel_id,
-        messageId: m.message_id
-      }));
+    if (typeof db.getReportMessageMappings === "function") {
+      const mappings = await db.getReportMessageMappings(r.id);
+      if (Array.isArray(mappings) && mappings.length > 0) {
+        return mappings.map(m => ({
+          channelId: m.channel_id,
+          messageId: m.message_id
+        }));
+      }
     }
   } catch (err) {
     console.warn("⚠ Failed to read report message mappings for", r.id, err);
@@ -38,8 +36,10 @@ async function getReportTargets(r) {
 }
 
 /**
- * Expire reports whose hour has ended
- * Re-render → update message(s) → update DB
+ * Expire reports whose active window has ended
+ * - Re-render card
+ * - Edit all messages
+ * - Update DB
  */
 async function expireDueReports(client, nowMs) {
   const dueReports = await db.getReportsToExpire(nowMs);
@@ -52,16 +52,11 @@ async function expireDueReports(client, nowMs) {
       const targets = await getReportTargets(r);
 
       if (!targets.length) {
-        console.warn("⚠ No message targets found for report", r.id);
-        // Still mark expired so it doesn't loop forever
         await db.updateReport(r.id, { status: "expired" });
         continue;
       }
 
-      // ──────────────────────────────
-      // RE-RENDER CARD (EXPIRED)
-      // SAME renderer + same shape as active
-      // ──────────────────────────────
+      // Re-render expired card
       const newCardPath = await createReportCard({
         reporterName: r.reporterName,
         reporterId: r.reporterId || null,
@@ -71,36 +66,32 @@ async function expireDueReports(client, nowMs) {
         rarityLabel: r.rarityLabel,
         points: r.points,
         trainerRank: r.trainerRank || "Trainer",
-        statusText: "Expired",              // ⬅️ LOCKED casing
-        reportCardPrefs: r.reportCardPrefs  // may be undefined (safe)
+        statusText: "Expired",
+        reportCardPrefs: r.reportCardPrefs
       });
 
-      // Update ALL messages (main + subscribers if mapped)
+      const buffer = fs.readFileSync(newCardPath);
+      const filename = path.basename(newCardPath);
+
+      // Update all messages in-place
       for (const t of targets) {
         const channel = await client.channels.fetch(t.channelId).catch(() => null);
-        if (!channel) {
-          console.warn("⚠ Channel missing for report", r.id, "channel", t.channelId);
-          continue;
-        }
+        if (!channel) continue;
 
         const msg = await channel.messages.fetch(t.messageId).catch(() => null);
-        if (!msg) {
-          console.warn("⚠ Message missing for report", r.id, "message", t.messageId);
-          continue;
-        }
+        if (!msg) continue;
 
         await msg.edit({
-          files: [newCardPath],
+          files: [{ attachment: buffer, name: filename }],
           components: []
         });
       }
 
-      // Delete old local PNG (previous card)
+      // Delete previous local PNG
       if (r.imagePath && fs.existsSync(r.imagePath)) {
         fs.unlinkSync(r.imagePath);
       }
 
-      // Update canonical report row
       await db.updateReport(r.id, {
         status: "expired",
         imagePath: newCardPath
@@ -114,9 +105,14 @@ async function expireDueReports(client, nowMs) {
 }
 
 /**
- * Delete expired reports older than 24 hours
+ * Cleanup reports after retention window
+ * - NO Discord deletes
+ * - YES DB delete
+ * - YES PNG delete (Pi only)
+ *
+ * Retention: 2 hours after creation
  */
-async function cleanupReports(client, nowMs) {
+async function cleanupReports(nowMs) {
   const stale = await db.getReportsToCleanup(nowMs);
   if (!stale.length) return;
 
@@ -124,26 +120,13 @@ async function cleanupReports(client, nowMs) {
 
   for (const r of stale) {
     try {
-      const targets = await getReportTargets(r);
-
-      // Delete ALL mapped messages (or legacy single)
-      for (const t of targets) {
-        const channel = await client.channels.fetch(t.channelId).catch(() => null);
-        if (!channel) continue;
-
-        const msg = await channel.messages.fetch(t.messageId).catch(() => null);
-        if (msg) await msg.delete().catch(() => {});
-      }
-
-      // Delete local PNG
       if (r.imagePath && fs.existsSync(r.imagePath)) {
         fs.unlinkSync(r.imagePath);
       }
 
-      // deleteReport already deletes report_messages first
       await db.deleteReport(r.id);
 
-      console.log(`✔ Deleted stale report ${r.id} (deleted ${targets.length} msg(s))`);
+      console.log(`✔ Cleaned stale report ${r.id} (DB + PNG only)`);
     } catch (err) {
       console.error(`❌ Cleanup error for ${r.id}:`, err);
     }
@@ -156,7 +139,7 @@ async function cleanupReports(client, nowMs) {
 async function runReportScheduler(client) {
   const nowMs = Date.now();
   await expireDueReports(client, nowMs);
-  await cleanupReports(client, nowMs);
+  await cleanupReports(nowMs);
 }
 
 module.exports = {
