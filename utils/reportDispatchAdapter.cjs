@@ -1,16 +1,21 @@
 /**
  * utils/reportDispatchAdapter.cjs
  *
- * Adapter layer to avoid circular dependency.
- * MUST preserve dispatcher function signature.
+ * Adapter for Vortex watcher → handler.
+ * This MUST stay separate from the legacy dispatchReport contract.
  */
 
-function dispatchReport(client, roamer) {
+function dispatchVortexRoamer(client, roamer) {
+  // Lazy-load to avoid circular dependency
   const { handleVortexRoamer } = require('./reportDispatcher.cjs');
 
-  // 🔒 Guard (prevents crashes + better logs)
+  if (!client) {
+    console.warn('⚠ dispatchVortexRoamer called without client');
+    return;
+  }
+
   if (!roamer) {
-    console.warn('⚠ dispatchReport called without roamer payload');
+    console.warn('⚠ dispatchVortexRoamer called without roamer payload');
     return;
   }
 
@@ -18,5 +23,5 @@ function dispatchReport(client, roamer) {
 }
 
 module.exports = {
-  dispatchReport
+  dispatchVortexRoamer
 };
