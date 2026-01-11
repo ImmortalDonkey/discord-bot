@@ -1,16 +1,16 @@
 /**
  * utils/roamerWatcher.cjs
  *
- * Polls the Pokémon Vortex roamer feed and dispatches
+ * Polls Pokémon Vortex roamer feed and forwards
  * new roamers into the report pipeline.
  */
 
 const { fetchRoamers } = require('./vortexApi.cjs');
-const { dispatchReport } = require('./reportDispatchAdapter.cjs');
+const { dispatchVortexRoamer } = require('./reportDispatchAdapter.cjs');
 
 const INTERVAL = Number(process.env.VORTEX_API_INTERVAL || 60000);
 
-// In-memory de-duplication (roamer_name + time_found)
+// In-memory dedup (name + time)
 const seen = new Set();
 
 async function pollRoamers(client) {
@@ -21,7 +21,7 @@ async function pollRoamers(client) {
     const roamers = await fetchRoamers();
 
     if (!Array.isArray(roamers)) {
-      console.warn('⚠ Vortex roamer feed returned invalid payload');
+      console.warn('⚠ Vortex API returned invalid payload');
       return;
     }
 
@@ -36,11 +36,11 @@ async function pollRoamers(client) {
 
       seen.add(key);
 
-      // 🔑 CRITICAL: pass the roamer object directly
-      dispatchReport(client, roamer);
+      // 🔑 RAW VORTEX OBJECT ONLY
+      dispatchVortexRoamer(client, roamer);
     }
   } catch (err) {
-    console.error('❌  Vortex roamer watcher:', err.message || err);
+    console.error('❌ Vortex roamer watcher:', err.message || err);
   }
 }
 
@@ -52,13 +52,8 @@ function startRoamerWatcher(client) {
 
   console.log('🛰️ Vortex roamer watcher started');
 
-  // Initial run
   pollRoamers(client);
-
-  // Interval polling
-  setInterval(() => {
-    pollRoamers(client);
-  }, INTERVAL);
+  setInterval(() => pollRoamers(client), INTERVAL);
 }
 
 module.exports = {
