@@ -3,18 +3,14 @@
  *
  * Purpose:
  * Break circular dependency between vortexRoamerHandler
- * and reportDispatcher by lazy-loading dispatchReport.
+ * and reportDispatcher by lazy-loading the dispatcher.
  *
  * This file MUST stay dependency-light.
  */
 
-/**
- * Lazy dispatch adapter
- * Resolves reportDispatcher only at call time
- */
 function dispatchReport(...args) {
-  const { dispatchReport } = require('./reportDispatcher.cjs');
-  return dispatchReport(...args);
+  const { handleVortexRoamer } = require('./reportDispatcher.cjs');
+  return handleVortexRoamer(...args);
 }
 
 module.exports = {
