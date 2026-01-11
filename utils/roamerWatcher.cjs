@@ -1,11 +1,16 @@
-// utils/roamerWatcher.cjs
+/**
+ * utils/roamerWatcher.cjs
+ *
+ * Polls the Pokémon Vortex roamer feed and dispatches
+ * new roamers into the report pipeline.
+ */
 
 const { fetchRoamers } = require('./vortexApi.cjs');
-const { handleVortexRoamer } = require('./vortexRoamerHandler.cjs');
+const { dispatchReport } = require('./reportDispatchAdapter.cjs');
 
 const INTERVAL = Number(process.env.VORTEX_API_INTERVAL || 60000);
 
-// in-memory dedup (name + time_found)
+// In-memory de-duplication (roamer_name + time_found)
 const seen = new Set();
 
 async function pollRoamers(client) {
@@ -15,40 +20,47 @@ async function pollRoamers(client) {
   try {
     const roamers = await fetchRoamers();
 
-    for (const r of roamers) {
-      const key = `${r.roamer_name}|${r.time_found}`;
+    if (!Array.isArray(roamers)) {
+      console.warn('⚠ Vortex roamer feed returned invalid payload');
+      return;
+    }
 
+    for (const roamer of roamers) {
+      if (!roamer || !roamer.roamer_name || !roamer.time_found) {
+        console.warn('⚠ Skipping invalid roamer payload:', roamer);
+        continue;
+      }
+
+      const key = `${roamer.roamer_name}|${roamer.time_found}`;
       if (seen.has(key)) continue;
+
       seen.add(key);
 
-      // ✅ PASS CLIENT DOWN (CRITICAL FIX)
-      await handleVortexRoamer(client, r);
+      // 🔑 CRITICAL: pass the roamer object directly
+      dispatchReport(client, roamer);
     }
-
-    // memory hygiene
-    if (seen.size > 500) {
-      seen.clear();
-    }
-
   } catch (err) {
-    console.error('❌ Vortex roamer watcher:', err.message);
+    console.error('❌  Vortex roamer watcher:', err.message || err);
   }
 }
 
 function startRoamerWatcher(client) {
-  if (!client) return;
+  if (process.env.VORTEX_API_ENABLED !== 'true') {
+    console.log('⏸️ Vortex roamer watcher disabled');
+    return;
+  }
 
-  console.log(
-    `🛰️ Vortex watcher active | interval = ${INTERVAL} | env = ${process.env.NODE_ENV || process.env.ENV}`
-  );
+  console.log('🛰️ Vortex roamer watcher started');
 
-  // run immediately once
-  pollRoamers(client).catch(() => {});
+  // Initial run
+  pollRoamers(client);
 
-  // then on interval
+  // Interval polling
   setInterval(() => {
-    pollRoamers(client).catch(() => {});
+    pollRoamers(client);
   }, INTERVAL);
 }
 
-module.exports = { startRoamerWatcher };
+module.exports = {
+  startRoamerWatcher
+};
