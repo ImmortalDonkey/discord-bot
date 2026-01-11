@@ -12,10 +12,16 @@ const { createReportCard } = require("../renderers/reportCard.debug.cjs");
  *
  * OPTION B (LOCKED):
  * - Main guild → env-based rarity routing
- * - Subscriber guilds → DB-based single-channel fan-out
+ * - Subscriber guilds → DB-based channels + roles (via reportDispatcher)
+ *
+ * NOTE:
+ * dispatchReport is REQUIRED via lazy-require to break
+ * circular dependencies with the watcher/dispatcher stack.
  */
 async function handleVortexRoamer(client, roamer) {
-  // ✅ LAZY REQUIRE (CRITICAL)
+  // ✅ LAZY REQUIRE (CRITICAL – DO NOT MOVE)
+  // IMPORTANT: We must call the REPORT sender (posts to Discord),
+  // not the Vortex ingestion dispatcher.
   const { dispatchReport } = require("./reportDispatcher.cjs");
 
   if (!client) {
@@ -36,9 +42,10 @@ async function handleVortexRoamer(client, roamer) {
   } = roamer;
 
   // ──────────────────────────────
-  // NORMALISED TIMESTAMP
+  // NORMALISED TIMESTAMP (REQUIRED)
   // ──────────────────────────────
   const time_found = _timeFoundMs;
+
   if (!time_found || typeof time_found !== "number") {
     console.warn(
       "⚠ Invalid roamer payload (missing normalised timestamp):",
@@ -54,7 +61,7 @@ async function handleVortexRoamer(client, roamer) {
   }
 
   // ──────────────────────────────
-  // DB DEDUP
+  // DB-LEVEL DEDUP (AUTHORITATIVE)
   // ──────────────────────────────
   const exists = await db.hasVortexRoamer(roamer_name, time_found);
   if (exists) return;
@@ -62,16 +69,16 @@ async function handleVortexRoamer(client, roamer) {
   await db.insertVortexRoamer(roamer_name, time_found);
 
   // ──────────────────────────────
-  // ENSURE IGN PROFILE
+  // ENSURE IGN PROFILE EXISTS
   // ──────────────────────────────
   await db.ensureIgnProfileExists(ign);
 
   // ──────────────────────────────
-  // OPTIONAL CARD PREFS
+  // OPTIONAL CARD PREFS (IGN → DISCORD)
   // ──────────────────────────────
   let reportCardPrefs = null;
-  const linkedPlayer = await db.getPlayerByIgn(ign);
 
+  const linkedPlayer = await db.getPlayerByIgn(ign);
   if (
     linkedPlayer &&
     linkedPlayer.discord_id &&
@@ -109,7 +116,7 @@ async function handleVortexRoamer(client, roamer) {
   const reportId = `vortex_${Date.now()}`;
 
   // ──────────────────────────────
-  // RENDER CARD
+  // RENDER REPORT CARD (ONCE)
   // ──────────────────────────────
   const cardPath = await createReportCard({
     reportType: "encounter",
@@ -128,7 +135,7 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   // ──────────────────────────────
-  // CREATE REPORT RECORD
+  // CREATE CANONICAL REPORT (NO MESSAGE YET)
   // ──────────────────────────────
   await db.createReport({
     id: reportId,
@@ -148,20 +155,23 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   // ──────────────────────────────
-  // DISPATCH TO DISCORD (MAIN GUILD)
+  // DISPATCH TO DISCORD (POSTS MESSAGE)
   // ──────────────────────────────
   await dispatchReport({
     client,
     report: {
       id: reportId,
-      guildId: process.env.MAIN_GUILD_ID, // ✅ CRITICAL FIX
+      guildId: process.env.GUILD_ID, // ✅ CRITICAL FIX
       rarityKey,
       pokemonKey: roamer_name
     },
+
+    // Dispatcher contract: buffer + filename
     renderCard: async () => ({
       buffer: fs.readFileSync(cardPath),
       filename: path.basename(cardPath)
     }),
+
     components: []
   });
 
