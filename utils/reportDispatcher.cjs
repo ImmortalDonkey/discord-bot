@@ -37,8 +37,12 @@ async function dispatchReport({
     return;
   }
 
-  if (!report || !report.rarityKey) {
-    console.warn('⚠ dispatchReport called with invalid report:', report);
+  // 🔒 HARD CONTRACT — REQUIRED FOR EXPIRY / MULTI-GUILD
+  if (!report || !report.id || !report.rarityKey) {
+    console.error(
+      '❌ dispatchReport called with invalid report payload:',
+      report
+    );
     return;
   }
 
@@ -143,13 +147,11 @@ async function dispatchReport({
   // 🔒 CRITICAL: STORE MESSAGE MAPPING
   // Enables expiry re-render + cleanup
   // ──────────────────────────────
-  if (report.id && sentMessage) {
-    await db.addReportMessageMapping({
-      report_id: report.id,
-      channel_id: channel.id,
-      message_id: sentMessage.id
-    });
-  }
+  await db.addReportMessageMapping({
+    report_id: report.id,
+    channel_id: channel.id,
+    message_id: sentMessage.id
+  });
 
   console.log(
     `📤 Report posted to #${channel.name} (${report.rarityKey})`
