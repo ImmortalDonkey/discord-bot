@@ -1,9 +1,11 @@
+const fs = require("fs");
+const path = require("path");
+
 const db = require("../database.cjs");
 const { getRarity, getRarityDisplayLabel } = require("./rarity.cjs");
 const { calculateAwardedPoints } = require("./scoring.cjs");
 const { getRankName } = require("./rankSystem.cjs");
 const { createReportCard } = require("../renderers/reportCard.debug.cjs");
-const { dispatchReport } = require("./reportDispatcher.cjs");
 const {
   getChannelForRarity,
   getRoleForRarity
@@ -35,9 +37,12 @@ function isValidSnowflake(id) {
  * Handles a single Vortex roamer entry
  * OPTION B:
  * - Main guild uses env-based roles
- * - Subscribers use DB routing
+ * - Subscriber guilds use DB routing
  */
 async function handleVortexRoamer(client, roamer) {
+  // 🔓 LAZY REQUIRE — breaks circular dependency
+  const { dispatchReport } = require("./reportDispatcher.cjs");
+
   if (!client) {
     console.warn("⚠ Vortex handler called without client");
     return;
@@ -57,7 +62,7 @@ async function handleVortexRoamer(client, roamer) {
   }
 
   // ──────────────────────────────
-  // DB DEDUP (AUTHORITATIVE)
+  // DB-LEVEL DEDUP (AUTHORITATIVE)
   // ──────────────────────────────
   const exists = await db.hasVortexRoamer(roamer_name, time_found);
   if (exists) return;
@@ -65,7 +70,7 @@ async function handleVortexRoamer(client, roamer) {
   await db.insertVortexRoamer(roamer_name, time_found);
 
   // ──────────────────────────────
-  // ENSURE IGN IDENTITY
+  // ENSURE IGN PROFILE EXISTS
   // ──────────────────────────────
   await db.ensureIgnProfileExists(ign);
 
@@ -131,8 +136,7 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   // ──────────────────────────────
-  // CREATE CANONICAL REPORT
-  // (NO CHANNEL / MESSAGE HERE)
+  // CREATE CANONICAL REPORT (NO MESSAGE YET)
   // ──────────────────────────────
   await db.createReport({
     id: reportId,
@@ -152,27 +156,6 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   // ──────────────────────────────
-  // MAIN GUILD ROLE LOGIC (ENV)
-  // SUBSCRIBERS USE ROUTER
-  // ──────────────────────────────
-  const pokemonEnvKey = getPokemonRoleEnvKey(roamer_name);
-  const pokemonRoleIdRaw = process.env[pokemonEnvKey] || null;
-  const rarityRoleIdRaw = getRoleForRarity(rarityKey);
-
-  const pokemonRoleId = isValidSnowflake(pokemonRoleIdRaw)
-    ? pokemonRoleIdRaw
-    : null;
-
-  const rarityRoleId = isValidSnowflake(rarityRoleIdRaw)
-    ? rarityRoleIdRaw
-    : null;
-
-  const mainGuildMentions = [
-    pokemonRoleId,
-    rarityRoleId
-  ].filter(Boolean);
-
-  // ──────────────────────────────
   // DISPATCH (MAIN + SUBSCRIBERS)
   // ──────────────────────────────
   await dispatchReport({
@@ -183,18 +166,13 @@ async function handleVortexRoamer(client, roamer) {
       pokemonKey: roamer_name
     },
 
-    // ✅ FIX: return Discord-valid attachment object
+    // ✅ Dispatcher contract: buffer + filename
     renderCard: async () => ({
-      attachment: cardPath
+      buffer: fs.readFileSync(cardPath),
+      filename: path.basename(cardPath)
     }),
 
-    components: [],
-
-    // Option B: env-based roles ONLY for main guild
-    overrideMainGuildMentions: {
-      content: mainGuildMentions.map(id => `<@&${id}>`).join(" "),
-      allowedMentions: { roles: mainGuildMentions }
-    }
+    components: []
   });
 
   console.log(
