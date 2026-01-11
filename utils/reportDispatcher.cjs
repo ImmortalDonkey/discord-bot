@@ -11,6 +11,21 @@
 
 const db = require('../database.cjs');
 
+/**
+ * Normalise Pokémon names to ENV-safe keys
+ * Examples:
+ *  "Cyclizar"         → CYCLIZAR
+ *  "Ancient Gengar"  → ANCIENT_GENGAR
+ *  "Zygarde (Cell)"  → ZYGARDE_CELL
+ */
+function normalizePokemonKey(name) {
+  return String(name || '')
+    .toUpperCase()
+    .replace(/[()]/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/__+/g, '_');
+}
+
 async function dispatchReport({
   client,
   report,
@@ -43,20 +58,24 @@ async function dispatchReport({
       return;
     }
 
+    const mentions = [];
+
+    // Pokémon role (ENV)
+    const pokemonKey = normalizePokemonKey(report.pokemonKey);
+    const pokemonRoleId =
+      process.env[`ROLE_POKEMON_${pokemonKey}`];
+
+    if (pokemonRoleId) {
+      mentions.push(`<@&${pokemonRoleId}>`);
+    }
+
+    // Rarity role (ENV)
     const rarityRoleId =
       process.env[`ROLE_${report.rarityKey.toUpperCase()}`];
 
-    const pokemonKey = String(report.pokemonKey || '')
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, '');
-
-    const pokemonRoleId =
-      process.env[`ROLE_${pokemonKey}`];
-
-    const mentions = [];
-
-    if (pokemonRoleId) mentions.push(`<@&${pokemonRoleId}>`);
-    if (rarityRoleId) mentions.push(`<@&${rarityRoleId}>`);
+    if (rarityRoleId) {
+      mentions.push(`<@&${rarityRoleId}>`);
+    }
 
     content = mentions.join(' ');
   }
@@ -65,7 +84,11 @@ async function dispatchReport({
   // SUBSCRIBER GUILDS → DB ROUTING + ROLES
   // ──────────────────────────────
   else {
-    const route = await db.getSubscriberRoute(report.guildId);
+    const route = await db.getSubscriberRoute(
+      report.guildId,
+      report.pokemonKey,
+      report.rarityKey
+    );
 
     if (!route || !route.channel_id) {
       console.warn(
