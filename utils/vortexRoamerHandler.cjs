@@ -19,11 +19,10 @@ const { createReportCard } = require("../renderers/reportCard.debug.cjs");
  * circular dependencies with the watcher/dispatcher stack.
  */
 async function handleVortexRoamer(client, roamer) {
-  // ✅ CORRECT lazy require
-  // reportDispatcher exports dispatchVortexRoamer
-  // we alias it locally as dispatchReport to preserve logic
-  const { dispatchVortexRoamer: dispatchReport } =
-    require("./reportDispatcher.cjs");
+  // ✅ LAZY REQUIRE (CRITICAL – DO NOT MOVE)
+  // IMPORTANT: We must call the REPORT sender (posts to Discord),
+  // not the Vortex ingestion dispatcher.
+  const { dispatchReport } = require("./reportDispatcher.cjs");
 
   if (!client) {
     console.warn("⚠ Vortex handler called without client");
@@ -156,7 +155,7 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   // ──────────────────────────────
-  // DISPATCH TO DISCORD
+  // DISPATCH TO DISCORD (POSTS MESSAGE)
   // ──────────────────────────────
   await dispatchReport({
     client,
@@ -166,6 +165,7 @@ async function handleVortexRoamer(client, roamer) {
       pokemonKey: roamer_name
     },
 
+    // Dispatcher contract: buffer + filename
     renderCard: async () => ({
       buffer: fs.readFileSync(cardPath),
       filename: path.basename(cardPath)
