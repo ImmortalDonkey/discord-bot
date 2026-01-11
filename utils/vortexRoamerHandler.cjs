@@ -6,43 +6,17 @@ const { getRarity, getRarityDisplayLabel } = require("./rarity.cjs");
 const { calculateAwardedPoints } = require("./scoring.cjs");
 const { getRankName } = require("./rankSystem.cjs");
 const { createReportCard } = require("../renderers/reportCard.debug.cjs");
-const {
-  getChannelForRarity,
-  getRoleForRarity
-} = require("./reportChannelRouter.cjs");
 
-/**
- * Normalizes a Pokémon/roamer name into env role format
- * ROLE_POKEMON_<NORMALIZED>
- */
-function getPokemonRoleEnvKey(roamerName) {
-  const normalized = String(roamerName || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
-
-  return `ROLE_POKEMON_${normalized}`;
-}
-
-/**
- * Discord snowflake validation
- */
-function isValidSnowflake(id) {
-  return typeof id === "string" && /^[0-9]{17,20}$/.test(id);
-}
+// ✅ IMPORTANT: adapter breaks circular dependency
+const { dispatchReport } = require("./reportDispatchAdapter.cjs");
 
 /**
  * Handles a single Vortex roamer entry
- * OPTION B:
- * - Main guild uses env-based roles
- * - Subscriber guilds use DB routing
+ * OPTION B (LOCKED FLOW):
+ * - Main guild → env-based rarity routing
+ * - Subscriber guilds → DB-based single-channel fan-out
  */
 async function handleVortexRoamer(client, roamer) {
-  // 🔓 LAZY REQUIRE — breaks circular dependency
-  const { dispatchReport } = require("./reportDispatcher.cjs");
-
   if (!client) {
     console.warn("⚠ Vortex handler called without client");
     return;
@@ -166,7 +140,7 @@ async function handleVortexRoamer(client, roamer) {
       pokemonKey: roamer_name
     },
 
-    // ✅ Dispatcher contract: buffer + filename
+    // Dispatcher contract: buffer + filename
     renderCard: async () => ({
       buffer: fs.readFileSync(cardPath),
       filename: path.basename(cardPath)
