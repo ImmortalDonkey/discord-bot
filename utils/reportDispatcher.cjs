@@ -4,9 +4,9 @@
  * Responsible for POSTING reports to Discord.
  * This is the ONLY file that should call channel.send().
  *
- * Routing rules (LOCKED):
- * - MAIN guild → env-based rarity routing
- * - Subscriber guilds → DB-based single-channel routing
+ * FINAL ROUTING RULES (LOCKED):
+ * - MAIN guild → env-based channels + roles
+ * - SUBSCRIBER guilds → DB-based channels + roles
  */
 
 const db = require('../database.cjs');
@@ -29,25 +29,40 @@ async function dispatchReport({
 
   const mainGuildId = process.env.GUILD_ID;
   let channelId = null;
+  let content = '';
 
   // ──────────────────────────────
-  // MAIN GUILD → ENV ROUTING
+  // MAIN GUILD → ENV ROUTING + ROLES
   // ──────────────────────────────
   if (report.guildId === mainGuildId) {
     channelId =
       process.env[`CHANNEL_${report.rarityKey.toUpperCase()}`];
 
     if (!channelId) {
-      console.warn(
-        '⚠ No routing target for MAIN report:',
-        report
-      );
+      console.warn('⚠ No routing target for MAIN report:', report);
       return;
     }
+
+    const rarityRoleId =
+      process.env[`ROLE_${report.rarityKey.toUpperCase()}`];
+
+    const pokemonKey = String(report.pokemonKey || '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+
+    const pokemonRoleId =
+      process.env[`ROLE_${pokemonKey}`];
+
+    const mentions = [];
+
+    if (pokemonRoleId) mentions.push(`<@&${pokemonRoleId}>`);
+    if (rarityRoleId) mentions.push(`<@&${rarityRoleId}>`);
+
+    content = mentions.join(' ');
   }
 
   // ──────────────────────────────
-  // SUBSCRIBER GUILDS → DB ROUTING
+  // SUBSCRIBER GUILDS → DB ROUTING + ROLES
   // ──────────────────────────────
   else {
     const route = await db.getSubscriberRoute(report.guildId);
@@ -61,6 +76,18 @@ async function dispatchReport({
     }
 
     channelId = route.channel_id;
+
+    const mentions = [];
+
+    if (route.pokemon_role_id) {
+      mentions.push(`<@&${route.pokemon_role_id}>`);
+    }
+
+    if (route.rarity_role_id) {
+      mentions.push(`<@&${route.rarity_role_id}>`);
+    }
+
+    content = mentions.join(' ');
   }
 
   // ──────────────────────────────
@@ -84,6 +111,7 @@ async function dispatchReport({
   // POST TO DISCORD
   // ──────────────────────────────
   await channel.send({
+    content: content || undefined,
     files: [{ attachment: buffer, name: filename }],
     components
   });
