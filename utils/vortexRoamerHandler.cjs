@@ -10,7 +10,7 @@ const {
 } = require("./reportChannelRouter.cjs");
 
 /**
- * Normalizes a Pokémon/roamer name into your env key format:
+ * Normalizes a Pokémon/roamer name into env role format
  * ROLE_POKEMON_<NORMALIZED>
  */
 function getPokemonRoleEnvKey(roamerName) {
@@ -24,10 +24,19 @@ function getPokemonRoleEnvKey(roamerName) {
   return `ROLE_POKEMON_${normalized}`;
 }
 
+/**
+ * Discord snowflake validation
+ */
 function isValidSnowflake(id) {
   return typeof id === "string" && /^[0-9]{17,20}$/.test(id);
 }
 
+/**
+ * Handles a single Vortex roamer entry
+ * OPTION B:
+ * - Main guild uses env-based roles
+ * - Subscribers use DB routing
+ */
 async function handleVortexRoamer(client, roamer) {
   if (!client) {
     console.warn("⚠ Vortex handler called without client");
@@ -42,21 +51,30 @@ async function handleVortexRoamer(client, roamer) {
   } = roamer;
 
   const ign = String(found_by_username || "").trim();
-  if (!ign) return;
+  if (!ign) {
+    console.warn("⚠ Vortex roamer missing IGN, skipping:", roamer_name);
+    return;
+  }
 
   // ──────────────────────────────
   // DB DEDUP (AUTHORITATIVE)
   // ──────────────────────────────
-  if (await db.hasVortexRoamer(roamer_name, time_found)) return;
+  const exists = await db.hasVortexRoamer(roamer_name, time_found);
+  if (exists) return;
+
   await db.insertVortexRoamer(roamer_name, time_found);
 
-  // Ensure IGN identity
+  // ──────────────────────────────
+  // ENSURE IGN IDENTITY
+  // ──────────────────────────────
   await db.ensureIgnProfileExists(ign);
 
-  // Optional report card prefs
+  // ──────────────────────────────
+  // OPTIONAL CARD PREFS (IGN → DISCORD)
+  // ──────────────────────────────
   let reportCardPrefs = null;
-  const linkedPlayer = await db.getPlayerByIgn(ign);
 
+  const linkedPlayer = await db.getPlayerByIgn(ign);
   if (
     linkedPlayer &&
     linkedPlayer.discord_id &&
@@ -85,16 +103,16 @@ async function handleVortexRoamer(client, roamer) {
   const trainerRank = getRankName(updated?.lifetime_points || 0);
 
   // ──────────────────────────────
-  // EXPIRY
+  // EXPIRY WINDOW
   // ──────────────────────────────
   const expiresAt = new Date(now);
   expiresAt.setMinutes(59, 59, 999);
-  const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
 
+  const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
   const reportId = `vortex_${Date.now()}`;
 
   // ──────────────────────────────
-  // RENDER CARD (ONCE)
+  // RENDER REPORT CARD (ONCE)
   // ──────────────────────────────
   const cardPath = await createReportCard({
     reportType: "encounter",
@@ -134,8 +152,8 @@ async function handleVortexRoamer(client, roamer) {
   });
 
   // ──────────────────────────────
-  // MAIN GUILD ROLE LOGIC (ENV-BASED)
-  // SUBSCRIBERS USE DB ROUTER
+  // MAIN GUILD ROLE LOGIC (ENV)
+  // SUBSCRIBERS USE ROUTER
   // ──────────────────────────────
   const pokemonEnvKey = getPokemonRoleEnvKey(roamer_name);
   const pokemonRoleIdRaw = process.env[pokemonEnvKey] || null;
@@ -164,15 +182,24 @@ async function handleVortexRoamer(client, roamer) {
       rarityKey,
       pokemonKey: roamer_name
     },
-    renderCard: async () => cardPath,
+
+    // ✅ FIX: return Discord-valid attachment object
+    renderCard: async () => ({
+      attachment: cardPath
+    }),
+
     components: [],
+
+    // Option B: env-based roles ONLY for main guild
     overrideMainGuildMentions: {
       content: mainGuildMentions.map(id => `<@&${id}>`).join(" "),
       allowedMentions: { roles: mainGuildMentions }
     }
   });
 
-  console.log(`🛰️ Vortex card dispatched: ${roamer_name} (${rarityKey})`);
+  console.log(
+    `🛰️ Vortex card dispatched: ${roamer_name} (${rarityKey})`
+  );
 }
 
 module.exports = { handleVortexRoamer };
