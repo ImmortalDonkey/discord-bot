@@ -27,7 +27,7 @@ async function dispatchReport({
     return;
   }
 
-  const mainGuildId = process.env.MAIN_GUILD_ID;
+  const mainGuildId = process.env.GUILD_ID;
   let channelId = null;
 
   // ──────────────────────────────
@@ -35,10 +35,13 @@ async function dispatchReport({
   // ──────────────────────────────
   if (report.guildId === mainGuildId) {
     channelId =
-      process.env[`REPORT_CHANNEL_${report.rarityKey.toUpperCase()}`];
+      process.env[`CHANNEL_${report.rarityKey.toUpperCase()}`];
 
     if (!channelId) {
-      console.warn('⚠ No routing target for MAIN report:', report);
+      console.warn(
+        '⚠ No routing target for MAIN report:',
+        report
+      );
       return;
     }
   }
