@@ -1,101 +1,54 @@
 /**
  * utils/reportDispatcher.cjs
  *
- * Handles dispatching of Vortex auto roamer reports.
+ * Central dispatcher for Vortex roamers.
  */
 
-const fs = require('fs');
-const path = require('path');
-const { AttachmentBuilder } = require('discord.js');
+const { handleVortexRoamer } = require('./vortexRoamerHandler.cjs');
 
-const db = require('../database.cjs');
-const { renderReportCard } = require('../renderers/reportCard.cjs');
-
-/**
- * Dispatch a Vortex roamer report
- * @param {Client} client
- * @param {Object} roamer
- */
-async function handleVortexRoamer(client, roamer) {
-  try {
-    if (!roamer) {
-      console.warn('⚠ handleVortexRoamer called without roamer');
-      return;
-    }
-
-    const {
-      roamer_name,
-      rarity,
-      time_found
-    } = roamer;
-
-    if (!roamer_name || !rarity || !time_found) {
-      console.warn('⚠ Invalid roamer payload:', roamer);
-      return;
-    }
-
-    console.log(`🛰️ Handling Vortex roamer: ${roamer_name} (${rarity})`);
-
-    // ──────────────────────────────
-    // Resolve channel
-    // ──────────────────────────────
-    const channelId = await db.getReportChannelId(rarity);
-
-    if (!channelId) {
-      console.warn(`⚠ No report channel configured for rarity: ${rarity}`);
-      return;
-    }
-
-    const channel = await client.channels.fetch(channelId).catch(() => null);
-
-    if (!channel) {
-      console.warn(`⚠ Could not resolve channel ${channelId}`);
-      return;
-    }
-
-    console.log(`📍 Posting to channel: ${channel.name}`);
-
-    // ──────────────────────────────
-    // Render report card
-    // ──────────────────────────────
-    const imagePath = await renderReportCard({
-      source: 'vortex',
-      pokemon: roamer_name,
-      rarity,
-      time_found
-    });
-
-    if (!imagePath || !fs.existsSync(imagePath)) {
-      console.error('❌ Report card render failed');
-      return;
-    }
-
-    const attachment = new AttachmentBuilder(imagePath);
-
-    // ──────────────────────────────
-    // Send message
-    // ──────────────────────────────
-    const message = await channel.send({
-      content: `🛰️ **${roamer_name}** has appeared!`,
-      files: [attachment]
-    });
-
-    console.log(`✅ Vortex card posted: ${roamer_name} (${rarity})`);
-
-    // ──────────────────────────────
-    // Persist message reference
-    // ──────────────────────────────
-    await db.insertReportMessage({
-      report_id: `vortex_${time_found}`,
-      channel_id: channel.id,
-      message_id: message.id
-    });
-
-  } catch (err) {
-    console.error('❌ handleVortexRoamer failed:', err);
+async function dispatchVortexRoamer(client, roamer) {
+  if (!client) {
+    console.warn('⚠ Dispatcher called without client');
+    return;
   }
+
+  if (!roamer || !roamer.roamer_name) {
+    console.warn('⚠ Invalid roamer payload (missing name):', roamer);
+    return;
+  }
+
+  // ──────────────────────────────
+  // NORMALISE TIMESTAMP (CRITICAL)
+  // ──────────────────────────────
+  let time_found =
+    typeof roamer._timeFoundMs === 'number'
+      ? roamer._timeFoundMs
+      : roamer.time_found;
+
+  if (typeof time_found === 'string') {
+    const parsed = Date.parse(time_found.replace(' ', 'T'));
+    if (!Number.isNaN(parsed)) {
+      time_found = parsed;
+    }
+  }
+
+  if (!time_found || typeof time_found !== 'number') {
+    console.warn(
+      '⚠ Invalid roamer payload (no usable timestamp):',
+      roamer
+    );
+    return;
+  }
+
+  // Attach canonical timestamp for downstream consumers
+  roamer._timeFoundMs = time_found;
+
+  // ──────────────────────────────
+  // HAND OFF TO HANDLER
+  // ──────────────────────────────
+  return handleVortexRoamer(client, roamer);
 }
 
 module.exports = {
-  handleVortexRoamer
+  dispatchVortexRoamer
 };
