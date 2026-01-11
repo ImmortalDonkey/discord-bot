@@ -3,9 +3,20 @@
  *
  * Responsible for POSTING reports to Discord.
  * This is the ONLY file that should call channel.send().
+ *
+ * Routing rules (LOCKED):
+ * - MAIN guild → env-based rarity routing
+ * - Subscriber guilds → DB-based single-channel routing
  */
 
-async function dispatchReport({ client, report, renderCard, components = [] }) {
+const db = require('../database.cjs');
+
+async function dispatchReport({
+  client,
+  report,
+  renderCard,
+  components = []
+}) {
   if (!client) {
     console.warn('⚠ dispatchReport called without client');
     return;
@@ -16,18 +27,46 @@ async function dispatchReport({ client, report, renderCard, components = [] }) {
     return;
   }
 
-  // ──────────────────────────────
-  // ROUTING (MAIN GUILD)
-  // ──────────────────────────────
-  const guildId = process.env.MAIN_GUILD_ID;
-  const channelId = process.env[`REPORT_CHANNEL_${report.rarityKey.toUpperCase()}`];
+  const mainGuildId = process.env.MAIN_GUILD_ID;
+  let channelId = null;
 
-  if (!guildId || !channelId) {
-    console.warn('⚠ No routing target for report:', report);
-    return;
+  // ──────────────────────────────
+  // MAIN GUILD → ENV ROUTING
+  // ──────────────────────────────
+  if (report.guildId === mainGuildId) {
+    channelId =
+      process.env[`REPORT_CHANNEL_${report.rarityKey.toUpperCase()}`];
+
+    if (!channelId) {
+      console.warn('⚠ No routing target for MAIN report:', report);
+      return;
+    }
   }
 
-  const channel = await client.channels.fetch(channelId).catch(() => null);
+  // ──────────────────────────────
+  // SUBSCRIBER GUILDS → DB ROUTING
+  // ──────────────────────────────
+  else {
+    const route = await db.getSubscriberRoute(report.guildId);
+
+    if (!route || !route.channel_id) {
+      console.warn(
+        '⚠ No routing target for subscriber report:',
+        report
+      );
+      return;
+    }
+
+    channelId = route.channel_id;
+  }
+
+  // ──────────────────────────────
+  // FETCH CHANNEL
+  // ──────────────────────────────
+  const channel = await client.channels
+    .fetch(channelId)
+    .catch(() => null);
+
   if (!channel) {
     console.warn('⚠ Failed to fetch channel:', channelId);
     return;
@@ -52,7 +91,8 @@ async function dispatchReport({ client, report, renderCard, components = [] }) {
 }
 
 /**
- * Vortex entry point (used ONLY by watcher/adapter)
+ * Vortex entry point
+ * Used ONLY by roamerWatcher → reportDispatchAdapter
  */
 async function dispatchVortexRoamer(client, roamer) {
   const { handleVortexRoamer } = require('./vortexRoamerHandler.cjs');
