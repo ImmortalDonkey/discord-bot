@@ -14,16 +14,6 @@ INSTRUCTIONS:
 SERVER DETAILS
 --------------------------------------------------
 
-guild_id:
-report_channel_id:
-
---------------------------------------------------
-GLOBAL SUBSCRIBER ROLE (OPTIONAL)
-(ping on every report)
---------------------------------------------------
-
-subscriber_role_id:
-
 --------------------------------------------------
 RARITY ROLES
 (per-rarity pings)
