@@ -12,14 +12,28 @@
 const db = require('../database.cjs');
 
 /**
- * Normalise Pokémon names to ENV-safe keys
+ * Normalise Pokémon names to ENV-safe keys (MAIN GUILD ONLY)
  */
-function normalizePokemonKey(name) {
+function normalizePokemonKeyEnv(name) {
   return String(name || '')
     .toUpperCase()
-    .replace(/[()]/g, '')
-    .replace(/\s+/g, '_')
-    .replace(/__+/g, '_');
+    .replace(/[()']/g, '')
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+/**
+ * Normalise keys to DB-safe format (SUBSCRIBER GUILDS)
+ * Used for BOTH Pokémon and rarity keys
+ */
+function normalizeDbKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[()']/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
 }
 
 async function postToGuild({
@@ -76,13 +90,13 @@ async function dispatchReport({
   const mainGuildId = process.env.GUILD_ID;
 
   // ──────────────────────────────
-  // MAIN GUILD
+  // MAIN GUILD (ENV)
   // ──────────────────────────────
   const mainChannelId =
     process.env[`CHANNEL_${report.rarityKey.toUpperCase()}`];
 
   if (mainChannelId) {
-    const pokemonKeyEnv = normalizePokemonKey(report.pokemonKey);
+    const pokemonKeyEnv = normalizePokemonKeyEnv(report.pokemonKey);
 
     await postToGuild({
       client,
@@ -97,17 +111,34 @@ async function dispatchReport({
   }
 
   // ──────────────────────────────
-  // SUBSCRIBER GUILDS (FAN-OUT)
+  // SUBSCRIBER GUILDS (DB FAN-OUT)
   // ──────────────────────────────
   const subscribers = await db.getSubscriberGuilds();
 
   for (const g of subscribers) {
-    // 🔧 FIX: DO NOT normalize DB lookup keys
-    const pokemonRole =
-      await db.getGuildPokemonRole(g.guild_id, report.pokemonKey);
+    // ── Pokémon role lookup (raw → normalized)
+    const rawPokemonKey = report.pokemonKey;
+    const normalizedPokemonKey = normalizeDbKey(rawPokemonKey);
 
-    const rarityRole =
-      await db.getGuildRarityRole(g.guild_id, report.rarityKey);
+    let pokemonRole =
+      await db.getGuildPokemonRole(g.guild_id, rawPokemonKey);
+
+    if (!pokemonRole && normalizedPokemonKey !== rawPokemonKey) {
+      pokemonRole =
+        await db.getGuildPokemonRole(g.guild_id, normalizedPokemonKey);
+    }
+
+    // ── Rarity role lookup (raw → normalized)
+    const rawRarityKey = report.rarityKey;
+    const normalizedRarityKey = normalizeDbKey(rawRarityKey);
+
+    let rarityRole =
+      await db.getGuildRarityRole(g.guild_id, rawRarityKey);
+
+    if (!rarityRole && normalizedRarityKey !== rawRarityKey) {
+      rarityRole =
+        await db.getGuildRarityRole(g.guild_id, normalizedRarityKey);
+    }
 
     await postToGuild({
       client,
