@@ -165,7 +165,7 @@ module.exports = {
 
       if (imagePath && fs.existsSync(imagePath)) {
         const name = path.basename(imagePath);
-        embed.setImage(`attachment://${name}`);
+        embed.setImage({ url: `attachment://${name}` });
         files.push({ attachment: imagePath, name });
       }
 
@@ -215,7 +215,7 @@ module.exports = {
             .setColor(0x1f2937);
 
           if (file) {
-            embed.setImage(`attachment://${file.name}`);
+            embed.setImage({ url: `attachment://${file.name}` });
             files.push(file);
           }
 
