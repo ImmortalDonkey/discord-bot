@@ -1,48 +1,46 @@
+// utils/reportChannelRouter.cjs
+
 const db = require('../database.cjs');
 
 /**
- * Normalize Pokémon names to canonical keys
- * MUST match:
- * - ENV role keys
- * - DB guild_pokemon_roles.pokemon_key
+ * Normalize Pokémon names to DB-safe keys
+ * MUST match database + ENV format
  *
  * Examples:
- *  "Ancient Gengar"  → ANCIENT_GENGAR
- *  "Zygarde (Cell)"  → ZYGARDE_CELL
+ *  "Zygarde (Cell)"      → zygarde_cell
+ *  "Ancient Gengar"     → ancient_gengar
+ *  "Gimmighoul (Roaming)" → gimmighoul_roaming
  */
 function normalizePokemonKey(name) {
   return String(name || '')
-    .toUpperCase()
+    .toLowerCase()
     .replace(/[()]/g, '')
     .replace(/\s+/g, '_')
-    .replace(/__+/g, '_');
+    .replace(/__+/g, '_')
+    .trim();
 }
 
 /**
  * ──────────────────────────────
  * LEGACY HELPERS (MAIN GUILD)
  * ──────────────────────────────
- * DO NOT REMOVE
+ * REQUIRED for backward compatibility
  */
 
 /**
  * MAIN GUILD: rarity → channel (env)
- * Example: CHANNEL_LEGENDARY
  */
 function getChannelForRarity(rarityKey) {
   if (!rarityKey) return null;
-  const envKey = `CHANNEL_${rarityKey.toUpperCase()}`;
-  return process.env[envKey] || null;
+  return process.env[`CHANNEL_${rarityKey.toUpperCase()}`] || null;
 }
 
 /**
  * MAIN GUILD: rarity → role (env)
- * Example: ROLE_LEGENDARY
  */
 function getRoleForRarity(rarityKey) {
   if (!rarityKey) return null;
-  const envKey = `ROLE_${rarityKey.toUpperCase()}`;
-  return process.env[envKey] || null;
+  return process.env[`ROLE_${rarityKey.toUpperCase()}`] || null;
 }
 
 /**
@@ -59,10 +57,7 @@ async function getReportRouting({
   // ──────────────────────────────
   // SUBSCRIBER GUILD (DB-BASED)
   // ──────────────────────────────
-  const subscriber =
-    typeof db.getSubscriberGuild === 'function'
-      ? await db.getSubscriberGuild(guildId)
-      : null;
+  const subscriber = await db.getSubscriberGuild?.(guildId);
 
   if (subscriber && subscriber.enabled && subscriber.report_channel_id) {
     const wrongChannel =
@@ -70,17 +65,17 @@ async function getReportRouting({
       currentChannelId !== subscriber.report_channel_id;
 
     const rarityRoleRow =
-      typeof db.getGuildRarityRole === 'function'
-        ? await db.getGuildRarityRole(guildId, rarityKey)
-        : null;
+      await db.getGuildRarityRole?.(guildId, rarityKey);
 
     const normalizedPokemonKey =
       pokemonKey ? normalizePokemonKey(pokemonKey) : null;
 
     const pokemonRoleRow =
-      normalizedPokemonKey &&
-      typeof db.getGuildPokemonRole === 'function'
-        ? await db.getGuildPokemonRole(guildId, normalizedPokemonKey)
+      normalizedPokemonKey
+        ? await db.getGuildPokemonRole?.(
+            guildId,
+            normalizedPokemonKey
+          )
         : null;
 
     console.log('[ROUTING][SUBSCRIBER]', {
@@ -124,16 +119,16 @@ async function getReportRouting({
   return {
     channelId,
     rarityRoleId,
-    pokemonRoleId: null,
+    pokemonRoleId: null, // main guild unchanged
     wrongChannel
   };
 }
 
 module.exports = {
-  // ✅ Legacy exports
+  // Legacy exports (DO NOT REMOVE)
   getChannelForRarity,
   getRoleForRarity,
 
-  // ✅ Unified router
+  // Unified router
   getReportRouting
 };
