@@ -13,10 +13,6 @@ const db = require('../database.cjs');
 
 /**
  * Normalise Pokémon names to ENV-safe keys
- * Examples:
- *  "Cyclizar"         → CYCLIZAR
- *  "Ancient Gengar"  → ANCIENT_GENGAR
- *  "Zygarde (Cell)"  → ZYGARDE_CELL
  */
 function normalizePokemonKey(name) {
   return String(name || '')
@@ -54,7 +50,6 @@ async function postToGuild({
     components
   });
 
-  // 🔒 CRITICAL: persist message mapping
   await db.addReportMessageMapping({
     reportId: report.id,
     guildId,
@@ -87,20 +82,18 @@ async function dispatchReport({
     process.env[`CHANNEL_${report.rarityKey.toUpperCase()}`];
 
   if (mainChannelId) {
-    const pokemonKey = normalizePokemonKey(report.pokemonKey);
+    const pokemonKeyEnv = normalizePokemonKey(report.pokemonKey);
 
     await postToGuild({
       client,
       guildId: mainGuildId,
       channelId: mainChannelId,
-      pokemonRoleId: process.env[`ROLE_POKEMON_${pokemonKey}`],
+      pokemonRoleId: process.env[`ROLE_POKEMON_${pokemonKeyEnv}`],
       rarityRoleId: process.env[`ROLE_${report.rarityKey.toUpperCase()}`],
       report,
       renderCard,
       components
     });
-  } else {
-    console.warn('⚠ No routing target for MAIN report:', report);
   }
 
   // ──────────────────────────────
@@ -109,8 +102,9 @@ async function dispatchReport({
   const subscribers = await db.getSubscriberGuilds();
 
   for (const g of subscribers) {
+    // 🔧 FIX: DO NOT normalize DB lookup keys
     const pokemonRole =
-      await db.getGuildPokemonRole(g.guild_id, normalizePokemonKey(report.pokemonKey));
+      await db.getGuildPokemonRole(g.guild_id, report.pokemonKey);
 
     const rarityRole =
       await db.getGuildRarityRole(g.guild_id, report.rarityKey);
@@ -130,7 +124,6 @@ async function dispatchReport({
 
 /**
  * Vortex entry point
- * Used ONLY by roamerWatcher → reportDispatchAdapter
  */
 async function dispatchVortexRoamer(client, roamer) {
   const { handleVortexRoamer } = require('./vortexRoamerHandler.cjs');
