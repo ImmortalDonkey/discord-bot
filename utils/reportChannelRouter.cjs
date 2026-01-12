@@ -1,16 +1,28 @@
-// utils/reportChannelRouter.cjs
-
 const db = require('../database.cjs');
+
+/**
+ * Normalize Pokémon names to canonical keys
+ * MUST match:
+ * - ENV role keys
+ * - DB guild_pokemon_roles.pokemon_key
+ *
+ * Examples:
+ *  "Ancient Gengar"  → ANCIENT_GENGAR
+ *  "Zygarde (Cell)"  → ZYGARDE_CELL
+ */
+function normalizePokemonKey(name) {
+  return String(name || '')
+    .toUpperCase()
+    .replace(/[()]/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/__+/g, '_');
+}
 
 /**
  * ──────────────────────────────
  * LEGACY HELPERS (MAIN GUILD)
  * ──────────────────────────────
- * These are REQUIRED by:
- * - Vortex auto report handler
- * - Any legacy utilities
- *
- * DO NOT REMOVE — migration-safe exports
+ * DO NOT REMOVE
  */
 
 /**
@@ -37,18 +49,6 @@ function getRoleForRarity(rarityKey) {
  * ──────────────────────────────
  * UNIFIED ROUTER (MAIN + SUBSCRIBERS)
  * ──────────────────────────────
- *
- * Returns:
- * {
- *   channelId,
- *   rarityRoleId,
- *   pokemonRoleId,
- *   wrongChannel
- * }
- *
- * Priority:
- * 1. Subscriber guild override (DB)
- * 2. Main guild env routing
  */
 async function getReportRouting({
   guildId,
@@ -74,15 +74,19 @@ async function getReportRouting({
         ? await db.getGuildRarityRole(guildId, rarityKey)
         : null;
 
+    const normalizedPokemonKey =
+      pokemonKey ? normalizePokemonKey(pokemonKey) : null;
+
     const pokemonRoleRow =
-      pokemonKey && typeof db.getGuildPokemonRole === 'function'
-        ? await db.getGuildPokemonRole(guildId, pokemonKey)
+      normalizedPokemonKey &&
+      typeof db.getGuildPokemonRole === 'function'
+        ? await db.getGuildPokemonRole(guildId, normalizedPokemonKey)
         : null;
 
     console.log('[ROUTING][SUBSCRIBER]', {
       guildId,
       rarityKey,
-      pokemonKey,
+      pokemonKey: normalizedPokemonKey,
       channelId: subscriber.report_channel_id,
       rarityRoleId: rarityRoleRow?.role_id || null,
       pokemonRoleId: pokemonRoleRow?.role_id || null,
@@ -120,13 +124,13 @@ async function getReportRouting({
   return {
     channelId,
     rarityRoleId,
-    pokemonRoleId: null, // main guild unchanged
+    pokemonRoleId: null,
     wrongChannel
   };
 }
 
 module.exports = {
-  // ✅ Legacy exports (DO NOT REMOVE)
+  // ✅ Legacy exports
   getChannelForRarity,
   getRoleForRarity,
 
