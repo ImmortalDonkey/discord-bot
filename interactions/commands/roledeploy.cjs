@@ -14,7 +14,6 @@
 
 const {
   SlashCommandBuilder,
-  EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle
@@ -61,10 +60,7 @@ function getSpriteFileFromKey(pokemonKey) {
 
   const direct = path.join(SPRITES_DIR, `${display}.png`);
   if (fs.existsSync(direct)) {
-    return {
-      attachment: direct,
-      name: `${display}.png`
-    };
+    return { attachment: direct, name: `${display}.png` };
   }
 
   const files = fs.readdirSync(SPRITES_DIR);
@@ -73,15 +69,12 @@ function getSpriteFileFromKey(pokemonKey) {
   );
 
   return found
-    ? {
-        attachment: path.join(SPRITES_DIR, found),
-        name: found
-      }
+    ? { attachment: path.join(SPRITES_DIR, found), name: found }
     : null;
 }
 
 // ──────────────────────────────
-// RARITY GROUP IMAGES
+// RARITY GROUP IMAGES (LOCKED)
 // ──────────────────────────────
 const RARITY_IMAGES = {
   paradox: '/home/pi/discord-bot/sprites/Walking Wake.png',
@@ -99,6 +92,7 @@ module.exports = {
     .setDescription('Deploy the roamer notification role panel'),
 
   async execute(client, interaction) {
+    // Staff check
     if (!hasStaffRole(interaction.member)) {
       return interaction.reply({
         content: '❌ You do not have permission to use this command.',
@@ -119,17 +113,20 @@ module.exports = {
       return interaction.editReply('❌ Role panel channel not found.');
     }
 
-    // Clear channel
+    // Clear channel (best effort)
     try {
       const msgs = await channel.messages.fetch({ limit: 100 });
       if (msgs.size) await channel.bulkDelete(msgs, true).catch(() => {});
     } catch {}
 
-    // Intro
-    const intro = new EmbedBuilder()
-      .setTitle('🔔 Roamer Notification Preferences')
-      .setDescription(
-        [
+    // ──────────────────────────────
+    // INTRO
+    // ──────────────────────────────
+    await channel.send({
+      embeds: [{
+        title: '🔔 Roamer Notification Preferences',
+        color: 0xf59e0b,
+        description: [
           'Use this channel to choose which roaming Pokémon notifications you want to receive.',
           '',
           '• Select **rarity groups** to get all Pokémon of that rarity',
@@ -137,11 +134,7 @@ module.exports = {
           '',
           'You can change your preferences at any time.'
         ].join('\n')
-      )
-      .setColor(0xf59e0b);
-
-    await channel.send({
-      embeds: [intro],
+      }],
       components: [
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -152,20 +145,22 @@ module.exports = {
       ]
     });
 
-    // Rarity groups
+    // ──────────────────────────────
+    // RARITY GROUP PANELS
+    // ──────────────────────────────
     for (const r of rolesConfig.rarityRoles) {
       const rarityKey = r.env.replace(/^ROLE_/, '').toLowerCase();
       const imagePath = RARITY_IMAGES[rarityKey];
 
-      const embed = new EmbedBuilder()
-        .setTitle(r.label)
-        .setColor(0x64748b);
-
       const files = [];
+      const embed = {
+        title: r.label,
+        color: 0x64748b
+      };
 
       if (imagePath && fs.existsSync(imagePath)) {
         const name = path.basename(imagePath);
-        embed.setImage({ url: `attachment://${name}` });
+        embed.image = { url: `attachment://${name}` };
         files.push({ attachment: imagePath, name });
       }
 
@@ -187,7 +182,9 @@ module.exports = {
       });
     }
 
-    // Individual Pokémon (3 per message)
+    // ──────────────────────────────
+    // INDIVIDUAL POKÉMON (3 PER MESSAGE)
+    // ──────────────────────────────
     const orderedGroups = [
       'roamerMonth',
       'paradox',
@@ -210,12 +207,13 @@ module.exports = {
           const key = envToPokemonKey(p.env);
           const file = getSpriteFileFromKey(key);
 
-          const embed = new EmbedBuilder()
-            .setTitle(p.label)
-            .setColor(0x1f2937);
+          const embed = {
+            title: p.label,
+            color: 0x1f2937
+          };
 
           if (file) {
-            embed.setImage({ url: `attachment://${file.name}` });
+            embed.image = { url: `attachment://${file.name}` };
             files.push(file);
           }
 
@@ -235,7 +233,11 @@ module.exports = {
           );
         }
 
-        await channel.send({ embeds, files, components: rows });
+        await channel.send({
+          embeds,
+          files,
+          components: rows
+        });
       }
     }
 
