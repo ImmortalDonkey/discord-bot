@@ -24,7 +24,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ──────────────────────────────
-// ENV (EXISTING KEYS)
+// ENV
 // ──────────────────────────────
 const PANEL_CHANNEL_ID = process.env.CHANNEL_ROLES;
 
@@ -34,21 +34,26 @@ const STAFF_ROLES = (process.env.STAFF_ROLES || '')
   .filter(Boolean);
 
 // ──────────────────────────────
-// LOCAL SPRITES (PI)
+// LOCAL SPRITES
 // ──────────────────────────────
 const SPRITES_DIR = path.join(__dirname, '..', '..', 'sprites');
 
 // ──────────────────────────────
-// DATA (INDIVIDUAL POKÉMON)
+// ROLES CONFIG (SOURCE OF TRUTH)
 // ──────────────────────────────
-const { getPokemonByRarity } =
-  require('../../utils/roleData.cjs');
+const rolesConfig = require('../../utils/rolesConfig.cjs');
 
 // ──────────────────────────────
 // HELPERS
 // ──────────────────────────────
 function hasStaffRole(member) {
   return STAFF_ROLES.some(id => member.roles.cache.has(id));
+}
+
+function envToPokemonKey(env) {
+  return env
+    .replace(/^ROLE_POKEMON_/, '')
+    .toLowerCase();
 }
 
 function getSpritePathFromKey(pokemonKey) {
@@ -70,30 +75,14 @@ function getSpritePathFromKey(pokemonKey) {
 }
 
 // ──────────────────────────────
-// HARD-LOCKED RARITY GROUPS (WITH IMAGES)
+// HARD-LOCKED RARITY GROUP IMAGES
 // ──────────────────────────────
-const RARITY_GROUPS = [
-  {
-    key: 'paradox',
-    label: 'Paradox',
-    imagePath: '/home/pi/discord-bot/sprites/Walking Wake.png'
-  },
-  {
-    key: 'roamerMonth',
-    label: 'Roamer of the Month',
-    imagePath: '/home/pi/discord-bot/sprites/Rayquaza (Illusion).png'
-  },
-  {
-    key: 'legendary',
-    label: 'Legendary',
-    imagePath: '/home/pi/discord-bot/sprites/Entei.png'
-  },
-  {
-    key: 'common',
-    label: 'Common',
-    imagePath: '/home/pi/discord-bot/sprites/Bombirdier.png'
-  }
-];
+const RARITY_IMAGES = {
+  paradox: '/home/pi/discord-bot/sprites/Walking Wake.png',
+  roamerMonth: '/home/pi/discord-bot/sprites/Rayquaza (Illusion).png',
+  legendary: '/home/pi/discord-bot/sprites/Entei.png',
+  common: '/home/pi/discord-bot/sprites/Bombirdier.png'
+};
 
 // ──────────────────────────────
 // COMMAND
@@ -157,64 +146,69 @@ module.exports = {
       )
       .setColor(0xf59e0b);
 
-    const clearRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('role:clear_all')
-        .setLabel('Clear all')
-        .setStyle(ButtonStyle.Danger)
-    );
-
     await channel.send({
       embeds: [intro],
-      components: [clearRow]
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('role:clear_all')
+            .setLabel('Clear all')
+            .setStyle(ButtonStyle.Danger)
+        )
+      ]
     });
 
     // ──────────────────────────────
-    // RARITY GROUP PANELS (WITH IMAGES)
+    // RARITY GROUP PANELS
     // ──────────────────────────────
-    for (const r of RARITY_GROUPS) {
+    for (const r of rolesConfig.rarityRoles) {
+      const rarityKey = r.env.replace(/^ROLE_/, '').toLowerCase();
+      const imagePath = RARITY_IMAGES[rarityKey];
+
       const embed = new EmbedBuilder()
         .setTitle(r.label)
         .setColor(0x64748b);
 
       const files = [];
 
-      if (fs.existsSync(r.imagePath)) {
-        embed.setImage(`attachment://${path.basename(r.imagePath)}`);
-        files.push(r.imagePath);
+      if (imagePath && fs.existsSync(imagePath)) {
+        embed.setImage(`attachment://${path.basename(imagePath)}`);
+        files.push(imagePath);
       }
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`role:rarity:${r.key}:on`)
-          .setLabel('ON')
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(`role:rarity:${r.key}:off`)
-          .setLabel('OFF')
-          .setStyle(ButtonStyle.Secondary)
-      );
 
       await channel.send({
         embeds: [embed],
         files,
-        components: [row]
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`role:rarity:${rarityKey}:on`)
+              .setLabel('ON')
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId(`role:rarity:${rarityKey}:off`)
+              .setLabel('OFF')
+              .setStyle(ButtonStyle.Secondary)
+          )
+        ]
       });
     }
 
     // ──────────────────────────────
     // INDIVIDUAL POKÉMON (3 PER MESSAGE)
     // ──────────────────────────────
-    const orderedRarities = [
-      'paradox',
+    const orderedGroups = [
       'roamerMonth',
+      'paradox',
       'legendary',
       'rare',
       'common'
     ];
 
-    for (const rarity of orderedRarities) {
-      const pokemon = await getPokemonByRarity(rarity);
+    for (const group of orderedGroups) {
+      const pokemon = rolesConfig.pokemonRoles.filter(
+        p => p.group === group
+      );
 
       for (let i = 0; i < pokemon.length; i += 3) {
         const chunk = pokemon.slice(i, i + 3);
@@ -224,10 +218,11 @@ module.exports = {
         const rows = [];
 
         for (const p of chunk) {
-          const spritePath = getSpritePathFromKey(p.key);
+          const key = envToPokemonKey(p.env);
+          const spritePath = getSpritePathFromKey(key);
 
           const embed = new EmbedBuilder()
-            .setTitle(p.name)
+            .setTitle(p.label)
             .setColor(0x1f2937);
 
           if (spritePath) {
@@ -240,11 +235,11 @@ module.exports = {
           rows.push(
             new ActionRowBuilder().addComponents(
               new ButtonBuilder()
-                .setCustomId(`role:pokemon:${p.key}:on`)
+                .setCustomId(`role:pokemon:${key}:on`)
                 .setLabel('ON')
                 .setStyle(ButtonStyle.Success),
               new ButtonBuilder()
-                .setCustomId(`role:pokemon:${p.key}:off`)
+                .setCustomId(`role:pokemon:${key}:off`)
                 .setLabel('OFF')
                 .setStyle(ButtonStyle.Secondary)
             )
