@@ -51,31 +51,37 @@ function hasStaffRole(member) {
 }
 
 function envToPokemonKey(env) {
-  return env
-    .replace(/^ROLE_POKEMON_/, '')
-    .toLowerCase();
+  return env.replace(/^ROLE_POKEMON_/, '').toLowerCase();
 }
 
-function getSpritePathFromKey(pokemonKey) {
-  if (!pokemonKey) return null;
-
+function getSpriteFileFromKey(pokemonKey) {
   const display = pokemonKey
     .replace(/_/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase());
 
   const direct = path.join(SPRITES_DIR, `${display}.png`);
-  if (fs.existsSync(direct)) return direct;
+  if (fs.existsSync(direct)) {
+    return {
+      attachment: direct,
+      name: `${display}.png`
+    };
+  }
 
   const files = fs.readdirSync(SPRITES_DIR);
   const found = files.find(f =>
     f.toLowerCase().includes(display.toLowerCase())
   );
 
-  return found ? path.join(SPRITES_DIR, found) : null;
+  return found
+    ? {
+        attachment: path.join(SPRITES_DIR, found),
+        name: found
+      }
+    : null;
 }
 
 // ──────────────────────────────
-// HARD-LOCKED RARITY GROUP IMAGES
+// RARITY GROUP IMAGES
 // ──────────────────────────────
 const RARITY_IMAGES = {
   paradox: '/home/pi/discord-bot/sprites/Walking Wake.png',
@@ -93,9 +99,6 @@ module.exports = {
     .setDescription('Deploy the roamer notification role panel'),
 
   async execute(client, interaction) {
-    // ──────────────────────────────
-    // STAFF CHECK
-    // ──────────────────────────────
     if (!hasStaffRole(interaction.member)) {
       return interaction.reply({
         content: '❌ You do not have permission to use this command.',
@@ -108,9 +111,6 @@ module.exports = {
       ephemeral: true
     });
 
-    // ──────────────────────────────
-    // CHANNEL
-    // ──────────────────────────────
     const channel = await client.channels
       .fetch(PANEL_CHANNEL_ID)
       .catch(() => null);
@@ -119,19 +119,13 @@ module.exports = {
       return interaction.editReply('❌ Role panel channel not found.');
     }
 
-    // ──────────────────────────────
-    // CLEAR CHANNEL (BEST EFFORT)
-    // ──────────────────────────────
+    // Clear channel
     try {
       const msgs = await channel.messages.fetch({ limit: 100 });
-      if (msgs.size) {
-        await channel.bulkDelete(msgs, true).catch(() => {});
-      }
+      if (msgs.size) await channel.bulkDelete(msgs, true).catch(() => {});
     } catch {}
 
-    // ──────────────────────────────
-    // INTRO + CLEAR ALL
-    // ──────────────────────────────
+    // Intro
     const intro = new EmbedBuilder()
       .setTitle('🔔 Roamer Notification Preferences')
       .setDescription(
@@ -158,9 +152,7 @@ module.exports = {
       ]
     });
 
-    // ──────────────────────────────
-    // RARITY GROUP PANELS
-    // ──────────────────────────────
+    // Rarity groups
     for (const r of rolesConfig.rarityRoles) {
       const rarityKey = r.env.replace(/^ROLE_/, '').toLowerCase();
       const imagePath = RARITY_IMAGES[rarityKey];
@@ -172,8 +164,9 @@ module.exports = {
       const files = [];
 
       if (imagePath && fs.existsSync(imagePath)) {
-        embed.setImage(`attachment://${path.basename(imagePath)}`);
-        files.push(imagePath);
+        const name = path.basename(imagePath);
+        embed.setImage(`attachment://${name}`);
+        files.push({ attachment: imagePath, name });
       }
 
       await channel.send({
@@ -194,9 +187,7 @@ module.exports = {
       });
     }
 
-    // ──────────────────────────────
-    // INDIVIDUAL POKÉMON (3 PER MESSAGE)
-    // ──────────────────────────────
+    // Individual Pokémon (3 per message)
     const orderedGroups = [
       'roamerMonth',
       'paradox',
@@ -206,9 +197,7 @@ module.exports = {
     ];
 
     for (const group of orderedGroups) {
-      const pokemon = rolesConfig.pokemonRoles.filter(
-        p => p.group === group
-      );
+      const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
 
       for (let i = 0; i < pokemon.length; i += 3) {
         const chunk = pokemon.slice(i, i + 3);
@@ -219,15 +208,15 @@ module.exports = {
 
         for (const p of chunk) {
           const key = envToPokemonKey(p.env);
-          const spritePath = getSpritePathFromKey(key);
+          const file = getSpriteFileFromKey(key);
 
           const embed = new EmbedBuilder()
             .setTitle(p.label)
             .setColor(0x1f2937);
 
-          if (spritePath) {
-            embed.setImage(`attachment://${path.basename(spritePath)}`);
-            files.push(spritePath);
+          if (file) {
+            embed.setImage(`attachment://${file.name}`);
+            files.push(file);
           }
 
           embeds.push(embed);
@@ -246,11 +235,7 @@ module.exports = {
           );
         }
 
-        await channel.send({
-          embeds,
-          files,
-          components: rows
-        });
+        await channel.send({ embeds, files, components: rows });
       }
     }
 
