@@ -7,6 +7,10 @@ const db = require('../../database.cjs');
 const { getRankName } = require('../../utils/rankSystem.cjs');
 
 module.exports = {
+  // 🚫 MAIN GUILD ONLY
+  // Staff/admin command – NEVER global
+  mainGuildOnly: true,
+
   data: new SlashCommandBuilder()
     .setName('editpoints')
     .setDescription('STAFF: View or edit a player’s points.')
@@ -49,7 +53,8 @@ module.exports = {
     // -------- STAFF CHECK --------
     const allowedRoles = (process.env.STAFF_ROLES || '')
       .split(',')
-      .map(x => x.trim());
+      .map(x => x.trim())
+      .filter(Boolean);
 
     const isStaff = interaction.member.roles.cache.some(r =>
       allowedRoles.includes(r.id)
@@ -86,12 +91,21 @@ module.exports = {
     }
 
     if (
-      ['add_current', 'remove_current', 'set_current',
-       'add_lifetime', 'remove_lifetime',
-       'add_both', 'remove_both'].includes(action)
-      && amount <= 0
+      [
+        'add_current',
+        'remove_current',
+        'set_current',
+        'add_lifetime',
+        'remove_lifetime',
+        'add_both',
+        'remove_both'
+      ].includes(action) &&
+      amount <= 0
     ) {
-      return interaction.reply({ content: '❌ Amount must be greater than 0.', flags: 64 });
+      return interaction.reply({
+        content: '❌ Amount must be greater than 0.',
+        flags: 64
+      });
     }
 
     // -------- MODIFY VALUES --------
@@ -128,14 +142,14 @@ module.exports = {
         break;
     }
 
-    // Save new values ⬇
+    // Save new values
     await db.updateUserPoints(user.id, newCurrent);
     await db.updateLifetimePoints(user.id, newLifetime);
 
-    // Update rank in DB
+    // Update rank
     const rank = getRankName(newLifetime);
     await db.run(
-      `UPDATE points SET rank_name=? WHERE discord_id=?`,
+      `UPDATE points SET rank_name = ? WHERE discord_id = ?`,
       [rank, user.id]
     );
 
@@ -153,6 +167,9 @@ module.exports = {
       )
       .setTimestamp();
 
-    return interaction.reply({ embeds: [embed], flags: 64 });
+    return interaction.reply({
+      embeds: [embed],
+      flags: 64
+    });
   }
 };
