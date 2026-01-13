@@ -23,6 +23,10 @@ const {
 const { getBountyRequestChannel } = require('../../utils/channelResolver.cjs');
 
 module.exports = {
+  // 🚫 MAIN GUILD ONLY
+  // Internal staff workflow command – NEVER global
+  mainGuildOnly: true,
+
   data: new SlashCommandBuilder()
     .setName('bountyrequest')
     .setDescription('Submit a new bounty request')
@@ -144,7 +148,6 @@ module.exports = {
     if (startTimeStr === 'now') {
       startTime = now;
 
-      // Next half-past the hour
       const nextHalf = new Date(now.getTime());
       if (now.getMinutes() < 30) {
         nextHalf.setMinutes(30, 0, 0);
@@ -191,12 +194,12 @@ module.exports = {
     const buttonRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`approvebounty_${bountyId}`)
-        .setLabel("Approve Bounty")
+        .setLabel('Approve Bounty')
         .setStyle(ButtonStyle.Success),
 
       new ButtonBuilder()
         .setCustomId(`denybounty_${bountyId}`)
-        .setLabel("Deny Bounty")
+        .setLabel('Deny Bounty')
         .setStyle(ButtonStyle.Danger)
     );
 
@@ -205,19 +208,19 @@ module.exports = {
     // ------------------------------------------------------------
     const requestMessage = await thread.send({
       content:
-        (process.env.STAFF_ROLES || "")
-          .split(",")
+        (process.env.STAFF_ROLES || '')
+          .split(',')
           .map(id => id.trim())
           .filter(Boolean)
           .map(id => `<@&${id}>`)
-          .join(" ") || "",
+          .join(' ') || '',
       embeds: [
         new EmbedBuilder()
           .setTitle('📝 New Bounty Request')
           .addFields(
             { name: 'Trainer', value: `<@${interaction.user.id}>`, inline: true },
             { name: 'Rarity', value: rarityLabel, inline: true },
-            { name: 'Reward', value: `${reward.toLocaleString()} PKD`, inline: false },
+            { name: 'Reward', value: `${reward.toLocaleString()} PKD` },
             { name: 'Pokémon Targets', value: pokemons.map(p => `• ${p}`).join('\n') },
             {
               name: 'Requested Start',
@@ -230,12 +233,12 @@ module.exports = {
             { name: 'Notes', value: notes },
             {
               name: 'Bounty ID',
-              value: `${bountyId} | <t:${Math.floor(Date.now()/1000)}:t>`
+              value: `${bountyId} | <t:${Math.floor(Date.now() / 1000)}:t>`
             }
           )
           .setTimestamp()
       ],
-      components: [buttonRow]  // ⭐ REQUIRED
+      components: [buttonRow]
     });
 
     // ------------------------------------------------------------
@@ -243,32 +246,15 @@ module.exports = {
     // ------------------------------------------------------------
     await db.run(
       `INSERT INTO bounties (
-        id,
-        guild_id,
-        requester_id,
-        requester_name,
-        pokemons,
-        notes,
-        start_time,
-        end_time,
-        duration_hours,
-        reward,
-        rarity_key,
-        rarity_label,
-        starts_immediately,
-        status,
-        created_at,
-        approved_at,
-        request_thread_id,
-        request_message_id,
-        announcement_channel_id,
-        announcement_message_id,
-        card_channel_id,
-        card_message_id,
-        winner_id,
-        winner_claim_id
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, guild_id, requester_id, requester_name, pokemons, notes,
+        start_time, end_time, duration_hours, reward,
+        rarity_key, rarity_label, starts_immediately, status,
+        created_at, approved_at,
+        request_thread_id, request_message_id,
+        announcement_channel_id, announcement_message_id,
+        card_channel_id, card_message_id,
+        winner_id, winner_claim_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         bountyId,
         guild.id,
