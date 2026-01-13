@@ -1,3 +1,5 @@
+// interactions/commands/reportconfig.cjs
+
 const {
   SlashCommandBuilder,
   EmbedBuilder
@@ -10,6 +12,10 @@ const {
 } = require('../../utils/reportCardPresets.cjs');
 
 module.exports = {
+  // 🌍 SUBSCRIBER SAFE
+  // Global command + instant main guild availability
+  subscriberSafe: true,
+
   data: new SlashCommandBuilder()
     .setName('reportconfig')
     .setDescription('Configure how your report cards look')
