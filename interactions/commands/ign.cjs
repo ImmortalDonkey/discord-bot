@@ -4,6 +4,10 @@ const { SlashCommandBuilder } = require("discord.js");
 const db = require("../../database.cjs");
 
 module.exports = {
+  // 🌍 SUBSCRIBER SAFE
+  // Global command + instant main guild availability
+  subscriberSafe: true,
+
   data: new SlashCommandBuilder()
     .setName("ign")
     .setDescription("Manage your Pokémon IGN (in-game name)")
@@ -74,7 +78,8 @@ module.exports = {
 
       if (!profile || !profile.ign) {
         return interaction.reply({
-          content: "ℹ️ You don’t have an IGN registered yet.\nUse `/ign set <name>` to add one.",
+          content:
+            "ℹ️ You don’t have an IGN registered yet.\nUse `/ign set <name>` to add one.",
           flags: 64
         });
       }
@@ -106,7 +111,8 @@ module.exports = {
       await db.clearPlayerIgn(user.id);
 
       return interaction.reply({
-        content: "🗑️ Your IGN has been cleared. You can set a new one at any time using `/ign set`.",
+        content:
+          "🗑️ Your IGN has been cleared. You can set a new one at any time using `/ign set`.",
         flags: 64
       });
     }
