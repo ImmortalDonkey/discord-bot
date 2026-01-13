@@ -79,6 +79,19 @@ module.exports = {
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
 
+    // ──────────────────────────────
+    // DUPLICATE VALIDATION (DB-BACKED)
+    // SAME RULE AS /report
+    // ──────────────────────────────
+    const existing = await db.findActiveReportThisHour(pokemon, Date.now());
+
+    if (existing) {
+      return interaction.reply({
+        content: `⚠ A report for **${pokemon}** already exists this hour.`,
+        flags: 64
+      });
+    }
+
     await interaction.reply({
       content: "🎨 Rendering report card…",
       flags: 64
@@ -129,7 +142,7 @@ module.exports = {
       : null;
 
     // ──────────────────────────────
-    // EXPIRY WINDOW (MATCH VORTEX + REPORT)
+    // EXPIRY WINDOW (END OF CURRENT HOUR)
     // ──────────────────────────────
     const expiresAt = new Date(now);
     expiresAt.setMinutes(59, 59, 999);
