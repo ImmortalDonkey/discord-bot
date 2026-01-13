@@ -39,6 +39,10 @@ function resolveDisplayName(member, user) {
 }
 
 module.exports = {
+  // 🌍 SUBSCRIBER SAFE
+  // Global command + instant main guild availability
+  subscriberSafe: true,
+
   data: new SlashCommandBuilder()
     .setName("report")
     .setDescription("Report a wild Pokémon sighting")
