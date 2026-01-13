@@ -2,13 +2,13 @@
 // Handles edit/delete on active report cards
 
 const db = require("../../database.cjs");
+const { dispatchReportDelete } = require("../../utils/reportDispatcher.cjs");
 const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder
 } = require("discord.js");
-const fs = require("fs");
 
 // Staff roles from env (same pattern as /editpoints, /claim, etc.)
 const STAFF_ROLES = (process.env.STAFF_ROLES || "")
@@ -65,22 +65,9 @@ module.exports = {
     // ─────────────────────────────────────────────
     if (action === "delete") {
       try {
-        // Use normalised field names from database.cjs
-        const channel = await client.channels.fetch(report.channelId).catch(() => null);
-        if (channel) {
-          const message = await channel.messages.fetch(report.messageId).catch(() => null);
-          if (message) {
-            await message.delete().catch(() => {});
-          }
-        }
-
-        // Delete the local PNG (Discord keeps its own CDN copy if message still existed)
-        if (report.imagePath && fs.existsSync(report.imagePath)) {
-          fs.unlinkSync(report.imagePath);
-        }
-
-        // Remove row from DB
-        await db.deleteReport(reportId);
+        // IMPORTANT: Delete must fan-out to ALL servers/messages.
+        // This also removes DB mappings + canonical report + local image.
+        await dispatchReportDelete(client, reportId);
 
         return interaction.reply({
           content: "🗑 Report deleted successfully.",
