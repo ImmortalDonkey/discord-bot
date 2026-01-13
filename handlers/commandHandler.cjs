@@ -1,30 +1,27 @@
 // handlers/commandHandler.cjs
+
 const fs = require('fs');
 const path = require('path');
-
 const db = require('../database.cjs');
 
 let commands = new Map();
-
-/**
- * Subscriber guild command allowlist (LOCKED)
- * - Main guild: all commands allowed
- * - Subscriber guilds: only these commands allowed
- */
-const SUBSCRIBER_ALLOWED = new Set([
-  'report',
-  'reportdebug',
-  'reportconfig',
-  'leaderboard',
-  'ign'
-]);
 
 function isMainGuild(guildId) {
   return !!guildId && guildId === process.env.GUILD_ID;
 }
 
-async function enforceGuildCommandPolicy(interaction) {
-  // No guild = DM / unknown context
+/**
+ * Enforce command availability rules.
+ *
+ * RULES:
+ * - Main guild: all commands allowed
+ * - Subscriber guild:
+ *   - Guild must be onboarded
+ *   - Command must NOT be mainGuildOnly
+ *   - Command must be subscriberSafe
+ */
+async function enforceGuildCommandPolicy(interaction, cmd) {
+  // No guild context
   if (!interaction.guildId) {
     return {
       allowed: false,
@@ -32,12 +29,12 @@ async function enforceGuildCommandPolicy(interaction) {
     };
   }
 
-  // Main guild: everything allowed
+  // Main guild → everything allowed
   if (isMainGuild(interaction.guildId)) {
     return { allowed: true };
   }
 
-  // Subscriber guild: must be enabled in DB + command allowlisted
+  // Subscriber guild → must exist in DB
   const subscriber = await db.getSubscriberGuild(interaction.guildId);
 
   if (!subscriber) {
@@ -45,18 +42,25 @@ async function enforceGuildCommandPolicy(interaction) {
       allowed: false,
       reason:
         '❌ This server is not onboarded for Roaming Companion yet.\n' +
-        'Ask an admin to complete subscriber setup (report channel + roles).'
+        'Ask an admin to complete subscriber setup.'
     };
   }
 
-  const cmdName = interaction.commandName;
-
-  if (!SUBSCRIBER_ALLOWED.has(cmdName)) {
+  // MAIN-GUILD-ONLY commands are blocked
+  if (cmd.mainGuildOnly) {
     return {
       allowed: false,
       reason:
-        '❌ This command is not available in subscriber servers.\n' +
-        'Available here: /report, /reportconfig, /leaderboard, /ign, /reportdebug (staff).'
+        '❌ This command is only available in the main Roaming Companion server.'
+    };
+  }
+
+  // Must be explicitly subscriber-safe
+  if (!cmd.subscriberSafe) {
+    return {
+      allowed: false,
+      reason:
+        '❌ This command is not available in subscriber servers.'
     };
   }
 
@@ -65,12 +69,6 @@ async function enforceGuildCommandPolicy(interaction) {
 
 /**
  * Load all command modules from interactions/commands.
- * Each module should export:
- *   - name  (string)
- *   - execute(client, interaction)
- * OR:
- *   - data  (SlashCommandBuilder with .name)
- *   - execute(client, interaction)
  */
 function initCommandHandlers(client) {
   const dir = path.join(__dirname, '..', 'interactions', 'commands');
@@ -82,116 +80,97 @@ function initCommandHandlers(client) {
     return;
   }
 
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.cjs'));
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.cjs'));
 
   for (const file of files) {
     const full = path.join(dir, file);
+
     try {
       const mod = require(full);
-
       const name = (mod.data && mod.data.name) || mod.name;
 
       if (!name || typeof mod.execute !== 'function') {
-        console.warn(
-          `⚠ Skipping command "${file}" – missing name or execute().`
-        );
+        console.warn(`⚠ Skipping "${file}" – missing name or execute().`);
         continue;
       }
 
       commands.set(name, mod);
-      console.log(`✅ Loaded command: ${name} (${file})`);
+      console.log(`✅ Loaded command: ${name}`);
     } catch (err) {
-      console.error(`❌ Failed to load command file "${file}":`, err);
+      console.error(`❌ Failed to load "${file}":`, err);
     }
   }
 
-  // Expose for debugging if you like
   client.commands = commands;
 }
 
 /**
- * Handle a chat input command interaction.
+ * Handle slash command execution.
  */
 async function handleCommandInteraction(client, interaction) {
   const name = interaction.commandName;
   const cmd = commands.get(name);
 
   if (!cmd) {
-    console.warn(`⚠ No handler registered for command "${name}".`);
+    console.warn(`⚠ No handler registered for "${name}".`);
     return;
   }
 
   // ──────────────────────────────
-  // GUILD COMMAND POLICY (MAIN vs SUBSCRIBER)
+  // POLICY CHECK
   // ──────────────────────────────
   try {
-    const policy = await enforceGuildCommandPolicy(interaction);
+    const policy = await enforceGuildCommandPolicy(interaction, cmd);
 
     if (!policy.allowed) {
+      const payload = {
+        content: policy.reason || '❌ Not allowed here.',
+        ephemeral: true
+      };
+
       if (interaction.replied || interaction.deferred) {
-        await interaction
-          .followUp({
-            content: policy.reason || '❌ Not allowed here.',
-            ephemeral: true
-          })
-          .catch(() => {});
+        await interaction.followUp(payload).catch(() => {});
       } else {
-        await interaction
-          .reply({
-            content: policy.reason || '❌ Not allowed here.',
-            ephemeral: true
-          })
-          .catch(() => {});
+        await interaction.reply(payload).catch(() => {});
       }
       return;
     }
   } catch (err) {
     console.error('❌ Command policy check failed:', err);
-    // Fail closed in subscriber guilds, but keep main usable
+
     if (!isMainGuild(interaction.guildId)) {
+      const payload = {
+        content:
+          '❌ This server is not configured correctly for Roaming Companion.',
+        ephemeral: true
+      };
+
       if (interaction.replied || interaction.deferred) {
-        await interaction
-          .followUp({
-            content:
-              '❌ This server is not configured correctly for Roaming Companion yet.',
-            ephemeral: true
-          })
-          .catch(() => {});
+        await interaction.followUp(payload).catch(() => {});
       } else {
-        await interaction
-          .reply({
-            content:
-              '❌ This server is not configured correctly for Roaming Companion yet.',
-            ephemeral: true
-          })
-          .catch(() => {});
+        await interaction.reply(payload).catch(() => {});
       }
       return;
     }
   }
 
   // ──────────────────────────────
-  // EXECUTE COMMAND
+  // EXECUTE
   // ──────────────────────────────
   try {
     await cmd.execute(client, interaction);
   } catch (err) {
-    console.error(`❌ Error in command "${name}":`, err);
+    console.error(`❌ Error executing "${name}":`, err);
+
+    const payload = {
+      content: '❌ Something went wrong executing that command.',
+      ephemeral: true
+    };
 
     if (interaction.replied || interaction.deferred) {
-      await interaction
-        .followUp({
-          content: '❌ Something went wrong executing that command.',
-          ephemeral: true
-        })
-        .catch(() => {});
+      await interaction.followUp(payload).catch(() => {});
     } else {
-      await interaction
-        .reply({
-          content: '❌ Something went wrong executing that command.',
-          ephemeral: true
-        })
-        .catch(() => {});
+      await interaction.reply(payload).catch(() => {});
     }
   }
 }
