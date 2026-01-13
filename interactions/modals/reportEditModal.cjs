@@ -1,13 +1,12 @@
 // interactions/modals/reportEditModal.cjs
-// FULL CORRECT + PATCHED CODE — 100% READY TO PASTE
-
-const fs = require("fs");
+// Handles the modal submission for editing a report.
+// IMPORTANT: This file MUST NOT post/edit/delete Discord messages directly.
+// All mutations fan-out via utils/reportDispatcher.cjs
 
 const db = require("../../database.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { availableLocations } = require("../../utils/locations.cjs");
-const { createReportCard } = require("../../renderers/reportCard.cjs");
-const { getChannelForRarity } = require("../../utils/reportChannelRouter.cjs");
+const { dispatchReportUpdate } = require("../../utils/reportDispatcher.cjs");
 
 // Staff roles
 const STAFF_ROLES = (process.env.STAFF_ROLES || "")
@@ -72,93 +71,23 @@ module.exports = {
 
     // Patch DB row
     const patch = {};
-    let rarityChanged = false;
 
     if (newPokemon) {
       const rarityKey = getRarity(newPokemon);
       patch.pokemonName = newPokemon;
       patch.rarityKey = rarityKey;
       patch.rarityLabel = getRarityDisplayLabel(rarityKey);
-
-      if (rarityKey !== report.rarityKey) {
-        rarityChanged = true;
-      }
     }
 
     if (newRoute) {
       patch.location = newRoute;
     }
 
-    const updated = await db.updateReport(reportId, patch);
+    await db.updateReport(reportId, patch);
 
-    // Re-render card image
-    const statusText = updated.status === "expired" ? "Expired" : "Active";
-    const newCardPath = await createReportCard({
-      trainerName: updated.reporterName,
-      trainerRank: updated.trainerRank || "Trainer",
-      pokemonName: updated.pokemonName,
-      rarityKey: updated.rarityKey,
-      rarityLabel: updated.rarityLabel,
-      points: updated.points,
-      location: updated.location,
-      statusText
-    });
+    // Fan-out update across all guilds/messages this report was posted to.
+    await dispatchReportUpdate(client, reportId);
 
-    // Delete old image from disk if exists
-    if (report.imagePath && fs.existsSync(report.imagePath)) {
-      try {
-        fs.unlinkSync(report.imagePath);
-      } catch {}
-    }
-
-    // Existing placement
-    const oldChannelId = report.channelId;
-    const oldMessageId = report.messageId;
-
-    let newChannelId = oldChannelId;
-    let newMessageId = oldMessageId;
-
-    // Fetch correct rarity channel (if changed)
-    const newCorrectChannel = getChannelForRarity(updated.rarityKey);
-
-    try {
-      if (rarityChanged && newCorrectChannel && newCorrectChannel !== oldChannelId) {
-        // Move message to the new correct channel
-        const routedChannel = await client.channels.fetch(newCorrectChannel).catch(() => null);
-        if (routedChannel) {
-          const newMsg = await routedChannel.send({ files: [newCardPath] });
-          newChannelId = newMsg.channelId;
-          newMessageId = newMsg.id;
-
-          const oldChannel = await client.channels.fetch(oldChannelId).catch(() => null);
-          if (oldChannel) {
-            const oldMsg = await oldChannel.messages.fetch(oldMessageId).catch(() => null);
-            if (oldMsg) await oldMsg.delete().catch(() => {});
-          }
-        }
-      } else {
-        // Edit existing message in place
-        const channel = await client.channels.fetch(oldChannelId).catch(() => null);
-        if (channel) {
-          const msg = await channel.messages.fetch(oldMessageId).catch(() => null);
-          if (msg) await msg.edit({ files: [newCardPath] });
-        }
-      }
-    } catch (err) {
-      console.error("Edit placement error:", err);
-    }
-
-    // Update DB with new image/channel/message
-    await db.updateReport(reportId, {
-      imagePath: newCardPath,
-      channelId: newChannelId,
-      messageId: newMessageId
-    });
-
-    return interaction.followUp(
-      rarityChanged
-        ? "✏ Report updated — moved to correct channel for new rarity!"
-        : "✏ Report updated successfully!"
-    );
+    return interaction.followUp("✏ Report updated successfully!");
   }
 };
