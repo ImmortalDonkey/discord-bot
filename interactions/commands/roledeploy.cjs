@@ -4,8 +4,7 @@
  * Deploys the Roamer Notification role panel.
  *
  * RULES (LOCKED):
- * - CommandHandler enforces MAIN vs SUBSCRIBER
- * - MAIN guild only (not allowlisted for subscribers)
+ * - MAIN guild only (never global, never subscriber)
  * - Staff-only via STAFF_ROLES env
  * - Uses CHANNEL_ROLES env
  * - Uses LOCAL sprite files from /sprites
@@ -87,6 +86,10 @@ const RARITY_IMAGES = {
 // COMMAND
 // ──────────────────────────────
 module.exports = {
+  // 🚫 MAIN GUILD ONLY
+  // Never global, never subscriber
+  mainGuildOnly: true,
+
   data: new SlashCommandBuilder()
     .setName('roledeploy')
     .setDescription('Deploy the roamer notification role panel'),
