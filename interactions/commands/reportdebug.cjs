@@ -28,6 +28,10 @@ function resolveDisplayName(member, user) {
 }
 
 module.exports = {
+  // 🚫 MAIN GUILD ONLY
+  // Staff/debug command – NEVER global
+  mainGuildOnly: true,
+
   data: new SlashCommandBuilder()
     .setName("reportdebug")
     .setDescription("Staff-only: test report cards + routing (no points)")
@@ -52,7 +56,7 @@ module.exports = {
     const { user, member, guild } = interaction;
 
     // ──────────────────────────────
-    // MAIN GUILD ONLY
+    // MAIN GUILD ONLY (RUNTIME GUARD)
     // ──────────────────────────────
     if (guild.id !== MAIN_GUILD_ID) {
       return interaction.reply({
