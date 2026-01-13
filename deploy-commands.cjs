@@ -19,14 +19,6 @@ const { REST, Routes } = require('discord.js');
 // Location of your modular commands
 const commandsPath = path.join(__dirname, 'interactions', 'commands');
 
-/**
- * Load all command files dynamically
- * Each command file must export:
- *   module.exports = {
- *     data: SlashCommandBuilder,
- *     execute: async (...) => {}
- *   }
- */
 function loadCommands() {
   const commands = [];
 
@@ -37,7 +29,7 @@ function loadCommands() {
       const fullPath = path.join(dir, file);
 
       if (fs.lstatSync(fullPath).isDirectory()) {
-        readDir(fullPath); // support nested folders
+        readDir(fullPath);
         continue;
       }
 
@@ -58,26 +50,21 @@ function loadCommands() {
   return commands;
 }
 
-// Load all commands
 const commands = loadCommands();
 console.log(`📝 Loaded ${commands.length} slash commands for deployment.`);
 
-// Deploy
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('🚀 Deploying slash commands...');
+    console.log('🚀 Deploying GLOBAL slash commands...');
 
     await rest.put(
-      Routes.applicationGuildCommands(
-        process.env.CLIENT_ID,
-        process.env.GUILD_ID
-      ),
+      Routes.applicationCommands(process.env.CLIENT_ID),
       { body: commands }
     );
 
-    console.log('✔ Successfully registered all commands!');
+    console.log('✔ Successfully registered GLOBAL commands!');
   } catch (err) {
     console.error('❌ Failed to deploy commands:', err);
   }
