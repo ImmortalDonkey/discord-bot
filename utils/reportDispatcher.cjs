@@ -90,7 +90,7 @@ async function dispatchReport({
   const mainGuildId = process.env.GUILD_ID;
 
   // ──────────────────────────────
-  // MAIN GUILD (ENV)
+  // MAIN GUILD (ENV) — MUST SUCCEED
   // ──────────────────────────────
   const mainChannelId =
     process.env[`CHANNEL_${report.rarityKey.toUpperCase()}`];
@@ -112,44 +112,53 @@ async function dispatchReport({
 
   // ──────────────────────────────
   // SUBSCRIBER GUILDS (DB FAN-OUT)
+  // BEST-EFFORT — NEVER BREAK DISPATCH
   // ──────────────────────────────
   const subscribers = await db.getSubscriberGuilds();
 
   for (const g of subscribers) {
-    // ── Pokémon role lookup (raw → normalized)
-    const rawPokemonKey = report.pokemonKey;
-    const normalizedPokemonKey = normalizeDbKey(rawPokemonKey);
+    try {
+      // ── Pokémon role lookup (raw → normalized)
+      const rawPokemonKey = report.pokemonKey;
+      const normalizedPokemonKey = normalizeDbKey(rawPokemonKey);
 
-    let pokemonRole =
-      await db.getGuildPokemonRole(g.guild_id, rawPokemonKey);
+      let pokemonRole =
+        await db.getGuildPokemonRole(g.guild_id, rawPokemonKey);
 
-    if (!pokemonRole && normalizedPokemonKey !== rawPokemonKey) {
-      pokemonRole =
-        await db.getGuildPokemonRole(g.guild_id, normalizedPokemonKey);
+      if (!pokemonRole && normalizedPokemonKey !== rawPokemonKey) {
+        pokemonRole =
+          await db.getGuildPokemonRole(g.guild_id, normalizedPokemonKey);
+      }
+
+      // ── Rarity role lookup (raw → normalized)
+      const rawRarityKey = report.rarityKey;
+      const normalizedRarityKey = normalizeDbKey(rawRarityKey);
+
+      let rarityRole =
+        await db.getGuildRarityRole(g.guild_id, rawRarityKey);
+
+      if (!rarityRole && normalizedRarityKey !== rawRarityKey) {
+        rarityRole =
+          await db.getGuildRarityRole(g.guild_id, normalizedRarityKey);
+      }
+
+      await postToGuild({
+        client,
+        guildId: g.guild_id,
+        channelId: g.report_channel_id,
+        pokemonRoleId: pokemonRole?.role_id || null,
+        rarityRoleId: rarityRole?.role_id || null,
+        report,
+        renderCard,
+        components
+      });
+
+    } catch (err) {
+      console.error(
+        `❌ Subscriber dispatch failed | report=${report.id} guild=${g.guild_id}`,
+        err?.code || err?.message || err
+      );
     }
-
-    // ── Rarity role lookup (raw → normalized)
-    const rawRarityKey = report.rarityKey;
-    const normalizedRarityKey = normalizeDbKey(rawRarityKey);
-
-    let rarityRole =
-      await db.getGuildRarityRole(g.guild_id, rawRarityKey);
-
-    if (!rarityRole && normalizedRarityKey !== rawRarityKey) {
-      rarityRole =
-        await db.getGuildRarityRole(g.guild_id, normalizedRarityKey);
-    }
-
-    await postToGuild({
-      client,
-      guildId: g.guild_id,
-      channelId: g.report_channel_id,
-      pokemonRoleId: pokemonRole?.role_id || null,
-      rarityRoleId: rarityRole?.role_id || null,
-      report,
-      renderCard,
-      components
-    });
   }
 }
 
