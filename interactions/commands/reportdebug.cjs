@@ -12,19 +12,17 @@ const path = require("path");
 
 const db = require("../../database.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
+const { calculateAwardedPoints } = require("../../utils/scoring.cjs");
+const { getRankName } = require("../../utils/rankSystem.cjs");
+
 const { createReportCard } = require("../../renderers/reportCard.debug.cjs");
 const { dispatchReport } = require("../../utils/reportDispatcher.cjs");
 
-const STAFF_ROLES = (process.env.STAFF_ROLES || "")
-  .split(",")
-  .map(r => r.trim())
-  .filter(Boolean);
-
+const STAFF_ROLES = (process.env.STAFF_ROLES || "").split(",");
 const MAIN_GUILD_ID = process.env.GUILD_ID;
 
 /**
- * EXACT nickname logic copied from LIVE /report
- * ⚠️ Do not simplify — parity is intentional
+ * EXACT nickname logic (MUST MATCH /report)
  */
 function resolveDisplayName(member, user) {
   return (
@@ -36,43 +34,35 @@ function resolveDisplayName(member, user) {
 }
 
 module.exports = {
-  // 🚫 NEVER GLOBAL
-  // MAIN GUILD DEV COMMAND ONLY
+  // 🚫 MAIN GUILD ONLY
   mainGuildOnly: true,
 
   data: new SlashCommandBuilder()
     .setName("reportdebug")
-    .setDescription("Staff-only: test report cards + routing (no points)")
+    .setDescription("Staff-only: full manual report (points + routing)")
     .addStringOption(o =>
-      o
-        .setName("pokemon")
+      o.setName("pokemon")
         .setDescription("Pokémon name")
         .setRequired(true)
         .setAutocomplete(true)
     )
     .addStringOption(o =>
-      o
-        .setName("route")
+      o.setName("route")
         .setDescription("Route / Location")
         .setRequired(true)
         .setAutocomplete(true)
-    )
-    .addBooleanOption(o =>
-      o
-        .setName("expired")
-        .setDescription("Render the card as expired")
     ),
 
   async execute(client, interaction) {
     const { user, member, guild } = interaction;
 
     // ──────────────────────────────
-    // MAIN GUILD ONLY (RUNTIME)
+    // MAIN GUILD ONLY
     // ──────────────────────────────
     if (guild.id !== MAIN_GUILD_ID) {
       return interaction.reply({
         content: "❌ This command can only be used in the main server.",
-        ephemeral: true
+        flags: 64
       });
     }
 
@@ -81,18 +71,17 @@ module.exports = {
     // ──────────────────────────────
     if (!member.roles.cache.some(r => STAFF_ROLES.includes(r.id))) {
       return interaction.reply({
-        content: "⛔ Staff-only test command.",
-        ephemeral: true
+        content: "⛔ Staff-only command.",
+        flags: 64
       });
     }
 
     const pokemon = interaction.options.getString("pokemon");
     const route = interaction.options.getString("route");
-    const forceExpired = interaction.options.getBoolean("expired") === true;
 
     await interaction.reply({
-      content: "🎨 Rendering debug report card…",
-      ephemeral: true
+      content: "🎨 Rendering report card…",
+      flags: 64
     });
 
     // ──────────────────────────────
@@ -102,7 +91,7 @@ module.exports = {
     const rarityLabel = getRarityDisplayLabel(rarityKey);
 
     // ──────────────────────────────
-    // DISPLAY NAME (NO POINTS)
+    // IGN RESOLUTION (PRIMARY ID)
     // ──────────────────────────────
     const player = await db.getPlayerByDiscordId(user.id);
     const hasIgn = !!player?.ign;
@@ -114,9 +103,34 @@ module.exports = {
     const displayType = hasIgn ? "ign" : "discord";
 
     // ──────────────────────────────
-    // EXPIRY WINDOW (MATCH LIVE)
+    // POINTS (FULL LOGIC)
     // ──────────────────────────────
     const now = new Date();
+    const awardedPoints = calculateAwardedPoints(rarityKey, now);
+
+    let trainerRank = "Unranked";
+
+    if (hasIgn) {
+      const updated = await db.addPoints(
+        user.id,
+        user.username,
+        awardedPoints,
+        `Debug Report: ${pokemon}`
+      );
+
+      trainerRank = getRankName(updated?.lifetime_points || 0);
+    }
+
+    // ──────────────────────────────
+    // REPORT CARD PREFS
+    // ──────────────────────────────
+    const reportCardPrefs = hasIgn
+      ? await db.getReportCardPrefs(user.id)
+      : null;
+
+    // ──────────────────────────────
+    // EXPIRY WINDOW (MATCH VORTEX + REPORT)
+    // ──────────────────────────────
     const expiresAt = new Date(now);
     expiresAt.setMinutes(59, 59, 999);
 
@@ -127,51 +141,50 @@ module.exports = {
     // RENDER CARD
     // ──────────────────────────────
     const cardPath = await createReportCard({
-      narrativeType: "debug",
+      narrativeType: "manual",
       reporterName: displayName,
       reporterType: displayType,
       pokemonName: pokemon,
       location: route,
       rarityKey,
       rarityLabel,
-      points: 0,
-      trainerRank: "Debug",
-      statusText: forceExpired ? "Expired" : "Active"
+      points: awardedPoints,
+      trainerRank,
+      statusText: "Active",
+      reportCardPrefs
     });
 
     // ──────────────────────────────
-    // BUTTONS
+    // CONTROLS
     // ──────────────────────────────
-    const components = forceExpired
-      ? []
-      : [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`reportedit_${reportId}`)
-              .setLabel("✏ Edit")
-              .setStyle(ButtonStyle.Primary),
-            new ButtonBuilder()
-              .setCustomId(`reportdelete_${reportId}`)
-              .setLabel("🗑 Delete")
-              .setStyle(ButtonStyle.Danger)
-          )
-        ];
+    const components = [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`reportedit_${reportId}`)
+          .setLabel("✏ Edit")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`reportdelete_${reportId}`)
+          .setLabel("🗑 Delete")
+          .setStyle(ButtonStyle.Danger)
+      )
+    ];
 
     // ──────────────────────────────
-    // SAVE CANONICAL REPORT (ONCE)
+    // CANONICAL REPORT (DB)
     // ──────────────────────────────
     await db.createReport({
       id: reportId,
-      guildId: guild.id, // ORIGIN GUILD (CRITICAL)
+      guildId: guild.id,
       reporterId: user.id,
       reporterName: displayName,
-      trainerRank: "Debug",
+      trainerRank,
       pokemonName: pokemon,
       rarityKey,
       rarityLabel,
       location: route,
-      status: forceExpired ? "expired" : "active",
-      points: 0,
+      status: "active",
+      points: awardedPoints,
       expiresAt: expiresAt.getTime(),
       deleteAt,
       createdAt: now.getTime(),
@@ -179,13 +192,13 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // DISPATCH (FAN-OUT)
+    // DISPATCH (SINGLE ENTRY POINT)
     // ──────────────────────────────
     await dispatchReport({
       client,
       report: {
         id: reportId,
-        guildId: guild.id, // 🔑 ORIGIN CONTROLS ROUTING
+        guildId: MAIN_GUILD_ID,
         rarityKey,
         pokemonKey: pokemon
       },
@@ -196,9 +209,14 @@ module.exports = {
       components
     });
 
+    // ──────────────────────────────
+    // CONFIRMATION
+    // ──────────────────────────────
     return interaction.followUp({
-      content: "☑ Debug report dispatched globally (router verified).",
-      ephemeral: true
+      content: hasIgn
+        ? `✔ Debug report posted — **${awardedPoints} point(s)** awarded.`
+        : `⚠ Debug report posted — **no points awarded** (IGN not registered).`,
+      flags: 64
     });
   }
 };
