@@ -1,4 +1,13 @@
 // deploy-commands.cjs
+// ------------------------------------------------------
+// HYBRID COMMAND DEPLOYMENT
+//
+// GLOBAL:
+//   - subscriberSafe === true
+//
+// MAIN GUILD:
+//   - ALL commands (including subscriberSafe)
+// ------------------------------------------------------
 
 // ──────────────────────────────────────
 // ENV LOADING (LIVE vs DEV)
@@ -20,15 +29,15 @@ const { REST, Routes } = require('discord.js');
 const commandsPath = path.join(__dirname, 'interactions', 'commands');
 
 /**
- * Load all command files dynamically.
- * Each command file must export:
- *   module.exports = {
- *     data: SlashCommandBuilder,
- *     execute: async (...) => {}
- *   }
+ * Load all command modules and classify them.
+ *
+ * Command module flags:
+ *   - subscriberSafe: true  → goes GLOBAL + MAIN GUILD
+ *   - otherwise             → MAIN GUILD ONLY
  */
 function loadCommands() {
-  const commands = [];
+  const all = [];
+  const global = [];
 
   function readDir(dir) {
     const files = fs.readdirSync(dir);
@@ -37,7 +46,7 @@ function loadCommands() {
       const fullPath = path.join(dir, file);
 
       if (fs.lstatSync(fullPath).isDirectory()) {
-        readDir(fullPath); // support nested folders
+        readDir(fullPath);
         continue;
       }
 
@@ -46,55 +55,68 @@ function loadCommands() {
       const command = require(fullPath);
 
       if (!command.data || typeof command.data.toJSON !== 'function') {
-        console.warn(`⚠ Command file missing "data": ${file}`);
+        console.warn(`⚠ Skipping ${file} – missing data`);
         continue;
       }
 
-      commands.push(command.data.toJSON());
+      const json = command.data.toJSON();
+      all.push(json);
+
+      if (command.subscriberSafe === true) {
+        global.push(json);
+      }
     }
   }
 
   readDir(commandsPath);
-  return commands;
+
+  return { all, global };
 }
 
 // ──────────────────────────────────────
-// LOAD COMMANDS
+// LOAD + CLASSIFY COMMANDS
 // ──────────────────────────────────────
-const commands = loadCommands();
-console.log(`📝 Loaded ${commands.length} slash commands for deployment.`);
+const { all: allCommands, global: globalCommands } = loadCommands();
+
+console.log(`📝 Total commands found: ${allCommands.length}`);
+console.log(`🌍 Global (subscriber-safe): ${globalCommands.length}`);
+console.log(
+  `🏠 Main guild only: ${allCommands.length - globalCommands.length}`
+);
 
 // ──────────────────────────────────────
 // DISCORD REST CLIENT
 // ──────────────────────────────────────
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+const rest = new REST({ version: '10' }).setToken(
+  process.env.DISCORD_TOKEN
+);
 
 // ──────────────────────────────────────
-// DEPLOY (HYBRID MODEL)
+// DEPLOY
 // ──────────────────────────────────────
 (async () => {
   try {
-    console.log('🚀 Deploying slash commands (hybrid mode)…');
+    console.log('🚀 Deploying commands (FINAL hybrid model)…');
 
-    // 1️⃣ GLOBAL COMMANDS (subscriber guilds)
+    // 1️⃣ GLOBAL COMMANDS (subscriber servers)
     await rest.put(
       Routes.applicationCommands(process.env.CLIENT_ID),
-      { body: commands }
+      { body: globalCommands }
     );
-    console.log('🌍 Global commands registered');
+    console.log('🌍 Global subscriber commands deployed');
 
-    // 2️⃣ MAIN GUILD COMMANDS (instant updates)
+    // 2️⃣ MAIN GUILD COMMANDS (instant dev)
     await rest.put(
       Routes.applicationGuildCommands(
         process.env.CLIENT_ID,
-        process.env.GUILD_ID // MAIN guild ONLY
+        process.env.GUILD_ID
       ),
-      { body: commands }
+      { body: allCommands }
     );
-    console.log('🏠 Main guild commands registered');
+    console.log('🏠 Main guild commands deployed');
 
-    console.log('✅ Command deployment complete');
+    console.log('✅ Command deployment COMPLETE');
   } catch (err) {
-    console.error('❌ Failed to deploy commands:', err);
+    console.error('❌ Command deployment FAILED:', err);
   }
 })();
