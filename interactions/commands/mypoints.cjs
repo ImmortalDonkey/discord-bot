@@ -1,9 +1,14 @@
 // interactions/commands/mypoints.cjs
+
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const db = require('../../database.cjs');
 const { getRankName } = require('../../utils/rankSystem.cjs');
 
 module.exports = {
+  // 🚫 MAIN GUILD ONLY
+  // Internal convenience command – NOT subscriber safe
+  mainGuildOnly: true,
+
   data: new SlashCommandBuilder()
     .setName('mypoints')
     .setDescription('View your current points, lifetime points, and rank'),
@@ -12,22 +17,21 @@ module.exports = {
     const user = interaction.user;
     const row = await db.getUserById(user.id);
 
-    const pts = row?.points || 0;               // current spendable points
-    const lifetime = row?.lifetime_points || 0; // historic
-    const rankName = getRankName(lifetime);
-    const value = pts * 200000;
+    const currentPoints = row?.points || 0;
+    const lifetimePoints = row?.lifetime_points || 0;
+    const rankName = getRankName(lifetimePoints);
 
     return interaction.reply({
       embeds: [
         new EmbedBuilder()
           .setColor('Gold')
-          .setTitle('💰 Your Points & Rank')
+          .setTitle('⭐ Your Points & Rank')
           .addFields(
             { name: 'Rank', value: rankName, inline: true },
-            { name: 'Lifetime Points', value: String(lifetime), inline: true },
-            { name: 'Current Points', value: String(pts), inline: true },
-            { name: 'PKD Value (Current)', value: value.toLocaleString() + ' pkd', inline: false }
+            { name: 'Lifetime Points', value: String(lifetimePoints), inline: true },
+            { name: 'Current Points', value: String(currentPoints), inline: true }
           )
+          .setTimestamp()
       ],
       ephemeral: true
     });
