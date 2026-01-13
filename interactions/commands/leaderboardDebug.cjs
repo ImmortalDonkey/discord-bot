@@ -18,6 +18,10 @@ const STAFF_ROLES = (process.env.STAFF_ROLES || "")
   .filter(Boolean);
 
 module.exports = {
+  // 🚫 MAIN GUILD ONLY
+  // Staff/debug command – NEVER global
+  mainGuildOnly: true,
+
   data: new SlashCommandBuilder()
     .setName("leaderboarddebug")
     .setDescription("Render the Top Hunters leaderboard card (staff only)")
@@ -73,4 +77,3 @@ module.exports = {
     }
   }
 };
-
