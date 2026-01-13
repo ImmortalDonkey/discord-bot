@@ -11,6 +11,10 @@ const {
 const { createLeaderboardCard } = require("../../renderers/leaderboardCard.cjs");
 
 module.exports = {
+  // 🌍 SUBSCRIBER SAFE
+  // Visible in all subscriber guilds + instant main guild availability
+  subscriberSafe: true,
+
   data: new SlashCommandBuilder()
     .setName("leaderboard")
     .setDescription("View the Top Hunters leaderboard"),
