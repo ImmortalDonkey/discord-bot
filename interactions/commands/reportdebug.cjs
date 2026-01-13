@@ -7,15 +7,23 @@ const {
   ButtonStyle
 } = require("discord.js");
 
+const fs = require("fs");
+const path = require("path");
+
 const db = require("../../database.cjs");
 const { getRarity, getRarityDisplayLabel } = require("../../utils/rarity.cjs");
 const { createReportCard } = require("../../renderers/reportCard.debug.cjs");
+const { dispatchReport } = require("../../utils/reportDispatcher.cjs");
 
-const STAFF_ROLES = process.env.STAFF_ROLES?.split(",") || [];
+const STAFF_ROLES = (process.env.STAFF_ROLES || "")
+  .split(",")
+  .map(r => r.trim())
+  .filter(Boolean);
+
 const MAIN_GUILD_ID = process.env.GUILD_ID;
 
 /**
- * EXACT nickname logic copied from LIVE /report command
+ * EXACT nickname logic copied from LIVE /report
  * ⚠️ Do not simplify — parity is intentional
  */
 function resolveDisplayName(member, user) {
@@ -28,27 +36,30 @@ function resolveDisplayName(member, user) {
 }
 
 module.exports = {
-  // 🚫 MAIN GUILD ONLY
-  // Staff/debug command – NEVER global
+  // 🚫 NEVER GLOBAL
+  // MAIN GUILD DEV COMMAND ONLY
   mainGuildOnly: true,
 
   data: new SlashCommandBuilder()
     .setName("reportdebug")
     .setDescription("Staff-only: test report cards + routing (no points)")
     .addStringOption(o =>
-      o.setName("pokemon")
+      o
+        .setName("pokemon")
         .setDescription("Pokémon name")
         .setRequired(true)
         .setAutocomplete(true)
     )
     .addStringOption(o =>
-      o.setName("route")
+      o
+        .setName("route")
         .setDescription("Route / Location")
         .setRequired(true)
         .setAutocomplete(true)
     )
     .addBooleanOption(o =>
-      o.setName("expired")
+      o
+        .setName("expired")
         .setDescription("Render the card as expired")
     ),
 
@@ -56,7 +67,7 @@ module.exports = {
     const { user, member, guild } = interaction;
 
     // ──────────────────────────────
-    // MAIN GUILD ONLY (RUNTIME GUARD)
+    // MAIN GUILD ONLY (RUNTIME)
     // ──────────────────────────────
     if (guild.id !== MAIN_GUILD_ID) {
       return interaction.reply({
@@ -80,7 +91,7 @@ module.exports = {
     const forceExpired = interaction.options.getBoolean("expired") === true;
 
     await interaction.reply({
-      content: "🎨 Rendering debug report card...",
+      content: "🎨 Rendering debug report card…",
       ephemeral: true
     });
 
@@ -103,14 +114,14 @@ module.exports = {
     const displayType = hasIgn ? "ign" : "discord";
 
     // ──────────────────────────────
-    // EXPIRY WINDOW
+    // EXPIRY WINDOW (MATCH LIVE)
     // ──────────────────────────────
     const now = new Date();
     const expiresAt = new Date(now);
     expiresAt.setMinutes(59, 59, 999);
 
     const deleteAt = expiresAt.getTime() + 24 * 60 * 60 * 1000;
-    const reportId = `debug_${Date.now()}`;
+    const reportId = `debug_${Date.now()}_${user.id}`;
 
     // ──────────────────────────────
     // RENDER CARD
@@ -128,27 +139,30 @@ module.exports = {
       statusText: forceExpired ? "Expired" : "Active"
     });
 
+    // ──────────────────────────────
+    // BUTTONS
+    // ──────────────────────────────
     const components = forceExpired
       ? []
       : [
           new ActionRowBuilder().addComponents(
             new ButtonBuilder()
               .setCustomId(`reportedit_${reportId}`)
-              .setLabel("Edit")
+              .setLabel("✏ Edit")
               .setStyle(ButtonStyle.Primary),
             new ButtonBuilder()
               .setCustomId(`reportdelete_${reportId}`)
-              .setLabel("Delete")
+              .setLabel("🗑 Delete")
               .setStyle(ButtonStyle.Danger)
           )
         ];
 
     // ──────────────────────────────
-    // CREATE CANONICAL REPORT (ONCE)
+    // SAVE CANONICAL REPORT (ONCE)
     // ──────────────────────────────
     await db.createReport({
       id: reportId,
-      guildId: guild.id,
+      guildId: guild.id, // ORIGIN GUILD (CRITICAL)
       reporterId: user.id,
       reporterName: displayName,
       trainerRank: "Debug",
@@ -165,27 +179,25 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // DISPATCH (SINGLE ENTRY POINT)
+    // DISPATCH (FAN-OUT)
     // ──────────────────────────────
-    const { dispatchReport } = require("../../utils/reportDispatcher.cjs");
-
     await dispatchReport({
       client,
       report: {
         id: reportId,
-        guildId: MAIN_GUILD_ID,
+        guildId: guild.id, // 🔑 ORIGIN CONTROLS ROUTING
         rarityKey,
         pokemonKey: pokemon
       },
       renderCard: async () => ({
-        buffer: require("fs").readFileSync(cardPath),
-        filename: require("path").basename(cardPath)
+        buffer: fs.readFileSync(cardPath),
+        filename: path.basename(cardPath)
       }),
       components
     });
 
     return interaction.followUp({
-      content: "☑ Debug report dispatched (no points, router verified).",
+      content: "☑ Debug report dispatched globally (router verified).",
       ephemeral: true
     });
   }
