@@ -7,7 +7,7 @@
  * - MAIN guild only (never global, never subscriber)
  * - Staff-only via STAFF_ROLES env
  * - Uses CHANNEL_ROLES env
- * - Uses LOCAL sprite files from /sprites
+ * - Uses LOCAL sprite files from /sprites (POKÉMON ONLY)
  * - Always clears & redeploys entire panel
  */
 
@@ -32,7 +32,7 @@ const STAFF_ROLES = (process.env.STAFF_ROLES || '')
   .filter(Boolean);
 
 // ──────────────────────────────
-// LOCAL SPRITES
+// LOCAL SPRITES (POKÉMON ONLY)
 // ──────────────────────────────
 const SPRITES_DIR = path.join(__dirname, '..', '..', 'sprites');
 
@@ -56,16 +56,18 @@ const normalize = s =>
   String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
- * Sprite resolver — LABEL FIRST (filesystem truth)
+ * Resolve Pokémon sprite using LABEL as truth
  */
 function getSpriteForLabel(label) {
   if (!label) return null;
 
+  // Exact match
   const exact = path.join(SPRITES_DIR, `${label}.png`);
   if (fs.existsSync(exact)) {
     return { attachment: exact, name: `${label}.png` };
   }
 
+  // Normalized fallback
   const target = normalize(label);
   const files = fs.readdirSync(SPRITES_DIR);
 
@@ -80,7 +82,6 @@ function getSpriteForLabel(label) {
 
 // ──────────────────────────────
 // ORDER (LOCKED)
-// Paradox is rarer than Roamer of the Month
 // ──────────────────────────────
 const ORDERED_GROUPS = [
   'paradox',
@@ -159,11 +160,11 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // RARITY GROUP PANELS (ORDERED)
+    // RARITY GROUP HEADERS (TEXT ONLY)
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
-      const rarity = rolesConfig.rarityRoles.find(r =>
-        r.group === group || r.env.toLowerCase().includes(group.toLowerCase())
+      const rarity = rolesConfig.rarityRoles.find(
+        r => r.group === group
       );
 
       if (!rarity) continue;
@@ -189,7 +190,7 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // INDIVIDUAL POKÉMON (ORDERED, 1 PER MESSAGE)
+    // INDIVIDUAL POKÉMON (1 PER MESSAGE, WITH IMAGE)
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
       const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
