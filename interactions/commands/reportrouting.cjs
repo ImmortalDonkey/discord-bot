@@ -3,7 +3,8 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  ActionRowBuilder
+  ActionRowBuilder,
+  PermissionFlagsBits
 } = require('discord.js');
 
 const db = require('../../database.cjs');
@@ -19,15 +20,24 @@ const RARITIES = [
   { key: 'common', label: 'Common' }
 ];
 
+// OPTIONAL: hard owner override (no DB)
+const BOT_OWNERS = new Set([
+  'YOUR_DISCORD_ID_HERE'
+]);
+
 module.exports = {
   subscriberSafe: true,
 
   data: new SlashCommandBuilder()
     .setName('reportrouting')
-    .setDescription('Configure report channel routing per rarity (subscriber admin only)'),
+    .setDescription('Configure report channel routing per rarity (subscriber admin only)')
+    // hides command from non-admins automatically
+    .setDefaultMemberPermissions(
+      PermissionFlagsBits.ManageGuild | PermissionFlagsBits.Administrator
+    ),
 
   async execute(client, interaction) {
-    const { guild, member } = interaction;
+    const { guild, member, user } = interaction;
 
     if (!guild || !member) {
       return interaction.reply({
@@ -37,7 +47,7 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // SUBSCRIBER CHECK
+    // SUBSCRIBER CHECK (UNCHANGED)
     // ──────────────────────────────
     const subscriber = await db.getSubscriberGuild(guild.id);
     if (!subscriber) {
@@ -48,17 +58,14 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // ADMIN CHECK
+    // PERMISSION CHECK (DISCORD-NATIVE)
     // ──────────────────────────────
-    const hasDiscordAdmin = member.permissions.has('Administrator');
+    const hasPermission =
+      member.permissions.has(PermissionFlagsBits.Administrator) ||
+      member.permissions.has(PermissionFlagsBits.ManageGuild) ||
+      BOT_OWNERS.has(user.id);
 
-    const memberRoleIds = member.roles.cache.map(r => r.id);
-    const hasSubscriberAdmin = await db.isSubscriberStaff(
-      guild.id,
-      memberRoleIds
-    );
-
-    if (!hasDiscordAdmin && !hasSubscriberAdmin) {
+    if (!hasPermission) {
       return interaction.reply({
         content: '⛔ You do not have permission to configure report routing.',
         flags: 64
