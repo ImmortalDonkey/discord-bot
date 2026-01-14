@@ -18,7 +18,6 @@ const {
 } = require('discord.js');
 
 const db = require('./database.cjs');
-const { initGoogleSheet } = require('./utils/googleSheets.cjs');
 const { initRolesChannel } = require('./utils/initRolesChannel.cjs');
 
 // Handlers
@@ -144,12 +143,6 @@ client.once('ready', async () => {
     console.log('🛰️ Vortex roamer watcher initialised');
   } catch (err) {
     console.error('❌ Failed to start Vortex roamer watcher:', err);
-  }
-
-  try {
-    await initGoogleSheet();
-  } catch (err) {
-    console.error('⚠ Sheets init failed:', err);
   }
 
   try {
