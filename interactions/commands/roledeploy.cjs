@@ -3,14 +3,13 @@
  *
  * Deploys the Roamer Notification role panel.
  *
- * RULES (LOCKED):
- * - MAIN guild only (never global, never subscriber)
- * - Staff-only via STAFF_ROLES env
- * - Uses CHANNEL_ROLES env
- * - Uses LOCAL sprite files from /sprites (POKÉMON ONLY)
- * - Uses EXISTING roles_manage_<ROLE_ID> button system
- * - ON / OFF buttons ONLY (no toggle)
- * - Always clears & redeploys entire panel
+ * MAIN-9 VERIFIED FIX:
+ * - Uses rolesButtons.cjs routing (roles_manage_ prefix)
+ * - ON/OFF are unique per message using :on / :off suffix
+ * - Adds global buttons: roles_view_status, roles_clear_all
+ * - Rarity groups appear BEFORE Pokémon
+ * - Rarity order: Paradox -> RoamerMonth -> Legendary -> Rare -> Common
+ * - Pokémon are 1 per message (image + ON/OFF in same row)
  */
 
 const {
@@ -23,9 +22,6 @@ const {
 const fs = require('fs');
 const path = require('path');
 
-// ──────────────────────────────
-// ENV
-// ──────────────────────────────
 const PANEL_CHANNEL_ID = process.env.CHANNEL_ROLES;
 
 const STAFF_ROLES = (process.env.STAFF_ROLES || '')
@@ -33,19 +29,9 @@ const STAFF_ROLES = (process.env.STAFF_ROLES || '')
   .map(r => r.trim())
   .filter(Boolean);
 
-// ──────────────────────────────
-// LOCAL SPRITES (POKÉMON ONLY)
-// ──────────────────────────────
 const SPRITES_DIR = path.join(__dirname, '..', '..', 'sprites');
-
-// ──────────────────────────────
-// ROLES CONFIG (SOURCE OF TRUTH)
-// ──────────────────────────────
 const rolesConfig = require('../../utils/rolesConfig.cjs');
 
-// ──────────────────────────────
-// HELPERS
-// ──────────────────────────────
 function hasStaffRole(member) {
   return STAFF_ROLES.some(id => member.roles.cache.has(id));
 }
@@ -56,11 +42,13 @@ const normalize = s =>
 function getSpriteForLabel(label) {
   if (!label) return null;
 
+  // Exact filename match (matches your ls -1b truth)
   const exact = path.join(SPRITES_DIR, `${label}.png`);
   if (fs.existsSync(exact)) {
     return { attachment: exact, name: `${label}.png` };
   }
 
+  // Normalized fallback
   const target = normalize(label);
   const files = fs.readdirSync(SPRITES_DIR);
 
@@ -73,9 +61,7 @@ function getSpriteForLabel(label) {
     : null;
 }
 
-// ──────────────────────────────
-// ORDER (LOCKED)
-// ──────────────────────────────
+// LOCKED order (your request)
 const ORDERED_GROUPS = [
   'paradox',
   'roamerMonth',
@@ -84,9 +70,6 @@ const ORDERED_GROUPS = [
   'common'
 ];
 
-// ──────────────────────────────
-// COMMAND
-// ──────────────────────────────
 module.exports = {
   mainGuildOnly: true,
 
@@ -95,7 +78,6 @@ module.exports = {
     .setDescription('Deploy the roamer notification role panel'),
 
   async execute(client, interaction) {
-    // Staff check
     if (!hasStaffRole(interaction.member)) {
       return interaction.reply({
         content: '❌ You do not have permission to use this command.',
@@ -108,13 +90,8 @@ module.exports = {
       ephemeral: true
     });
 
-    const channel = await client.channels
-      .fetch(PANEL_CHANNEL_ID)
-      .catch(() => null);
-
-    if (!channel) {
-      return interaction.editReply('❌ Role panel channel not found.');
-    }
+    const channel = await client.channels.fetch(PANEL_CHANNEL_ID).catch(() => null);
+    if (!channel) return interaction.editReply('❌ Role panel channel not found.');
 
     // Clear channel (best effort)
     try {
@@ -122,9 +99,7 @@ module.exports = {
       if (msgs.size) await channel.bulkDelete(msgs, true).catch(() => {});
     } catch {}
 
-    // ──────────────────────────────
-    // INTRO + GLOBAL ACTIONS
-    // ──────────────────────────────
+    // Intro + global actions
     await channel.send({
       embeds: [{
         title: '🔔 Roamer Notification Preferences',
@@ -153,30 +128,36 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // RARITY GROUPS (HEADER + ON / OFF)
+    // RARITY GROUPS (header text + ON/OFF)
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
-      const rarity = rolesConfig.rarityRoles.find(r =>
-        r.env.toLowerCase().includes(group.toLowerCase())
-      );
-      if (!rarity) continue;
+      // Map group -> rarity config entry
+      const rarityEntry =
+        group === 'roamerMonth'
+          ? rolesConfig.rarityRoles.find(r => r.env === 'ROLE_ROAMERMONTH')
+          : group === 'paradox'
+            ? rolesConfig.rarityRoles.find(r => r.env === 'ROLE_PARADOX')
+            : group === 'legendary'
+              ? rolesConfig.rarityRoles.find(r => r.env === 'ROLE_LEGENDARY')
+              : group === 'rare'
+                ? rolesConfig.rarityRoles.find(r => r.env === 'ROLE_RARE')
+                : rolesConfig.rarityRoles.find(r => r.env === 'ROLE_COMMON');
 
-      const roleId = process.env[rarity.env];
+      if (!rarityEntry) continue;
+
+      const roleId = process.env[rarityEntry.env];
       if (!roleId) continue;
 
       await channel.send({
-        embeds: [{
-          title: rarity.label,
-          color: 0x64748b
-        }],
+        embeds: [{ title: rarityEntry.label, color: 0x64748b }],
         components: [
           new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-              .setCustomId(`roles_manage_${roleId}`)
+              .setCustomId(`roles_manage_${roleId}:on`)
               .setLabel('ON')
               .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
-              .setCustomId(`roles_manage_${roleId}`)
+              .setCustomId(`roles_manage_${roleId}:off`)
               .setLabel('OFF')
               .setStyle(ButtonStyle.Secondary)
           )
@@ -185,7 +166,7 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // INDIVIDUAL POKÉMON (IMAGE + ON / OFF)
+    // INDIVIDUAL POKÉMON (1 per message)
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
       const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
@@ -195,11 +176,9 @@ module.exports = {
         if (!roleId) continue;
 
         const sprite = getSpriteForLabel(p.label);
+
         const files = [];
-        const embed = {
-          title: p.label,
-          color: 0x1f2937
-        };
+        const embed = { title: p.label, color: 0x1f2937 };
 
         if (sprite) {
           embed.image = { url: `attachment://${sprite.name}` };
@@ -212,11 +191,11 @@ module.exports = {
           components: [
             new ActionRowBuilder().addComponents(
               new ButtonBuilder()
-                .setCustomId(`roles_manage_${roleId}`)
+                .setCustomId(`roles_manage_${roleId}:on`)
                 .setLabel('ON')
                 .setStyle(ButtonStyle.Success),
               new ButtonBuilder()
-                .setCustomId(`roles_manage_${roleId}`)
+                .setCustomId(`roles_manage_${roleId}:off`)
                 .setLabel('OFF')
                 .setStyle(ButtonStyle.Secondary)
             )
