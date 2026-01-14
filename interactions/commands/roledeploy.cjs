@@ -56,18 +56,16 @@ const normalize = s =>
   String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
- * Sprite resolver — LABEL FIRST (truth-based)
+ * Sprite resolver — LABEL FIRST (filesystem truth)
  */
 function getSpriteForLabel(label) {
   if (!label) return null;
 
-  // 1️⃣ Exact match (this will hit for your dataset)
   const exact = path.join(SPRITES_DIR, `${label}.png`);
   if (fs.existsSync(exact)) {
     return { attachment: exact, name: `${label}.png` };
   }
 
-  // 2️⃣ Normalized fallback
   const target = normalize(label);
   const files = fs.readdirSync(SPRITES_DIR);
 
@@ -81,14 +79,16 @@ function getSpriteForLabel(label) {
 }
 
 // ──────────────────────────────
-// RARITY GROUP IMAGES (LOCKED)
+// ORDER (LOCKED)
+// Paradox is rarer than Roamer of the Month
 // ──────────────────────────────
-const RARITY_IMAGES = {
-  paradox: '/home/pi/discord-bot/sprites/Walking Wake.png',
-  roamerMonth: '/home/pi/discord-bot/sprites/Rayquaza (Illusion).png',
-  legendary: '/home/pi/discord-bot/sprites/Entei.png',
-  common: '/home/pi/discord-bot/sprites/Bombirdier.png'
-};
+const ORDERED_GROUPS = [
+  'paradox',
+  'roamerMonth',
+  'legendary',
+  'rare',
+  'common'
+];
 
 // ──────────────────────────────
 // COMMAND
@@ -101,6 +101,7 @@ module.exports = {
     .setDescription('Deploy the roamer notification role panel'),
 
   async execute(client, interaction) {
+    // Staff check
     if (!hasStaffRole(interaction.member)) {
       return interaction.reply({
         content: '❌ You do not have permission to use this command.',
@@ -121,7 +122,7 @@ module.exports = {
       return interaction.editReply('❌ Role panel channel not found.');
     }
 
-    // Clear channel
+    // Clear channel (best effort)
     try {
       const msgs = await channel.messages.fetch({ limit: 100 });
       if (msgs.size) await channel.bulkDelete(msgs, true).catch(() => {});
@@ -158,35 +159,28 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // RARITY GROUP PANELS
+    // RARITY GROUP PANELS (ORDERED)
     // ──────────────────────────────
-    for (const r of rolesConfig.rarityRoles) {
-      const rarityKey = r.env.replace(/^ROLE_/, '').toLowerCase();
-      const imagePath = RARITY_IMAGES[rarityKey];
+    for (const group of ORDERED_GROUPS) {
+      const rarity = rolesConfig.rarityRoles.find(r =>
+        r.group === group || r.env.toLowerCase().includes(group.toLowerCase())
+      );
 
-      const files = [];
-      const embed = {
-        title: r.label,
-        color: 0x64748b
-      };
-
-      if (imagePath && fs.existsSync(imagePath)) {
-        const name = path.basename(imagePath);
-        embed.image = { url: `attachment://${name}` };
-        files.push({ attachment: imagePath, name });
-      }
+      if (!rarity) continue;
 
       await channel.send({
-        embeds: [embed],
-        files,
+        embeds: [{
+          title: rarity.label,
+          color: 0x64748b
+        }],
         components: [
           new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-              .setCustomId(`role:rarity:${rarityKey}:on`)
+              .setCustomId(`role:rarity:${group}:on`)
               .setLabel('ON')
               .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
-              .setCustomId(`role:rarity:${rarityKey}:off`)
+              .setCustomId(`role:rarity:${group}:off`)
               .setLabel('OFF')
               .setStyle(ButtonStyle.Secondary)
           )
@@ -195,17 +189,9 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // INDIVIDUAL POKÉMON (1 PER MESSAGE)
+    // INDIVIDUAL POKÉMON (ORDERED, 1 PER MESSAGE)
     // ──────────────────────────────
-    const orderedGroups = [
-      'roamerMonth',
-      'paradox',
-      'legendary',
-      'rare',
-      'common'
-    ];
-
-    for (const group of orderedGroups) {
+    for (const group of ORDERED_GROUPS) {
       const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
 
       for (const p of pokemon) {
