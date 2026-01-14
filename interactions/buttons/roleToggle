@@ -1,13 +1,6 @@
-/**
- * Button handler for /roledeploy
- *
- * Router-compatible (underscore prefixes)
- */
-
 const rolesConfig = require('../../utils/rolesConfig.cjs');
 
 module.exports = {
-  // IMPORTANT: underscore suffix enables prefix matching
   ids: [
     'role:rarity_',
     'role:pokemon_',
@@ -19,99 +12,71 @@ module.exports = {
     await interaction.deferUpdate();
 
     const member = interaction.member;
-    const guild = interaction.guild;
-    if (!member || !guild) return;
+    if (!member) return;
 
     const id = interaction.customId;
 
-    // ──────────────────────────────
     // VIEW MY NOTIFICATIONS
-    // ──────────────────────────────
     if (id === 'role:view_status') {
-      const roles = member.roles.cache
+      const names = member.roles.cache
         .filter(r => r.name !== '@everyone')
-        .map(r => r.name)
-        .sort();
+        .map(r => r.name);
 
       return interaction.followUp({
-        content: roles.length
-          ? `🔔 **Your notifications:**\n${roles.map(r => `• ${r}`).join('\n')}`
+        content: names.length
+          ? `🔔 **Your notifications:**\n${names.map(n => `• ${n}`).join('\n')}`
           : '🔕 You have no notification roles selected.',
         ephemeral: true
       });
     }
 
-    // ──────────────────────────────
-    // CLEAR ALL (RARITY + POKÉMON ONLY)
-    // ──────────────────────────────
+    // CLEAR ALL
     if (id === 'role:clear_all') {
-      const toRemove = [];
+      const ids = [
+        ...rolesConfig.rarityRoles.map(r => process.env[r.env]),
+        ...rolesConfig.pokemonRoles.map(p => process.env[p.env])
+      ].filter(Boolean);
 
-      for (const r of rolesConfig.rarityRoles) {
-        const rid = process.env[r.env];
-        if (rid) toRemove.push(rid);
-      }
-
-      for (const p of rolesConfig.pokemonRoles) {
-        const rid = process.env[p.env];
-        if (rid) toRemove.push(rid);
-      }
-
-      for (const rid of toRemove) {
+      for (const rid of ids) {
         if (member.roles.cache.has(rid)) {
           await member.roles.remove(rid).catch(() => {});
         }
       }
-
       return;
     }
 
-    // ──────────────────────────────
     // RARITY TOGGLE
-    // role:rarity:<group>:on|off
-    // ──────────────────────────────
     if (id.startsWith('role:rarity:')) {
       const [, , group, action] = id.split(':');
 
       const rarity = rolesConfig.rarityRoles.find(r =>
-        r.env.toLowerCase().includes(group.toLowerCase())
+        r.env.toLowerCase().includes(group)
       );
       if (!rarity) return;
 
       const roleId = process.env[rarity.env];
       if (!roleId) return;
 
-      if (action === 'on') {
-        await member.roles.add(roleId).catch(() => {});
-      } else {
-        await member.roles.remove(roleId).catch(() => {});
-      }
-
-      return;
+      return action === 'on'
+        ? member.roles.add(roleId).catch(() => {})
+        : member.roles.remove(roleId).catch(() => {});
     }
 
-    // ──────────────────────────────
-    // POKÉMON TOGGLE
-    // role:pokemon:<key>:on|off
-    // ──────────────────────────────
+    // POKEMON TOGGLE
     if (id.startsWith('role:pokemon:')) {
       const [, , key, action] = id.split(':');
 
       const pokemon = rolesConfig.pokemonRoles.find(p =>
-        p.env.toLowerCase().endsWith(key.toLowerCase())
+        p.env.toLowerCase().endsWith(key)
       );
       if (!pokemon) return;
 
       const roleId = process.env[pokemon.env];
       if (!roleId) return;
 
-      if (action === 'on') {
-        await member.roles.add(roleId).catch(() => {});
-      } else {
-        await member.roles.remove(roleId).catch(() => {});
-      }
-
-      return;
+      return action === 'on'
+        ? member.roles.add(roleId).catch(() => {})
+        : member.roles.remove(roleId).catch(() => {});
     }
   }
 };
