@@ -52,97 +52,32 @@ function envToPokemonKey(env) {
   return env.replace(/^ROLE_POKEMON_/, '').toLowerCase();
 }
 
-function toTitleCaseFromKey(key) {
-  return String(key || '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, c => c.toUpperCase());
-}
+const normalize = s =>
+  String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
- * Normalize strings to compare filenames reliably.
- * - Lowercase
- * - Remove anything not a-z0-9
- * - This handles spaces, underscores, punctuation, odd chars
+ * Sprite resolver — LABEL FIRST (truth-based)
  */
-function normalizeName(s) {
-  return String(s || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-}
+function getSpriteForLabel(label) {
+  if (!label) return null;
 
-/**
- * Build an index of actual sprite files in /sprites.
- * Keyed by normalized base filename (without extension).
- *
- * Example:
- *  "snorlaxsnowman" -> "Snorlax (Snowman).png"
- *  "xd001"          -> "XD001.png"
- */
-function buildSpriteIndex() {
-  const index = new Map();
-
-  let files = [];
-  try {
-    files = fs.readdirSync(SPRITES_DIR);
-  } catch {
-    return index;
+  // 1️⃣ Exact match (this will hit for your dataset)
+  const exact = path.join(SPRITES_DIR, `${label}.png`);
+  if (fs.existsSync(exact)) {
+    return { attachment: exact, name: `${label}.png` };
   }
 
-  for (const f of files) {
-    const ext = path.extname(f).toLowerCase();
-    if (!['.png', '.webp', '.jpg', '.jpeg'].includes(ext)) continue;
+  // 2️⃣ Normalized fallback
+  const target = normalize(label);
+  const files = fs.readdirSync(SPRITES_DIR);
 
-    const base = path.basename(f, ext);
-    const norm = normalizeName(base);
-    if (!norm) continue;
+  const found = files.find(f =>
+    normalize(path.basename(f, path.extname(f))) === target
+  );
 
-    // Keep first match; don’t overwrite to avoid surprises
-    if (!index.has(norm)) index.set(norm, f);
-  }
-
-  return index;
-}
-
-const SPRITE_INDEX = buildSpriteIndex();
-
-/**
- * Truth-based sprite resolver:
- * 1) Exact file match using label (preferred)
- * 2) Exact file match using title-case key
- * 3) Normalized index match using label
- * 4) Normalized index match using key variants
- */
-function resolveSpriteFile({ label, key }) {
-  const candidates = [];
-
-  if (label) candidates.push(String(label));
-  if (key) candidates.push(toTitleCaseFromKey(key));
-  if (key) candidates.push(String(key)); // raw
-
-  // 1) Exact matches for common extensions (case-sensitive FS)
-  const exts = ['.png', '.PNG', '.webp', '.WEBP', '.jpg', '.JPG', '.jpeg', '.JPEG'];
-  for (const name of candidates) {
-    for (const ext of exts) {
-      const exact = path.join(SPRITES_DIR, `${name}${ext}`);
-      if (fs.existsSync(exact)) {
-        return { attachment: exact, name: `${name}${ext}` };
-      }
-    }
-  }
-
-  // 2) Index match (normalized base filename)
-  for (const name of candidates) {
-    const norm = normalizeName(name);
-    const found = SPRITE_INDEX.get(norm);
-    if (found) {
-      return {
-        attachment: path.join(SPRITES_DIR, found),
-        name: found
-      };
-    }
-  }
-
-  return null;
+  return found
+    ? { attachment: path.join(SPRITES_DIR, found), name: found }
+    : null;
 }
 
 // ──────────────────────────────
@@ -166,7 +101,6 @@ module.exports = {
     .setDescription('Deploy the roamer notification role panel'),
 
   async execute(client, interaction) {
-    // Staff check
     if (!hasStaffRole(interaction.member)) {
       return interaction.reply({
         content: '❌ You do not have permission to use this command.',
@@ -187,7 +121,7 @@ module.exports = {
       return interaction.editReply('❌ Role panel channel not found.');
     }
 
-    // Clear channel (best effort)
+    // Clear channel
     try {
       const msgs = await channel.messages.fetch({ limit: 100 });
       if (msgs.size) await channel.bulkDelete(msgs, true).catch(() => {});
@@ -276,11 +210,7 @@ module.exports = {
 
       for (const p of pokemon) {
         const key = envToPokemonKey(p.env);
-
-        const sprite = resolveSpriteFile({
-          label: p.label,
-          key
-        });
+        const sprite = getSpriteForLabel(p.label);
 
         const files = [];
         const embed = {
