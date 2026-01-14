@@ -52,36 +52,97 @@ function envToPokemonKey(env) {
   return env.replace(/^ROLE_POKEMON_/, '').toLowerCase();
 }
 
-/**
- * HARDENED sprite resolver
- * - Exact match first
- * - Fallback ignores spaces, underscores, punctuation, case
- */
-function getSpriteFileFromKey(pokemonKey) {
-  if (!pokemonKey) return null;
-
-  const display = pokemonKey
+function toTitleCaseFromKey(key) {
+  return String(key || '')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase());
+}
 
-  const direct = path.join(SPRITES_DIR, `${display}.png`);
-  if (fs.existsSync(direct)) {
-    return { attachment: direct, name: `${display}.png` };
+/**
+ * Normalize strings to compare filenames reliably.
+ * - Lowercase
+ * - Remove anything not a-z0-9
+ * - This handles spaces, underscores, punctuation, odd chars
+ */
+function normalizeName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Build an index of actual sprite files in /sprites.
+ * Keyed by normalized base filename (without extension).
+ *
+ * Example:
+ *  "snorlaxsnowman" -> "Snorlax (Snowman).png"
+ *  "xd001"          -> "XD001.png"
+ */
+function buildSpriteIndex() {
+  const index = new Map();
+
+  let files = [];
+  try {
+    files = fs.readdirSync(SPRITES_DIR);
+  } catch {
+    return index;
   }
 
-  const normalize = s =>
-    s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const f of files) {
+    const ext = path.extname(f).toLowerCase();
+    if (!['.png', '.webp', '.jpg', '.jpeg'].includes(ext)) continue;
 
-  const target = normalize(display);
+    const base = path.basename(f, ext);
+    const norm = normalizeName(base);
+    if (!norm) continue;
 
-  const files = fs.readdirSync(SPRITES_DIR);
-  const found = files.find(f =>
-    normalize(f).includes(target)
-  );
+    // Keep first match; don’t overwrite to avoid surprises
+    if (!index.has(norm)) index.set(norm, f);
+  }
 
-  return found
-    ? { attachment: path.join(SPRITES_DIR, found), name: found }
-    : null;
+  return index;
+}
+
+const SPRITE_INDEX = buildSpriteIndex();
+
+/**
+ * Truth-based sprite resolver:
+ * 1) Exact file match using label (preferred)
+ * 2) Exact file match using title-case key
+ * 3) Normalized index match using label
+ * 4) Normalized index match using key variants
+ */
+function resolveSpriteFile({ label, key }) {
+  const candidates = [];
+
+  if (label) candidates.push(String(label));
+  if (key) candidates.push(toTitleCaseFromKey(key));
+  if (key) candidates.push(String(key)); // raw
+
+  // 1) Exact matches for common extensions (case-sensitive FS)
+  const exts = ['.png', '.PNG', '.webp', '.WEBP', '.jpg', '.JPG', '.jpeg', '.JPEG'];
+  for (const name of candidates) {
+    for (const ext of exts) {
+      const exact = path.join(SPRITES_DIR, `${name}${ext}`);
+      if (fs.existsSync(exact)) {
+        return { attachment: exact, name: `${name}${ext}` };
+      }
+    }
+  }
+
+  // 2) Index match (normalized base filename)
+  for (const name of candidates) {
+    const norm = normalizeName(name);
+    const found = SPRITE_INDEX.get(norm);
+    if (found) {
+      return {
+        attachment: path.join(SPRITES_DIR, found),
+        name: found
+      };
+    }
+  }
+
+  return null;
 }
 
 // ──────────────────────────────
@@ -215,7 +276,11 @@ module.exports = {
 
       for (const p of pokemon) {
         const key = envToPokemonKey(p.env);
-        const file = getSpriteFileFromKey(key);
+
+        const sprite = resolveSpriteFile({
+          label: p.label,
+          key
+        });
 
         const files = [];
         const embed = {
@@ -223,9 +288,9 @@ module.exports = {
           color: 0x1f2937
         };
 
-        if (file) {
-          embed.image = { url: `attachment://${file.name}` };
-          files.push(file);
+        if (sprite) {
+          embed.image = { url: `attachment://${sprite.name}` };
+          files.push(sprite);
         }
 
         await channel.send({
