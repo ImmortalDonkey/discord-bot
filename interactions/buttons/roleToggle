@@ -1,0 +1,127 @@
+/**
+ * Role toggle buttons for /roledeploy
+ *
+ * Handles:
+ * - role:pokemon:<key>:on|off
+ * - role:rarity:<group>:on|off
+ * - role:clear_all
+ * - role:view_status
+ */
+
+const rolesConfig = require('../../utils/rolesConfig.cjs');
+
+module.exports = {
+  // PREFIX MATCHES
+  ids: [
+    'role:pokemon:',
+    'role:rarity:',
+    'role:clear_all',
+    'role:view_status'
+  ],
+
+  async execute(client, interaction) {
+    await interaction.deferUpdate();
+
+    const member = interaction.member;
+    const guild = interaction.guild;
+    if (!member || !guild) return;
+
+    const id = interaction.customId;
+
+    // ──────────────────────────────
+    // VIEW MY NOTIFICATIONS
+    // ──────────────────────────────
+    if (id === 'role:view_status') {
+      const roles = member.roles.cache
+        .filter(r => r.name !== '@everyone')
+        .map(r => r.name)
+        .sort();
+
+      return interaction.followUp({
+        content: roles.length
+          ? `🔔 **Your notifications:**\n${roles.map(r => `• ${r}`).join('\n')}`
+          : '🔕 You have no notification roles selected.',
+        ephemeral: true
+      });
+    }
+
+    // ──────────────────────────────
+    // CLEAR ALL
+    // ──────────────────────────────
+    if (id === 'role:clear_all') {
+      const roleIdsToRemove = [];
+
+      // rarity roles
+      for (const r of rolesConfig.rarityRoles) {
+        const rid = process.env[r.env];
+        if (rid) roleIdsToRemove.push(rid);
+      }
+
+      // pokemon roles
+      for (const p of rolesConfig.pokemonRoles) {
+        const rid = process.env[p.env];
+        if (rid) roleIdsToRemove.push(rid);
+      }
+
+      for (const rid of roleIdsToRemove) {
+        if (member.roles.cache.has(rid)) {
+          await member.roles.remove(rid).catch(() => {});
+        }
+      }
+
+      return;
+    }
+
+    // ──────────────────────────────
+    // RARITY TOGGLE
+    // role:rarity:<group>:on|off
+    // ──────────────────────────────
+    if (id.startsWith('role:rarity:')) {
+      const [, , group, action] = id.split(':');
+
+      const rarityEntry = rolesConfig.rarityRoles.find(
+        r => r.env.toLowerCase().includes(group.toLowerCase())
+      );
+      if (!rarityEntry) return;
+
+      const roleId = process.env[rarityEntry.env];
+      if (!roleId) return;
+
+      const enable = action === 'on';
+
+      if (enable) {
+        await member.roles.add(roleId).catch(() => {});
+      } else {
+        await member.roles.remove(roleId).catch(() => {});
+      }
+
+      return;
+    }
+
+    // ──────────────────────────────
+    // POKÉMON TOGGLE
+    // role:pokemon:<key>:on|off
+    // ──────────────────────────────
+    if (id.startsWith('role:pokemon:')) {
+      const [, , key, action] = id.split(':');
+
+      const pokemon = rolesConfig.pokemonRoles.find(p =>
+        p.env.toLowerCase().endsWith(key.toLowerCase())
+      );
+      if (!pokemon) return;
+
+      const roleId = process.env[pokemon.env];
+      if (!roleId) return;
+
+      const enable = action === 'on';
+
+      if (enable) {
+        await member.roles.add(roleId).catch(() => {});
+      } else {
+        await member.roles.remove(roleId).catch(() => {});
+      }
+
+      return;
+    }
+  }
+};
