@@ -1,7 +1,7 @@
 /**
  * Global role buttons
- * - Clear all
  * - View my notifications
+ * - Clear all
  *
  * SAFETY:
  * - ONLY touches rarity + pokemon roles from rolesConfig
@@ -11,8 +11,8 @@ const rolesConfig = require('../../utils/rolesConfig.cjs');
 
 module.exports = {
   ids: [
-    'role:clear_all',
-    'role:view_status'
+    'role:view_status',
+    'role:clear_all'
   ],
 
   async execute(client, interaction) {
@@ -20,56 +20,24 @@ module.exports = {
     if (!member) return;
 
     // ──────────────────────────────
-    // CLEAR ALL (RARITY + POKEMON ONLY)
-    // ──────────────────────────────
-    if (interaction.customId === 'role:clear_all') {
-      const roleIdsToRemove = [];
-
-      // Rarity roles
-      for (const r of rolesConfig.rarityRoles) {
-        const id = process.env[r.env];
-        if (id && member.roles.cache.has(id)) {
-          roleIdsToRemove.push(id);
-        }
-      }
-
-      // Pokémon roles
-      for (const p of rolesConfig.pokemonRoles) {
-        const id = process.env[p.env];
-        if (id && member.roles.cache.has(id)) {
-          roleIdsToRemove.push(id);
-        }
-      }
-
-      if (roleIdsToRemove.length) {
-        await member.roles.remove(roleIdsToRemove).catch(() => {});
-      }
-
-      return interaction.reply({
-        content: '✅ All roamer notification roles have been cleared.',
-        ephemeral: true
-      });
-    }
-
-    // ──────────────────────────────
-    // VIEW STATUS
+    // VIEW MY NOTIFICATIONS
     // ──────────────────────────────
     if (interaction.customId === 'role:view_status') {
       const lines = [];
 
       lines.push('**Rarity Groups**');
       for (const r of rolesConfig.rarityRoles) {
-        const id = process.env[r.env];
-        const has = id && member.roles.cache.has(id);
-        lines.push(`${has ? '✅' : '❌'} ${r.label}`);
+        const roleId = process.env[r.env];
+        const enabled = roleId && member.roles.cache.has(roleId);
+        lines.push(`${enabled ? '✅' : '❌'} ${r.label}`);
       }
 
       lines.push('');
       lines.push('**Individual Pokémon**');
       for (const p of rolesConfig.pokemonRoles) {
-        const id = process.env[p.env];
-        const has = id && member.roles.cache.has(id);
-        lines.push(`${has ? '✅' : '❌'} ${p.label}`);
+        const roleId = process.env[p.env];
+        const enabled = roleId && member.roles.cache.has(roleId);
+        lines.push(`${enabled ? '✅' : '❌'} ${p.label}`);
       }
 
       return interaction.reply({
@@ -78,6 +46,32 @@ module.exports = {
           description: lines.join('\n'),
           color: 0x22c55e
         }],
+        ephemeral: true
+      });
+    }
+
+    // ──────────────────────────────
+    // CLEAR ALL (RARITY + POKEMON ONLY)
+    // ──────────────────────────────
+    if (interaction.customId === 'role:clear_all') {
+      const roleIdsToRemove = [];
+
+      for (const r of rolesConfig.rarityRoles) {
+        const id = process.env[r.env];
+        if (id && member.roles.cache.has(id)) roleIdsToRemove.push(id);
+      }
+
+      for (const p of rolesConfig.pokemonRoles) {
+        const id = process.env[p.env];
+        if (id && member.roles.cache.has(id)) roleIdsToRemove.push(id);
+      }
+
+      if (roleIdsToRemove.length) {
+        await member.roles.remove(roleIdsToRemove).catch(() => {});
+      }
+
+      return interaction.reply({
+        content: '✅ All roamer notification roles have been cleared.',
         ephemeral: true
       });
     }
