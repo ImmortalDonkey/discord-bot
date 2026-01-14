@@ -1,92 +1,67 @@
-const {
-  SlashCommandBuilder,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  ActionRowBuilder
-} = require('discord.js');
-
 const db = require('../../database.cjs');
 
-/**
- * Rarity keys must match core system exactly
- */
-const RARITIES = [
-  { key: 'paradox', label: 'Paradox' },
-  { key: 'roamer_month', label: 'Roamer of the Month' },
-  { key: 'legendary', label: 'Legendary' },
-  { key: 'rare', label: 'Rare' },
-  { key: 'common', label: 'Common' }
+const RARITY_KEYS = [
+  'paradox',
+  'roamer_month',
+  'legendary',
+  'rare',
+  'common'
 ];
 
 module.exports = {
-  subscriberSafe: true,
-
-  data: new SlashCommandBuilder()
-    .setName('reportrouting')
-    .setDescription('Configure report channel routing per rarity (subscriber admin only)'),
+  customId: 'reportrouting_modal',
 
   async execute(client, interaction) {
-    const { guild, member } = interaction;
+    const { guild } = interaction;
 
-    if (!guild || !member) {
+    if (!guild) {
       return interaction.reply({
-        content: '❌ This command must be used inside a server.',
+        content: '❌ Invalid guild context.',
         flags: 64
       });
     }
 
-    // ──────────────────────────────
-    // SUBSCRIBER CHECK
-    // ──────────────────────────────
-    const subscriber = await db.getSubscriberGuild(guild.id);
-    if (!subscriber) {
-      return interaction.reply({
-        content: '❌ This server is not registered as a subscriber.',
-        flags: 64
+    const updates = [];
+
+    for (const key of RARITY_KEYS) {
+      const value = interaction.fields.getTextInputValue(`channel_${key}`)?.trim();
+
+      if (!value) {
+        // Blank = remove override
+        await db.removeGuildRarityChannel(guild.id, key);
+        continue;
+      }
+
+      if (!/^\d{17,20}$/.test(value)) {
+        return interaction.reply({
+          content: `❌ Invalid channel ID for **${key}**.`,
+          flags: 64
+        });
+      }
+
+      // Optional: validate channel exists
+      const channel = await guild.channels.fetch(value).catch(() => null);
+      if (!channel) {
+        return interaction.reply({
+          content: `❌ Channel not found for **${key}**.`,
+          flags: 64
+        });
+      }
+
+      await db.upsertGuildRarityChannel({
+        guildId: guild.id,
+        rarityKey: key,
+        channelId: value
       });
+
+      updates.push(`${key} → <#${value}>`);
     }
 
-    // ──────────────────────────────
-    // ADMIN CHECK
-    // ──────────────────────────────
-    const hasDiscordAdmin = member.permissions.has('Administrator');
-
-    const memberRoleIds = member.roles.cache.map(r => r.id);
-    const hasSubscriberAdmin = await db.isSubscriberStaff(
-      guild.id,
-      memberRoleIds
-    );
-
-    if (!hasDiscordAdmin && !hasSubscriberAdmin) {
-      return interaction.reply({
-        content: '⛔ You do not have permission to configure report routing.',
-        flags: 64
-      });
-    }
-
-    // ──────────────────────────────
-    // BUILD MODAL
-    // ──────────────────────────────
-    const modal = new ModalBuilder()
-      .setCustomId('reportrouting_modal')
-      .setTitle('Report Routing Configuration');
-
-    const rows = [];
-
-    for (const rarity of RARITIES) {
-      const input = new TextInputBuilder()
-        .setCustomId(`channel_${rarity.key}`)
-        .setLabel(`${rarity.label} channel ID`)
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false)
-        .setPlaceholder('Leave blank to use default');
-
-      rows.push(new ActionRowBuilder().addComponents(input));
-    }
-
-    modal.addComponents(...rows);
-
-    await interaction.showModal(modal);
+    return interaction.reply({
+      content: updates.length
+        ? `✔ Report routing updated:\n${updates.join('\n')}`
+        : '✔ Routing cleared. Default channel will be used for all reports.',
+      flags: 64
+    });
   }
 };
