@@ -52,7 +52,14 @@ function envToPokemonKey(env) {
   return env.replace(/^ROLE_POKEMON_/, '').toLowerCase();
 }
 
+/**
+ * HARDENED sprite resolver
+ * - Exact match first
+ * - Fallback ignores spaces, underscores, punctuation, case
+ */
 function getSpriteFileFromKey(pokemonKey) {
+  if (!pokemonKey) return null;
+
   const display = pokemonKey
     .replace(/_/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase());
@@ -62,9 +69,14 @@ function getSpriteFileFromKey(pokemonKey) {
     return { attachment: direct, name: `${display}.png` };
   }
 
+  const normalize = s =>
+    s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const target = normalize(display);
+
   const files = fs.readdirSync(SPRITES_DIR);
   const found = files.find(f =>
-    f.toLowerCase().includes(display.toLowerCase())
+    normalize(f).includes(target)
   );
 
   return found
