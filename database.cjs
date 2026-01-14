@@ -260,6 +260,75 @@ async function upsertGuildPokemonRole({
 }
 
 // ------------------------------------------------------
+// SUBSCRIBER ADMIN + ROUTING HELPERS
+// ------------------------------------------------------
+
+// ---- Subscriber staff roles ----
+async function isSubscriberStaff(guildId, roleIds = []) {
+  if (!roleIds.length) return false;
+
+  const rows = await all(
+    `SELECT role_id
+     FROM subscriber_staff_roles
+     WHERE guild_id = ? AND enabled = 1`,
+    [guildId]
+  );
+
+  const allowed = new Set(rows.map(r => r.role_id));
+  return roleIds.some(id => allowed.has(id));
+}
+
+async function upsertSubscriberStaffRole({ guildId, roleId, enabled = 1 }) {
+  await run(
+    `INSERT OR REPLACE INTO subscriber_staff_roles
+     (guild_id, role_id, enabled)
+     VALUES (?, ?, ?)`,
+    [guildId, roleId, enabled]
+  );
+}
+
+async function removeSubscriberStaffRole(guildId, roleId) {
+  await run(
+    `DELETE FROM subscriber_staff_roles
+     WHERE guild_id = ? AND role_id = ?`,
+    [guildId, roleId]
+  );
+}
+
+// ---- Rarity → Channel routing ----
+async function getGuildRarityChannel(guildId, rarityKey) {
+  return await get(
+    `SELECT channel_id
+     FROM guild_rarity_channels
+     WHERE guild_id = ? AND rarity_key = ? AND enabled = 1
+     LIMIT 1`,
+    [guildId, rarityKey]
+  );
+}
+
+async function upsertGuildRarityChannel({
+  guildId,
+  rarityKey,
+  channelId,
+  enabled = 1
+}) {
+  await run(
+    `INSERT OR REPLACE INTO guild_rarity_channels
+     (guild_id, rarity_key, channel_id, enabled)
+     VALUES (?, ?, ?, ?)`,
+    [guildId, rarityKey, channelId, enabled]
+  );
+}
+
+async function removeGuildRarityChannel(guildId, rarityKey) {
+  await run(
+    `DELETE FROM guild_rarity_channels
+     WHERE guild_id = ? AND rarity_key = ?`,
+    [guildId, rarityKey]
+  );
+}
+
+// ------------------------------------------------------
 // INITIALISE SQLITE SCHEMA
 // ------------------------------------------------------
 async function init() {
@@ -476,6 +545,25 @@ async function init() {
     role_id TEXT,
     enabled INTEGER DEFAULT 1,
     created_at INTEGER
+  )`);
+
+    // -------- SUBSCRIBER STAFF ROLES --------
+  // Defines which roles may use subscriber admin commands (e.g. /reportrouting)
+  await run(`CREATE TABLE IF NOT EXISTS subscriber_staff_roles (
+    guild_id TEXT NOT NULL,
+    role_id TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    PRIMARY KEY (guild_id, role_id)
+  )`);
+
+  // -------- GUILD RARITY CHANNEL ROUTING --------
+  // Per-guild rarity → channel routing overrides
+  await run(`CREATE TABLE IF NOT EXISTS guild_rarity_channels (
+    guild_id TEXT NOT NULL,
+    rarity_key TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    PRIMARY KEY (guild_id, rarity_key)
   )`);
 
     // -------- GUILD RARITY ROLES --------
@@ -1364,6 +1452,12 @@ module.exports = {
   getSubscriberGuilds,
   upsertSubscriberGuild,
   removeSubscriberGuild,
+  
+    // Subscriber admin roles
+  isSubscriberStaff,
+  upsertSubscriberStaffRole,
+  removeSubscriberStaffRole,
+
 
   // Player profiles (IGN)
   upsertPlayerProfile,
@@ -1409,6 +1503,11 @@ module.exports = {
   getGuildPokemonRole,
   upsertGuildRarityRole,
   upsertGuildPokemonRole,
+
+    // Guild rarity channel routing
+  getGuildRarityChannel,
+  upsertGuildRarityChannel,
+  removeGuildRarityChannel,
 
   // Vortex API dedup
   hasVortexRoamer,
