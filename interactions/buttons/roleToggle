@@ -1,20 +1,16 @@
 /**
- * Role toggle buttons for /roledeploy
+ * Button handler for /roledeploy
  *
- * Handles:
- * - role:pokemon:<key>:on|off
- * - role:rarity:<group>:on|off
- * - role:clear_all
- * - role:view_status
+ * Router-compatible (underscore prefixes)
  */
 
 const rolesConfig = require('../../utils/rolesConfig.cjs');
 
 module.exports = {
-  // PREFIX MATCHES
+  // IMPORTANT: underscore suffix enables prefix matching
   ids: [
-    'role:pokemon:',
-    'role:rarity:',
+    'role:rarity_',
+    'role:pokemon_',
     'role:clear_all',
     'role:view_status'
   ],
@@ -46,24 +42,22 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // CLEAR ALL
+    // CLEAR ALL (RARITY + POKÉMON ONLY)
     // ──────────────────────────────
     if (id === 'role:clear_all') {
-      const roleIdsToRemove = [];
+      const toRemove = [];
 
-      // rarity roles
       for (const r of rolesConfig.rarityRoles) {
         const rid = process.env[r.env];
-        if (rid) roleIdsToRemove.push(rid);
+        if (rid) toRemove.push(rid);
       }
 
-      // pokemon roles
       for (const p of rolesConfig.pokemonRoles) {
         const rid = process.env[p.env];
-        if (rid) roleIdsToRemove.push(rid);
+        if (rid) toRemove.push(rid);
       }
 
-      for (const rid of roleIdsToRemove) {
+      for (const rid of toRemove) {
         if (member.roles.cache.has(rid)) {
           await member.roles.remove(rid).catch(() => {});
         }
@@ -79,17 +73,15 @@ module.exports = {
     if (id.startsWith('role:rarity:')) {
       const [, , group, action] = id.split(':');
 
-      const rarityEntry = rolesConfig.rarityRoles.find(
-        r => r.env.toLowerCase().includes(group.toLowerCase())
+      const rarity = rolesConfig.rarityRoles.find(r =>
+        r.env.toLowerCase().includes(group.toLowerCase())
       );
-      if (!rarityEntry) return;
+      if (!rarity) return;
 
-      const roleId = process.env[rarityEntry.env];
+      const roleId = process.env[rarity.env];
       if (!roleId) return;
 
-      const enable = action === 'on';
-
-      if (enable) {
+      if (action === 'on') {
         await member.roles.add(roleId).catch(() => {});
       } else {
         await member.roles.remove(roleId).catch(() => {});
@@ -113,9 +105,7 @@ module.exports = {
       const roleId = process.env[pokemon.env];
       if (!roleId) return;
 
-      const enable = action === 'on';
-
-      if (enable) {
+      if (action === 'on') {
         await member.roles.add(roleId).catch(() => {});
       } else {
         await member.roles.remove(roleId).catch(() => {});
