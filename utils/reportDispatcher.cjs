@@ -39,6 +39,20 @@ function normalizeDbKey(name) {
     .replace(/^_|_$/g, '');
 }
 
+/**
+ * Resolve subscriber target channel with rarity override + fallback
+ */
+async function getSubscriberTargetChannelId(guildId, rarityKey, fallbackChannelId) {
+  const normalizedRarityKey = normalizeDbKey(rarityKey);
+
+  let routed = await db.getGuildRarityChannel(guildId, rarityKey);
+  if (!routed && normalizedRarityKey !== rarityKey) {
+    routed = await db.getGuildRarityChannel(guildId, normalizedRarityKey);
+  }
+
+  return routed?.channel_id || fallbackChannelId;
+}
+
 function getMainGuildMentions({ rarityKey, pokemonName }) {
   const mentions = [];
 
@@ -55,7 +69,6 @@ function getMainGuildMentions({ rarityKey, pokemonName }) {
 async function getSubscriberMentions({ guildId, rarityKey, pokemonName }) {
   const mentions = [];
 
-  // Pokémon role lookup (raw → normalized)
   const rawPokemonKey = String(pokemonName || '');
   const normalizedPokemonKey = normalizeDbKey(rawPokemonKey);
 
@@ -64,7 +77,6 @@ async function getSubscriberMentions({ guildId, rarityKey, pokemonName }) {
     pokemonRole = await db.getGuildPokemonRole(guildId, normalizedPokemonKey);
   }
 
-  // Rarity role lookup (raw → normalized)
   const rawRarityKey = String(rarityKey || '');
   const normalizedRarityKey = normalizeDbKey(rawRarityKey);
 
@@ -80,8 +92,6 @@ async function getSubscriberMentions({ guildId, rarityKey, pokemonName }) {
 }
 
 async function ensureMappingsForLegacyReport(report) {
-  // Some older/manual reports may only have channelId/messageId without report_messages rows.
-  // We can still operate correctly by creating a single mapping for the canonical guild.
   if (!report?.id || !report?.guildId || !report?.channelId || !report?.messageId) return;
 
   await db.addReportMessageMapping({
@@ -128,9 +138,6 @@ async function safeDeleteFile(filePath) {
 
 /**
  * Update an existing report card across ALL guilds where it was posted.
- *
- * - Updates the PNG on every mapped Discord message
- * - Updates message content (mentions) WITHOUT pinging (allowedMentions: { parse: [] })
  */
 async function dispatchReportUpdate(client, reportId) {
   if (!client || !reportId) return;
@@ -138,18 +145,13 @@ async function dispatchReportUpdate(client, reportId) {
   const report = await db.getReport(reportId);
   if (!report) return;
 
-  // Ensure at least one mapping exists for legacy/manual reports
   await ensureMappingsForLegacyReport(report);
 
   const mappings = await db.getReportMessageMappings(reportId);
   if (!mappings.length) return;
 
   const newCardPath = await renderReportImageToDisk(report);
-
-  // Best-effort: remove old local PNG once the new one is created
   await safeDeleteFile(report.imagePath);
-
-  // Persist new image path (canonical only)
   await db.updateReport(reportId, { imagePath: newCardPath });
 
   const mainGuildId = process.env.GUILD_ID;
@@ -158,8 +160,6 @@ async function dispatchReportUpdate(client, reportId) {
     const msg = await safeFetchMessage(client, m.channel_id, m.message_id);
     if (!msg) continue;
 
-    // Recompute mentions so the text stays correct across edits,
-    // but prevent pings on edit.
     let mentions = [];
     try {
       if (m.guild_id === mainGuildId) {
@@ -176,14 +176,11 @@ async function dispatchReportUpdate(client, reportId) {
       }
     } catch {}
 
-    await msg
-      .edit({
-        content: mentions.length ? mentions.join(' ') : msg.content,
-        files: [{ attachment: fs.readFileSync(newCardPath), name: path.basename(newCardPath) }],
-        // Keep components unchanged by leaving them undefined
-        allowedMentions: { parse: [] }
-      })
-      .catch(() => null);
+    await msg.edit({
+      content: mentions.length ? mentions.join(' ') : msg.content,
+      files: [{ attachment: fs.readFileSync(newCardPath), name: path.basename(newCardPath) }],
+      allowedMentions: { parse: [] }
+    }).catch(() => null);
   }
 }
 
@@ -194,11 +191,7 @@ async function dispatchReportDelete(client, reportId) {
   if (!client || !reportId) return;
 
   const report = await db.getReport(reportId);
-  // Even if report is already gone, try to remove orphan messages via mappings.
-
-  if (report) {
-    await ensureMappingsForLegacyReport(report);
-  }
+  if (report) await ensureMappingsForLegacyReport(report);
 
   const mappings = await db.getReportMessageMappings(reportId);
 
@@ -208,10 +201,8 @@ async function dispatchReportDelete(client, reportId) {
     await msg.delete().catch(() => null);
   }
 
-  // Remove mappings + canonical report (deleteReport already removes mappings)
   await db.deleteReport(reportId);
 
-  // Clean disk PNG if we still have the path
   if (report?.imagePath) {
     await safeDeleteFile(report.imagePath);
   }
@@ -252,9 +243,7 @@ async function postToGuild({
     messageId: msg.id
   });
 
-  console.log(
-    `📤 Report posted to #${channel.name} (${report.rarityKey}) [${guildId}]`
-  );
+  console.log(`📤 Report posted to #${channel.name} (${report.rarityKey}) [${guildId}]`);
 }
 
 async function dispatchReport({
@@ -270,12 +259,8 @@ async function dispatchReport({
 
   const mainGuildId = process.env.GUILD_ID;
 
-  // ──────────────────────────────
-  // MAIN GUILD (ENV) — MUST SUCCEED
-  // ──────────────────────────────
-  const mainChannelId =
-    process.env[`CHANNEL_${report.rarityKey.toUpperCase()}`];
-
+  // MAIN GUILD
+  const mainChannelId = process.env[`CHANNEL_${report.rarityKey.toUpperCase()}`];
   if (mainChannelId) {
     const pokemonKeyEnv = normalizePokemonKeyEnv(report.pokemonKey);
 
@@ -291,42 +276,37 @@ async function dispatchReport({
     });
   }
 
-  // ──────────────────────────────
-  // SUBSCRIBER GUILDS (DB FAN-OUT)
-  // BEST-EFFORT — NEVER BREAK DISPATCH
-  // ──────────────────────────────
+  // SUBSCRIBERS
   const subscribers = await db.getSubscriberGuilds();
 
   for (const g of subscribers) {
     try {
-      // ── Pokémon role lookup (raw → normalized)
       const rawPokemonKey = report.pokemonKey;
       const normalizedPokemonKey = normalizeDbKey(rawPokemonKey);
 
-      let pokemonRole =
-        await db.getGuildPokemonRole(g.guild_id, rawPokemonKey);
-
+      let pokemonRole = await db.getGuildPokemonRole(g.guild_id, rawPokemonKey);
       if (!pokemonRole && normalizedPokemonKey !== rawPokemonKey) {
-        pokemonRole =
-          await db.getGuildPokemonRole(g.guild_id, normalizedPokemonKey);
+        pokemonRole = await db.getGuildPokemonRole(g.guild_id, normalizedPokemonKey);
       }
 
-      // ── Rarity role lookup (raw → normalized)
       const rawRarityKey = report.rarityKey;
       const normalizedRarityKey = normalizeDbKey(rawRarityKey);
 
-      let rarityRole =
-        await db.getGuildRarityRole(g.guild_id, rawRarityKey);
-
+      let rarityRole = await db.getGuildRarityRole(g.guild_id, rawRarityKey);
       if (!rarityRole && normalizedRarityKey !== rawRarityKey) {
-        rarityRole =
-          await db.getGuildRarityRole(g.guild_id, normalizedRarityKey);
+        rarityRole = await db.getGuildRarityRole(g.guild_id, normalizedRarityKey);
       }
+
+      const targetChannelId = await getSubscriberTargetChannelId(
+        g.guild_id,
+        report.rarityKey,
+        g.report_channel_id
+      );
 
       await postToGuild({
         client,
         guildId: g.guild_id,
-        channelId: g.report_channel_id,
+        channelId: targetChannelId,
         pokemonRoleId: pokemonRole?.role_id || null,
         rarityRoleId: rarityRole?.role_id || null,
         report,
