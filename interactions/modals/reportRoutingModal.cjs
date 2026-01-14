@@ -9,7 +9,8 @@ const RARITY_KEYS = [
 ];
 
 module.exports = {
-  customId: 'reportrouting_modal',
+  // ✅ REQUIRED by modalHandler.cjs
+  ids: ['reportrouting_modal'],
 
   async execute(client, interaction) {
     const { guild } = interaction;
@@ -24,7 +25,9 @@ module.exports = {
     const updates = [];
 
     for (const key of RARITY_KEYS) {
-      const value = interaction.fields.getTextInputValue(`channel_${key}`)?.trim();
+      const value = interaction.fields
+        .getTextInputValue(`channel_${key}`)
+        ?.trim();
 
       if (!value) {
         // Blank = remove override
@@ -39,7 +42,6 @@ module.exports = {
         });
       }
 
-      // Optional: validate channel exists
       const channel = await guild.channels.fetch(value).catch(() => null);
       if (!channel) {
         return interaction.reply({
