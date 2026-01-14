@@ -11,7 +11,6 @@ const RARITY_KEYS = [
 ];
 
 module.exports = {
-  // Required by modalHandler.cjs
   ids: ['reportrouting_modal'],
 
   async execute(client, interaction) {
@@ -34,11 +33,8 @@ module.exports = {
         .getTextInputValue(`channel_${key}`)
         ?.trim();
 
-      // Blank = remove override
-      if (!value) {
-        planned.push({ key, channelId: null });
-        continue;
-      }
+      // ✅ Blank = leave unchanged
+      if (!value) continue;
 
       if (!/^\d{17,20}$/.test(value)) {
         return interaction.reply({
@@ -64,11 +60,6 @@ module.exports = {
     const updates = [];
 
     for (const entry of planned) {
-      if (!entry.channelId) {
-        await db.removeGuildRarityChannel(guild.id, entry.key);
-        continue;
-      }
-
       await db.upsertGuildRarityChannel({
         guildId: guild.id,
         rarityKey: entry.key,
@@ -81,7 +72,7 @@ module.exports = {
     return interaction.reply({
       content: updates.length
         ? `✔ Report routing updated:\n${updates.join('\n')}`
-        : '✔ Routing cleared. Default channel will be used for all reports.',
+        : '✔ No changes made. Existing routing remains unchanged.',
       flags: 64
     });
   }
