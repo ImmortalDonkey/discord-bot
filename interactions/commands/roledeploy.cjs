@@ -52,7 +52,7 @@ function envToPokemonKey(env) {
   return env.replace(/^ROLE_POKEMON_/, '').toLowerCase();
 }
 
-const normalize = s =>
+const normalize = (s) =>
   String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
@@ -69,7 +69,7 @@ function getSpriteForLabel(label) {
   const target = normalize(label);
   const files = fs.readdirSync(SPRITES_DIR);
 
-  const found = files.find(f =>
+  const found = files.find((f) =>
     normalize(path.basename(f, path.extname(f))) === target
   );
 
@@ -88,6 +88,17 @@ const ORDERED_GROUPS = [
   'rare',
   'common'
 ];
+
+// ──────────────────────────────
+// RARITY GROUP → ENV KEY (TRUTH)
+// ──────────────────────────────
+const RARITY_ENV_BY_GROUP = {
+  paradox: 'ROLE_PARADOX',
+  roamerMonth: 'ROLE_ROAMERMONTH',
+  legendary: 'ROLE_LEGENDARY',
+  rare: 'ROLE_RARE',
+  common: 'ROLE_COMMON'
+};
 
 // ──────────────────────────────
 // COMMAND
@@ -113,13 +124,8 @@ module.exports = {
       ephemeral: true
     });
 
-    const channel = await client.channels
-      .fetch(PANEL_CHANNEL_ID)
-      .catch(() => null);
-
-    if (!channel) {
-      return interaction.editReply('❌ Role panel channel not found.');
-    }
+    const channel = await client.channels.fetch(PANEL_CHANNEL_ID).catch(() => null);
+    if (!channel) return interaction.editReply('❌ Role panel channel not found.');
 
     // Clear channel (best effort)
     try {
@@ -158,15 +164,18 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // RARITY GROUP SECTIONS (TEXT ONLY)
+    // RARITY GROUPS (HEADER TEXT + BUTTONS) — MUST APPEAR BEFORE POKÉMON
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
-      const rarity = rolesConfig.rarityRoles.find(r => r.group === group);
-      if (!rarity) continue;
+      const envKey = RARITY_ENV_BY_GROUP[group];
+      const rarity = rolesConfig.rarityRoles.find((r) => r.env === envKey);
+
+      // If config missing, still show something obvious
+      const label = rarity?.label || group;
 
       await channel.send({
         embeds: [{
-          title: rarity.label,
+          title: label,
           color: 0x64748b
         }],
         components: [
@@ -188,7 +197,7 @@ module.exports = {
     // INDIVIDUAL POKÉMON (AFTER RARITIES)
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
-      const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
+      const pokemon = rolesConfig.pokemonRoles.filter((p) => p.group === group);
 
       for (const p of pokemon) {
         const key = envToPokemonKey(p.env);
