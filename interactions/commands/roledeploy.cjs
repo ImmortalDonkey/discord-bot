@@ -86,8 +86,6 @@ const RARITY_IMAGES = {
 // COMMAND
 // ──────────────────────────────
 module.exports = {
-  // 🚫 MAIN GUILD ONLY
-  // Never global, never subscriber
   mainGuildOnly: true,
 
   data: new SlashCommandBuilder()
@@ -123,7 +121,7 @@ module.exports = {
     } catch {}
 
     // ──────────────────────────────
-    // INTRO
+    // INTRO + GLOBAL ACTIONS
     // ──────────────────────────────
     await channel.send({
       embeds: [{
@@ -140,6 +138,10 @@ module.exports = {
       }],
       components: [
         new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('role:view_status')
+            .setLabel('View my notifications')
+            .setStyle(ButtonStyle.Primary),
           new ButtonBuilder()
             .setCustomId('role:clear_all')
             .setLabel('Clear all')
@@ -186,7 +188,7 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // INDIVIDUAL POKÉMON (3 PER MESSAGE)
+    // INDIVIDUAL POKÉMON (1 PER MESSAGE)
     // ──────────────────────────────
     const orderedGroups = [
       'roamerMonth',
@@ -199,30 +201,25 @@ module.exports = {
     for (const group of orderedGroups) {
       const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
 
-      for (let i = 0; i < pokemon.length; i += 3) {
-        const chunk = pokemon.slice(i, i + 3);
+      for (const p of pokemon) {
+        const key = envToPokemonKey(p.env);
+        const file = getSpriteFileFromKey(key);
 
-        const embeds = [];
         const files = [];
-        const rows = [];
+        const embed = {
+          title: p.label,
+          color: 0x1f2937
+        };
 
-        for (const p of chunk) {
-          const key = envToPokemonKey(p.env);
-          const file = getSpriteFileFromKey(key);
+        if (file) {
+          embed.image = { url: `attachment://${file.name}` };
+          files.push(file);
+        }
 
-          const embed = {
-            title: p.label,
-            color: 0x1f2937
-          };
-
-          if (file) {
-            embed.image = { url: `attachment://${file.name}` };
-            files.push(file);
-          }
-
-          embeds.push(embed);
-
-          rows.push(
+        await channel.send({
+          embeds: [embed],
+          files,
+          components: [
             new ActionRowBuilder().addComponents(
               new ButtonBuilder()
                 .setCustomId(`role:pokemon:${key}:on`)
@@ -233,13 +230,7 @@ module.exports = {
                 .setLabel('OFF')
                 .setStyle(ButtonStyle.Secondary)
             )
-          );
-        }
-
-        await channel.send({
-          embeds,
-          files,
-          components: rows
+          ]
         });
       }
     }
