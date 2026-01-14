@@ -61,13 +61,11 @@ const normalize = s =>
 function getSpriteForLabel(label) {
   if (!label) return null;
 
-  // Exact match
   const exact = path.join(SPRITES_DIR, `${label}.png`);
   if (fs.existsSync(exact)) {
     return { attachment: exact, name: `${label}.png` };
   }
 
-  // Normalized fallback
   const target = normalize(label);
   const files = fs.readdirSync(SPRITES_DIR);
 
@@ -160,13 +158,10 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // RARITY GROUP HEADERS (TEXT ONLY)
+    // RARITY GROUP SECTIONS (TEXT ONLY)
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
-      const rarity = rolesConfig.rarityRoles.find(
-        r => r.group === group
-      );
-
+      const rarity = rolesConfig.rarityRoles.find(r => r.group === group);
       if (!rarity) continue;
 
       await channel.send({
@@ -190,7 +185,7 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // INDIVIDUAL POKÉMON (1 PER MESSAGE, WITH IMAGE)
+    // INDIVIDUAL POKÉMON (AFTER RARITIES)
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
       const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
