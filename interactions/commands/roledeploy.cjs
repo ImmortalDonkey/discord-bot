@@ -8,6 +8,7 @@
  * - Staff-only via STAFF_ROLES env
  * - Uses CHANNEL_ROLES env
  * - Uses LOCAL sprite files from /sprites (POKÉMON ONLY)
+ * - Uses EXISTING roles_manage_<ROLE_ID> button system
  * - Always clears & redeploys entire panel
  */
 
@@ -48,16 +49,9 @@ function hasStaffRole(member) {
   return STAFF_ROLES.some(id => member.roles.cache.has(id));
 }
 
-function envToPokemonKey(env) {
-  return env.replace(/^ROLE_POKEMON_/, '').toLowerCase();
-}
-
-const normalize = (s) =>
+const normalize = s =>
   String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-/**
- * Resolve Pokémon sprite using LABEL as truth
- */
 function getSpriteForLabel(label) {
   if (!label) return null;
 
@@ -69,7 +63,7 @@ function getSpriteForLabel(label) {
   const target = normalize(label);
   const files = fs.readdirSync(SPRITES_DIR);
 
-  const found = files.find((f) =>
+  const found = files.find(f =>
     normalize(path.basename(f, path.extname(f))) === target
   );
 
@@ -88,17 +82,6 @@ const ORDERED_GROUPS = [
   'rare',
   'common'
 ];
-
-// ──────────────────────────────
-// RARITY GROUP → ENV KEY (TRUTH)
-// ──────────────────────────────
-const RARITY_ENV_BY_GROUP = {
-  paradox: 'ROLE_PARADOX',
-  roamerMonth: 'ROLE_ROAMERMONTH',
-  legendary: 'ROLE_LEGENDARY',
-  rare: 'ROLE_RARE',
-  common: 'ROLE_COMMON'
-};
 
 // ──────────────────────────────
 // COMMAND
@@ -124,8 +107,13 @@ module.exports = {
       ephemeral: true
     });
 
-    const channel = await client.channels.fetch(PANEL_CHANNEL_ID).catch(() => null);
-    if (!channel) return interaction.editReply('❌ Role panel channel not found.');
+    const channel = await client.channels
+      .fetch(PANEL_CHANNEL_ID)
+      .catch(() => null);
+
+    if (!channel) {
+      return interaction.editReply('❌ Role panel channel not found.');
+    }
 
     // Clear channel (best effort)
     try {
@@ -134,7 +122,7 @@ module.exports = {
     } catch {}
 
     // ──────────────────────────────
-    // INTRO + GLOBAL ACTIONS
+    // INTRO
     // ──────────────────────────────
     await channel.send({
       embeds: [{
@@ -148,61 +136,48 @@ module.exports = {
           '',
           'You can change your preferences at any time.'
         ].join('\n')
-      }],
-      components: [
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId('role:view_status')
-            .setLabel('View my notifications')
-            .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setCustomId('role:clear_all')
-            .setLabel('Clear all')
-            .setStyle(ButtonStyle.Danger)
-        )
-      ]
+      }]
     });
 
     // ──────────────────────────────
-    // RARITY GROUPS (HEADER TEXT + BUTTONS) — MUST APPEAR BEFORE POKÉMON
+    // RARITY GROUPS (TEXT HEADER + TOGGLE)
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
-      const envKey = RARITY_ENV_BY_GROUP[group];
-      const rarity = rolesConfig.rarityRoles.find((r) => r.env === envKey);
+      const rarity = rolesConfig.rarityRoles.find(r =>
+        r.env.toLowerCase().includes(group.toLowerCase())
+      );
+      if (!rarity) continue;
 
-      // If config missing, still show something obvious
-      const label = rarity?.label || group;
+      const roleId = process.env[rarity.env];
+      if (!roleId) continue;
 
       await channel.send({
         embeds: [{
-          title: label,
+          title: rarity.label,
           color: 0x64748b
         }],
         components: [
           new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-              .setCustomId(`role:rarity:${group}:on`)
-              .setLabel('ON')
-              .setStyle(ButtonStyle.Success),
-            new ButtonBuilder()
-              .setCustomId(`role:rarity:${group}:off`)
-              .setLabel('OFF')
-              .setStyle(ButtonStyle.Secondary)
+              .setCustomId(`roles_manage_${roleId}`)
+              .setLabel('Toggle')
+              .setStyle(ButtonStyle.Primary)
           )
         ]
       });
     }
 
     // ──────────────────────────────
-    // INDIVIDUAL POKÉMON (AFTER RARITIES)
+    // INDIVIDUAL POKÉMON (IMAGE + TOGGLE)
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
-      const pokemon = rolesConfig.pokemonRoles.filter((p) => p.group === group);
+      const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
 
       for (const p of pokemon) {
-        const key = envToPokemonKey(p.env);
-        const sprite = getSpriteForLabel(p.label);
+        const roleId = process.env[p.env];
+        if (!roleId) continue;
 
+        const sprite = getSpriteForLabel(p.label);
         const files = [];
         const embed = {
           title: p.label,
@@ -220,13 +195,9 @@ module.exports = {
           components: [
             new ActionRowBuilder().addComponents(
               new ButtonBuilder()
-                .setCustomId(`role:pokemon:${key}:on`)
-                .setLabel('ON')
-                .setStyle(ButtonStyle.Success),
-              new ButtonBuilder()
-                .setCustomId(`role:pokemon:${key}:off`)
-                .setLabel('OFF')
-                .setStyle(ButtonStyle.Secondary)
+                .setCustomId(`roles_manage_${roleId}`)
+                .setLabel('Toggle')
+                .setStyle(ButtonStyle.Primary)
             )
           ]
         });
