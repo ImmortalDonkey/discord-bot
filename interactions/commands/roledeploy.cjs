@@ -9,6 +9,7 @@
  * - Uses CHANNEL_ROLES env
  * - Uses LOCAL sprite files from /sprites (POKÉMON ONLY)
  * - Uses EXISTING roles_manage_<ROLE_ID> button system
+ * - ON / OFF buttons ONLY (no toggle)
  * - Always clears & redeploys entire panel
  */
 
@@ -122,7 +123,7 @@ module.exports = {
     } catch {}
 
     // ──────────────────────────────
-    // INTRO
+    // INTRO + GLOBAL ACTIONS
     // ──────────────────────────────
     await channel.send({
       embeds: [{
@@ -136,11 +137,23 @@ module.exports = {
           '',
           'You can change your preferences at any time.'
         ].join('\n')
-      }]
+      }],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('roles_view_status')
+            .setLabel('View my notifications')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId('roles_clear_all')
+            .setLabel('Clear all')
+            .setStyle(ButtonStyle.Danger)
+        )
+      ]
     });
 
     // ──────────────────────────────
-    // RARITY GROUPS (TEXT HEADER + TOGGLE)
+    // RARITY GROUPS (HEADER + ON / OFF)
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
       const rarity = rolesConfig.rarityRoles.find(r =>
@@ -160,15 +173,19 @@ module.exports = {
           new ActionRowBuilder().addComponents(
             new ButtonBuilder()
               .setCustomId(`roles_manage_${roleId}`)
-              .setLabel('Toggle')
-              .setStyle(ButtonStyle.Primary)
+              .setLabel('ON')
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId(`roles_manage_${roleId}`)
+              .setLabel('OFF')
+              .setStyle(ButtonStyle.Secondary)
           )
         ]
       });
     }
 
     // ──────────────────────────────
-    // INDIVIDUAL POKÉMON (IMAGE + TOGGLE)
+    // INDIVIDUAL POKÉMON (IMAGE + ON / OFF)
     // ──────────────────────────────
     for (const group of ORDERED_GROUPS) {
       const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
@@ -196,8 +213,12 @@ module.exports = {
             new ActionRowBuilder().addComponents(
               new ButtonBuilder()
                 .setCustomId(`roles_manage_${roleId}`)
-                .setLabel('Toggle')
-                .setStyle(ButtonStyle.Primary)
+                .setLabel('ON')
+                .setStyle(ButtonStyle.Success),
+              new ButtonBuilder()
+                .setCustomId(`roles_manage_${roleId}`)
+                .setLabel('OFF')
+                .setStyle(ButtonStyle.Secondary)
             )
           ]
         });
