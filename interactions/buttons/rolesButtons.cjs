@@ -1,4 +1,5 @@
 // interactions/buttons/rolesButtons.cjs
+
 const {
   ActionRowBuilder,
   ButtonBuilder,
@@ -17,10 +18,6 @@ function getGroupFromRarityEnv(env) {
 }
 
 function parseManageCustomId(customId) {
-  // formats:
-  // roles_manage_<ROLEID>:on
-  // roles_manage_<ROLEID>:off
-  // (legacy) roles_manage_<ROLEID>
   const raw = customId.replace('roles_manage_', '');
   const [roleId, mode] = raw.split(':');
   return { roleId, mode: mode || null };
@@ -31,30 +28,30 @@ module.exports = {
 
   async execute(client, interaction) {
     const { customId } = interaction;
-
     const member = interaction.member;
     const guild = interaction.guild;
     if (!member || !guild) return;
 
     // ──────────────────────────────
-    // VIEW STATUS
+    // 👁 VIEW MY NOTIFICATIONS
     // ──────────────────────────────
     if (customId === 'roles_view_status') {
-      const rarityHeld = [];
+      const lines = [];
+
+      lines.push('**Rarity groups**');
       for (const r of rolesConfig.rarityRoles) {
         const roleId = process.env[r.env];
-        if (roleId && member.roles.cache.has(roleId)) rarityHeld.push(r.label);
+        const has = roleId && member.roles.cache.has(roleId);
+        lines.push(`${has ? '✅' : '❌'} ${r.label}`);
       }
 
-      const pokemonHeld = [];
+      lines.push('');
+      lines.push('**Pokémon**');
       for (const p of rolesConfig.pokemonRoles) {
         const roleId = process.env[p.env];
-        if (roleId && member.roles.cache.has(roleId)) pokemonHeld.push(p.label);
+        const has = roleId && member.roles.cache.has(roleId);
+        lines.push(`${has ? '✅' : '❌'} ${p.label}`);
       }
-
-      const lines = [];
-      lines.push(`**Rarity groups:** ${rarityHeld.length ? rarityHeld.join(', ') : 'None'}`);
-      lines.push(`**Pokémon:** ${pokemonHeld.length ? pokemonHeld.join(', ') : 'None'}`);
 
       return interaction.reply({
         content: lines.join('\n'),
@@ -63,7 +60,7 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // CLEAR ALL (rarity + pokemon only)
+    // 🧹 CLEAR ALL (RARITY + POKÉMON ONLY)
     // ──────────────────────────────
     if (customId === 'roles_clear_all') {
       await interaction.deferReply({ ephemeral: true }).catch(() => {});
@@ -72,11 +69,16 @@ module.exports = {
 
       for (const r of rolesConfig.rarityRoles) {
         const roleId = process.env[r.env];
-        if (roleId && member.roles.cache.has(roleId)) toRemove.push(roleId);
+        if (roleId && member.roles.cache.has(roleId)) {
+          toRemove.push(roleId);
+        }
       }
+
       for (const p of rolesConfig.pokemonRoles) {
         const roleId = process.env[p.env];
-        if (roleId && member.roles.cache.has(roleId)) toRemove.push(roleId);
+        if (roleId && member.roles.cache.has(roleId)) {
+          toRemove.push(roleId);
+        }
       }
 
       if (toRemove.length) {
@@ -84,12 +86,12 @@ module.exports = {
       }
 
       return interaction.editReply({
-        content: '✅ Cleared all rarity + Pokémon notification roles.'
+        content: '✅ Cleared all rarity and Pokémon notification roles.'
       }).catch(() => {});
     }
 
     // ──────────────────────────────
-    // ROLE MANAGE (ON / OFF semantics)
+    // 🔘 ROLE MANAGE (ON / OFF)
     // ──────────────────────────────
     if (customId.startsWith('roles_manage_')) {
       await interaction.deferUpdate().catch(() => {});
@@ -102,27 +104,23 @@ module.exports = {
 
       const hasRole = member.roles.cache.has(roleId);
 
-      // Detect if this roleId is a rarity role
-      const rarityEntry = rolesConfig.rarityRoles.find(r => process.env[r.env] === roleId);
-
-      // Decide desired state
-      // mode 'on' => ensure ON
-      // mode 'off' => ensure OFF
-      // legacy => toggle
+      // Determine intent
       let targetOn;
       if (mode === 'on') targetOn = true;
       else if (mode === 'off') targetOn = false;
       else targetOn = !hasRole;
 
-      // ──────────────────────────────
-      // RARITY GROUP APPLY (with cascade)
-      // ──────────────────────────────
+      // Check if rarity role
+      const rarityEntry = rolesConfig.rarityRoles.find(
+        r => process.env[r.env] === roleId
+      );
+
+      // ───────── RARITY GROUP LOGIC ─────────
       if (rarityEntry) {
         const groupKey = getGroupFromRarityEnv(rarityEntry.env);
-
-        const pokemonInGroup = groupKey
-          ? rolesConfig.pokemonRoles.filter(p => p.group === groupKey)
-          : [];
+        const pokemonInGroup = rolesConfig.pokemonRoles.filter(
+          p => p.group === groupKey
+        );
 
         if (targetOn) {
           if (!hasRole) await member.roles.add(roleId).catch(() => {});
@@ -143,9 +141,7 @@ module.exports = {
         }
       }
 
-      // ──────────────────────────────
-      // INDIVIDUAL POKÉMON APPLY
-      // ──────────────────────────────
+      // ───────── INDIVIDUAL POKÉMON ─────────
       else {
         if (targetOn) {
           if (!hasRole) await member.roles.add(roleId).catch(() => {});
@@ -155,7 +151,7 @@ module.exports = {
       }
 
       // ──────────────────────────────
-      // UPDATE BUTTON STYLES (ON reflects truth)
+      // 🎨 UPDATE BUTTON STYLES
       // ──────────────────────────────
       const nowHasRole = member.roles.cache.has(roleId);
       const row = interaction.message.components?.[0];
@@ -166,11 +162,8 @@ module.exports = {
       for (const c of row.components) {
         const b = ButtonBuilder.from(c);
 
-        // We set ON green only when enabled. OFF remains secondary.
-        if (String(b.data.custom_id || '').endsWith(':on')) {
+        if (String(b.data.custom_id).endsWith(':on')) {
           b.setStyle(nowHasRole ? ButtonStyle.Success : ButtonStyle.Secondary);
-        } else if (String(b.data.custom_id || '').endsWith(':off')) {
-          b.setStyle(ButtonStyle.Secondary);
         }
 
         newRow.addComponents(b);
