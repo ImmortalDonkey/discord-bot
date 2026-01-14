@@ -115,32 +115,20 @@ module.exports = {
         r => process.env[r.env] === roleId
       );
 
-      // ───────── RARITY GROUP LOGIC ─────────
-      if (rarityEntry) {
-        const groupKey = getGroupFromRarityEnv(rarityEntry.env);
-        const pokemonInGroup = rolesConfig.pokemonRoles.filter(
-          p => p.group === groupKey
-        );
-
-        if (targetOn) {
-          if (!hasRole) await member.roles.add(roleId).catch(() => {});
-          for (const poke of pokemonInGroup) {
-            const pokeRoleId = process.env[poke.env];
-            if (pokeRoleId && !member.roles.cache.has(pokeRoleId)) {
-              await member.roles.add(pokeRoleId).catch(() => {});
-            }
-          }
-        } else {
-          if (hasRole) await member.roles.remove(roleId).catch(() => {});
-          for (const poke of pokemonInGroup) {
-            const pokeRoleId = process.env[poke.env];
-            if (pokeRoleId && member.roles.cache.has(pokeRoleId)) {
-              await member.roles.remove(pokeRoleId).catch(() => {});
-            }
-          }
-        }
-      }
-
+   // ───────── RARITY GROUP LOGIC ─────────
+// FIX: rarity roles no longer grant/revoke Pokémon roles
+if (rarityEntry) {
+  if (targetOn) {
+    if (!hasRole) {
+      await member.roles.add(roleId).catch(() => {});
+    }
+  } else {
+    if (hasRole) {
+      await member.roles.remove(roleId).catch(() => {});
+    }
+  }
+}
+  
       // ───────── INDIVIDUAL POKÉMON ─────────
       else {
         if (targetOn) {
