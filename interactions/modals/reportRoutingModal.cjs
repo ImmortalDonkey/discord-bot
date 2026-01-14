@@ -1,3 +1,5 @@
+// interactions/modals/reportRoutingModal.cjs
+
 const db = require('../../database.cjs');
 
 const RARITY_KEYS = [
@@ -9,7 +11,7 @@ const RARITY_KEYS = [
 ];
 
 module.exports = {
-  // ✅ REQUIRED by modalHandler.cjs
+  // Required by modalHandler.cjs
   ids: ['reportrouting_modal'],
 
   async execute(client, interaction) {
@@ -22,16 +24,19 @@ module.exports = {
       });
     }
 
-    const updates = [];
+    // ──────────────────────────────
+    // PHASE 1: VALIDATION (NO WRITES)
+    // ──────────────────────────────
+    const planned = [];
 
     for (const key of RARITY_KEYS) {
       const value = interaction.fields
         .getTextInputValue(`channel_${key}`)
         ?.trim();
 
+      // Blank = remove override
       if (!value) {
-        // Blank = remove override
-        await db.removeGuildRarityChannel(guild.id, key);
+        planned.push({ key, channelId: null });
         continue;
       }
 
@@ -50,13 +55,27 @@ module.exports = {
         });
       }
 
+      planned.push({ key, channelId: value });
+    }
+
+    // ──────────────────────────────
+    // PHASE 2: APPLY CHANGES
+    // ──────────────────────────────
+    const updates = [];
+
+    for (const entry of planned) {
+      if (!entry.channelId) {
+        await db.removeGuildRarityChannel(guild.id, entry.key);
+        continue;
+      }
+
       await db.upsertGuildRarityChannel({
         guildId: guild.id,
-        rarityKey: key,
-        channelId: value
+        rarityKey: entry.key,
+        channelId: entry.channelId
       });
 
-      updates.push(`${key} → <#${value}>`);
+      updates.push(`${entry.key} → <#${entry.channelId}>`);
     }
 
     return interaction.reply({
