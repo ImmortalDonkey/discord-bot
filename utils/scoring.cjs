@@ -3,39 +3,25 @@
 const { rarityPoints } = require('./rarity.cjs');
 
 /**
- * Determine points multiplier based on the minute in the hour.
- * @param {number} minute - 0–59
- * @returns {number} multiplier (0.0–1.0)
- */
-function getMinuteMultiplier(minute) {
-  if (minute < 30) return 1.0;   // 100%
-  if (minute < 40) return 0.75;  // 75%
-  if (minute < 50) return 0.50;  // 50%
-  return 0.10;                   // 10% (min 1 point)
-}
-
-/**
- * Calculate the awarded points based on rarity + time of hour.
- * Always returns at least 1 point for valid reports.
+ * Calculate awarded points for a report.
  *
- * @param {string} rarityKey
- * @param {Date} reportTime
- * @returns {number} final awarded points
+ * IMPORTANT:
+ * - Diminishing / time-based decay logic has been REMOVED.
+ * - Full base points are always awarded.
+ * - Function signature and export are intentionally unchanged.
  */
-function calculateAwardedPoints(rarityKey, reportTime = new Date()) {
-  const base = rarityPoints[rarityKey] || 1;
-  const minute = reportTime.getMinutes();
+function calculateAwardedPoints(rarityKey /*, reportTime */) {
+  if (!rarityKey) return 0;
 
-  const multiplier = getMinuteMultiplier(minute);
-  let final = Math.floor(base * multiplier);
+  const basePoints = rarityPoints[rarityKey];
 
-  // Ensure minimum 1 for valid reports
-  if (final < 1) final = 1;
+  if (!basePoints) return 0;
 
-  return final;
+  // 🔒 Locked behavior:
+  // Always return full base points
+  return basePoints;
 }
 
 module.exports = {
-  getMinuteMultiplier,
   calculateAwardedPoints
 };
