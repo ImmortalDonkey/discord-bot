@@ -260,6 +260,28 @@ async function upsertGuildPokemonRole({
 }
 
 // ------------------------------------------------------
+// GUILD ROLE LIST LOOKUPS (ALL ENABLED FOR A GUILD)
+// ------------------------------------------------------
+
+async function getGuildRarityRoles(guildId) {
+  return await all(
+    `SELECT rarity_key, role_id
+     FROM guild_rarity_roles
+     WHERE guild_id = ? AND enabled = 1`,
+    [guildId]
+  );
+}
+
+async function getGuildPokemonRoles(guildId) {
+  return await all(
+    `SELECT pokemon_key, role_id
+     FROM guild_pokemon_roles
+     WHERE guild_id = ? AND enabled = 1`,
+    [guildId]
+  );
+}
+
+// ------------------------------------------------------
 // SUBSCRIBER ADMIN + ROUTING HELPERS
 // ------------------------------------------------------
 
@@ -1503,6 +1525,9 @@ module.exports = {
   getGuildPokemonRole,
   upsertGuildRarityRole,
   upsertGuildPokemonRole,
+  getGuildRarityRoles,
+  getGuildPokemonRoles,
+
 
     // Guild rarity channel routing
   getGuildRarityChannel,
