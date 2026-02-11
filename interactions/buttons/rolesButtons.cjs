@@ -15,6 +15,7 @@ module.exports = {
     const { customId } = interaction;
     const member = interaction.member;
     const guild = interaction.guild;
+
     if (!member || !guild) return;
 
     // ──────────────────────────────
@@ -23,33 +24,19 @@ module.exports = {
     if (customId === 'roles_view_status') {
       const lines = [];
 
-      lines.push('**Rarity groups**');
-      for (const r of rolesConfig.rarityRoles) {
-        const roleId =
-          guild.id === process.env.GUILD_ID
-            ? process.env[r.env]
-            : null;
-
-        const has = roleId && member.roles.cache.has(roleId);
-        lines.push(`${has ? '✅' : '❌'} ${r.label}`);
-      }
-
-      lines.push('');
-      lines.push('**Pokémon**');
-      for (const p of rolesConfig.pokemonRoles) {
-        const roleId =
-          guild.id === process.env.GUILD_ID
-            ? process.env[p.env]
-            : null;
-
-        const has = roleId && member.roles.cache.has(roleId);
-        lines.push(`${has ? '✅' : '❌'} ${p.label}`);
+      lines.push('**Your Active Roles**');
+      for (const role of member.roles.cache.values()) {
+        if (role.name !== '@everyone') {
+          lines.push(`• ${role.name}`);
+        }
       }
 
       return interaction.reply({
-        content: lines.join('\n'),
+        content: lines.length > 1 ? lines.join('\n') : '🔕 No notification roles selected.',
         flags: 64
-      }).catch(() => {});
+      }).catch(err => {
+        console.error('View status error:', err);
+      });
     }
 
     // ──────────────────────────────
@@ -60,7 +47,6 @@ module.exports = {
 
       const toRemove = [];
 
-      // In subscriber guilds, remove based on role names in config
       for (const role of member.roles.cache.values()) {
         if (
           rolesConfig.rarityRoles.some(r => r.label === role.name) ||
@@ -71,12 +57,18 @@ module.exports = {
       }
 
       if (toRemove.length) {
-        await member.roles.remove(toRemove).catch(() => {});
+        try {
+          await member.roles.remove(toRemove);
+        } catch (err) {
+          console.error('Clear all roles error:', err);
+        }
       }
 
       return interaction.editReply({
         content: '✅ Cleared all rarity and Pokémon notification roles.'
-      }).catch(() => {});
+      }).catch(err => {
+        console.error('Edit reply error:', err);
+      });
     }
 
     // ──────────────────────────────
@@ -89,7 +81,10 @@ module.exports = {
       if (!roleId) return;
 
       const role = guild.roles.cache.get(roleId);
-      if (!role) return;
+      if (!role) {
+        console.error('Role not found:', roleId);
+        return;
+      }
 
       const hasRole = member.roles.cache.has(roleId);
 
@@ -98,13 +93,17 @@ module.exports = {
       else if (mode === 'off') targetOn = false;
       else targetOn = !hasRole;
 
-      if (targetOn && !hasRole) {
-        await member.roles.add(roleId).catch(() => {});
-      } else if (!targetOn && hasRole) {
-        await member.roles.remove(roleId).catch(() => {});
+      try {
+        if (targetOn && !hasRole) {
+          await member.roles.add(roleId);
+        } else if (!targetOn && hasRole) {
+          await member.roles.remove(roleId);
+        }
+      } catch (err) {
+        console.error('Role toggle error:', err);
       }
 
-      // No button mutation
+      // 🔒 Buttons remain static — no style mutation
     }
   }
 };
