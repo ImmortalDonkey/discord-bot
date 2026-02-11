@@ -25,6 +25,9 @@ if (customId === 'roles_view_status') {
   const db = require('../../database.cjs');
   const isMain = guild.id === process.env.GUILD_ID;
 
+  // 🔥 IMPORTANT: Fetch fresh member state
+  const freshMember = await guild.members.fetch(interaction.user.id);
+
   const lines = [];
 
   // ───── RARITY GROUPS ─────
@@ -40,14 +43,13 @@ if (customId === 'roles_view_status') {
       roleId = row?.role_id || null;
     }
 
-    const has = roleId && member.roles.cache.has(roleId);
+    const has = roleId && freshMember.roles.cache.has(roleId);
     lines.push(`${has ? '✅' : '❌'} ${r.label}`);
   }
 
   lines.push('');
   lines.push('**Individual Pokémon**');
 
-  // ───── POKÉMON ─────
   for (const p of rolesConfig.pokemonRoles) {
     let roleId = null;
 
@@ -58,7 +60,7 @@ if (customId === 'roles_view_status') {
       roleId = row?.role_id || null;
     }
 
-    const has = roleId && member.roles.cache.has(roleId);
+    const has = roleId && freshMember.roles.cache.has(roleId);
     lines.push(`${has ? '✅' : '❌'} ${p.label}`);
   }
 
@@ -73,7 +75,6 @@ if (customId === 'roles_view_status') {
     console.error('View status error:', err);
   });
 }
-
 
     // ──────────────────────────────
     // 🧹 CLEAR ALL
