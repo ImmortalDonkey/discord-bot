@@ -83,41 +83,32 @@ module.exports = {
       ephemeral: true
     });
 
-    // Clear channel (robust)
-try {
-  let fetched;
-
-  do {
-    fetched = await channel.messages.fetch({ limit: 100 });
-    const deletable = fetched.filter(m =>
-      Date.now() - m.createdTimestamp < 14 * 24 * 60 * 60 * 1000
-    );
-
-    if (deletable.size > 0) {
-      await channel.bulkDelete(deletable, true).catch(() => {});
-    }
-
-    // Stop if remaining messages are older than 14 days
-  } while (fetched.size >= 100);
-
-} catch (err) {
-  console.error('Channel clear failed:', err);
-}
+    // Clear channel
+    try {
+      const msgs = await channel.messages.fetch({ limit: 100 });
+      if (msgs.size) await channel.bulkDelete(msgs, true).catch(() => {});
+    } catch {}
 
     // ──────────────────────────────
-    // INTRO
+    // INTRO + GLOBAL ACTIONS (ORIGINAL TEXT RESTORED)
     // ──────────────────────────────
     await channel.send({
       embeds: [{
         title: '🔔 Roamer Notification Preferences',
         color: 0xf59e0b,
         description: [
-          'Use this channel to choose which roaming Pokémon notifications you want.',
+          'Use this channel to choose which roaming Pokémon notifications you want to receive.',
           '',
-          '🟢 **ON** — enable notifications',
-          '🔴 **OFF** — disable notifications',
+          '• Select **rarity groups** to receive notifications for *all* Pokémon of that rarity',
+          '• Select **individual Pokémon** to receive notifications for *specific roamers only*',
           '',
-          'You can change your preferences at any time.'
+          '**Buttons explained:**',
+          '• **ON / OFF** — turn notifications on or off for that rarity group or Pokémon',
+          '• **View my notifications** — shows a private list of all your current selections',
+          '  *(This appears as a private message at the bottom of the channel, visible only to you.)*',
+          '• **Clear all** — removes **all** roaming notification roles (both rarity groups and individual Pokémon)',
+          '',
+          'You can change your preferences at any time, and your selections take effect immediately.'
         ].join('\n')
       }],
       components: [
