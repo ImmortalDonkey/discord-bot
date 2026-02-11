@@ -83,11 +83,26 @@ module.exports = {
       ephemeral: true
     });
 
-    // Clear channel
-    try {
-      const msgs = await channel.messages.fetch({ limit: 100 });
-      if (msgs.size) await channel.bulkDelete(msgs, true).catch(() => {});
-    } catch {}
+    // Clear channel (robust)
+try {
+  let fetched;
+
+  do {
+    fetched = await channel.messages.fetch({ limit: 100 });
+    const deletable = fetched.filter(m =>
+      Date.now() - m.createdTimestamp < 14 * 24 * 60 * 60 * 1000
+    );
+
+    if (deletable.size > 0) {
+      await channel.bulkDelete(deletable, true).catch(() => {});
+    }
+
+    // Stop if remaining messages are older than 14 days
+  } while (fetched.size >= 100);
+
+} catch (err) {
+  console.error('Channel clear failed:', err);
+}
 
     // ──────────────────────────────
     // INTRO
