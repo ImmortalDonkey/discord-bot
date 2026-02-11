@@ -39,7 +39,7 @@ function getSpriteForLabel(label) {
     : null;
 }
 
-// Map your rarity env names to the DB rarity_key format
+// Map env → DB rarity_key
 function rarityEnvToDbKey(env) {
   const e = String(env || '').toUpperCase();
   if (e === 'ROLE_PARADOX') return 'paradox';
@@ -50,7 +50,7 @@ function rarityEnvToDbKey(env) {
   return null;
 }
 
-// DB pokemon_key should match your normalizeDbKey() convention used elsewhere
+// Label → DB pokemon_key
 function labelToDbPokemonKey(label) {
   return String(label || '')
     .toLowerCase()
@@ -91,7 +91,7 @@ module.exports = {
     const isMain = guild.id === process.env.GUILD_ID;
 
     // ──────────────────────────────
-    // INTRO + GLOBAL ACTIONS (KEEP YOUR TEXT)
+    // INTRO
     // ──────────────────────────────
     await channel.send({
       embeds: [{
@@ -127,17 +127,28 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // RARITY GROUPS (ORDER FROM rolesConfig)
+    // RARITY GROUPS (ORDER FIXED)
     // ──────────────────────────────
+
+    const orderedRarityEnvs = [
+      'ROLE_PARADOX',
+      'ROLE_ROAMERMONTH',
+      'ROLE_LEGENDARY',
+      'ROLE_RARE',
+      'ROLE_COMMON'
+    ];
+
     let rarityRoleIdByKey = new Map();
 
     if (!isMain) {
       const rows = await db.getGuildRarityRoles(guild.id);
-      // rows: { rarity_key, role_id }
       rarityRoleIdByKey = new Map(rows.map(r => [r.rarity_key, r.role_id]));
     }
 
-    for (const r of rolesConfig.rarityRoles) {
+    for (const envName of orderedRarityEnvs) {
+      const r = rolesConfig.rarityRoles.find(x => x.env === envName);
+      if (!r) continue;
+
       const roleId = isMain
         ? process.env[r.env]
         : rarityRoleIdByKey.get(rarityEnvToDbKey(r.env));
@@ -146,7 +157,7 @@ module.exports = {
 
       await channel.send({
         embeds: [{
-          title: r.label, // ALWAYS use config label (fixes roamer_month title)
+          title: r.label,
           color: 0x64748b
         }],
         components: [
@@ -165,8 +176,9 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // INDIVIDUAL POKÉMON (KEEP ORIGINAL GROUP ORDER)
+    // INDIVIDUAL POKÉMON (UNCHANGED ORDER)
     // ──────────────────────────────
+
     const orderedGroups = [
       'paradox',
       'roamerMonth',
@@ -179,7 +191,6 @@ module.exports = {
 
     if (!isMain) {
       const rows = await db.getGuildPokemonRoles(guild.id);
-      // rows: { pokemon_key, role_id }
       pokemonRoleIdByKey = new Map(rows.map(r => [r.pokemon_key, r.role_id]));
     }
 
@@ -194,7 +205,6 @@ module.exports = {
         if (!roleId) continue;
 
         const sprite = getSpriteForLabel(p.label);
-
         const files = [];
         const embed = {
           title: p.label,
