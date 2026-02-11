@@ -3,10 +3,10 @@
  *
  * Deploys the Roamer Notification role panel.
  *
- * RULES (LOCKED):
- * - MAIN guild only (never global, never subscriber)
- * - Staff-only via STAFF_ROLES env
- * - Uses CHANNEL_ROLES env
+ * RULES:
+ * - Subscriber safe
+ * - Admin only (Discord permission based)
+ * - Channel specified at command usage
  * - Uses LOCAL sprite files from /sprites
  * - Always clears & redeploys entire panel
  */
@@ -15,21 +15,13 @@ const {
   SlashCommandBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  PermissionFlagsBits,
+  ChannelType
 } = require('discord.js');
 
 const fs = require('fs');
 const path = require('path');
-
-// ──────────────────────────────
-// ENV
-// ──────────────────────────────
-const PANEL_CHANNEL_ID = process.env.CHANNEL_ROLES;
-
-const STAFF_ROLES = (process.env.STAFF_ROLES || '')
-  .split(',')
-  .map(r => r.trim())
-  .filter(Boolean);
 
 // ──────────────────────────────
 // LOCAL SPRITES
@@ -44,14 +36,6 @@ const rolesConfig = require('../../utils/rolesConfig.cjs');
 // ──────────────────────────────
 // HELPERS
 // ──────────────────────────────
-function hasStaffRole(member) {
-  return STAFF_ROLES.some(id => member.roles.cache.has(id));
-}
-
-function envToPokemonKey(env) {
-  return env.replace(/^ROLE_POKEMON_/, '').toLowerCase();
-}
-
 const normalize = s =>
   String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -79,32 +63,27 @@ function getSpriteForLabel(label) {
 // COMMAND
 // ──────────────────────────────
 module.exports = {
-  mainGuildOnly: true,
+  subscriberSafe: true,
 
   data: new SlashCommandBuilder()
     .setName('roledeploy')
-    .setDescription('Deploy the roamer notification role panel'),
+    .setDescription('Deploy the roamer notification role panel')
+    .addChannelOption(opt =>
+      opt
+        .setName('channel')
+        .setDescription('Channel to deploy the role panel into')
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(true)
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(client, interaction) {
-    if (!hasStaffRole(interaction.member)) {
-      return interaction.reply({
-        content: '❌ You do not have permission to use this command.',
-        ephemeral: true
-      });
-    }
+    const channel = interaction.options.getChannel('channel');
 
     await interaction.reply({
-      content: '⏳ Deploying role panel…',
+      content: `⏳ Deploying role panel to <#${channel.id}>…`,
       ephemeral: true
     });
-
-    const channel = await client.channels
-      .fetch(PANEL_CHANNEL_ID)
-      .catch(() => null);
-
-    if (!channel) {
-      return interaction.editReply('❌ Role panel channel not found.');
-    }
 
     // Clear channel
     try {
@@ -113,25 +92,19 @@ module.exports = {
     } catch {}
 
     // ──────────────────────────────
-    // INTRO + GLOBAL ACTIONS (UPDATED TEXT ONLY)
+    // INTRO
     // ──────────────────────────────
     await channel.send({
       embeds: [{
         title: '🔔 Roamer Notification Preferences',
         color: 0xf59e0b,
         description: [
-          'Use this channel to choose which roaming Pokémon notifications you want to receive.',
+          'Use this channel to choose which roaming Pokémon notifications you want.',
           '',
-          '• Select **rarity groups** to receive notifications for *all* Pokémon of that rarity',
-          '• Select **individual Pokémon** to receive notifications for *specific roamers only*',
+          '🟢 **ON** — enable notifications',
+          '🔴 **OFF** — disable notifications',
           '',
-          '**Buttons explained:**',
-          '• **ON / OFF** — turn notifications on or off for that rarity group or Pokémon',
-          '• **View my notifications** — shows a private list of all your current selections',
-          '  *(This appears as a private message at the bottom of the channel, visible only to you.)*',
-          '• **Clear all** — removes **all** roaming notification roles (both rarity groups and individual Pokémon)',
-          '',
-          'You can change your preferences at any time, and your selections take effect immediately.'
+          'You can change your preferences at any time.'
         ].join('\n')
       }],
       components: [
@@ -149,11 +122,9 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // RARITY GROUPS (TEXT + ON/OFF)
+    // RARITY GROUPS
     // ──────────────────────────────
     for (const r of rolesConfig.rarityRoles) {
-      const rarityKey = r.env.replace(/^ROLE_/, '').toLowerCase();
-
       await channel.send({
         embeds: [{
           title: r.label,
@@ -168,14 +139,14 @@ module.exports = {
             new ButtonBuilder()
               .setCustomId(`roles_manage_${process.env[r.env]}:off`)
               .setLabel('OFF')
-              .setStyle(ButtonStyle.Secondary)
+              .setStyle(ButtonStyle.Danger)
           )
         ]
       });
     }
 
     // ──────────────────────────────
-    // INDIVIDUAL POKÉMON (1 PER MESSAGE)
+    // INDIVIDUAL POKÉMON
     // ──────────────────────────────
     const orderedGroups = [
       'paradox',
@@ -189,7 +160,6 @@ module.exports = {
       const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
 
       for (const p of pokemon) {
-        const key = envToPokemonKey(p.env);
         const sprite = getSpriteForLabel(p.label);
 
         const files = [];
@@ -215,7 +185,7 @@ module.exports = {
               new ButtonBuilder()
                 .setCustomId(`roles_manage_${process.env[p.env]}:off`)
                 .setLabel('OFF')
-                .setStyle(ButtonStyle.Secondary)
+                .setStyle(ButtonStyle.Danger)
             )
           ]
         });
