@@ -1,11 +1,5 @@
 // interactions/buttons/rolesButtons.cjs
 
-const {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle
-} = require('discord.js');
-
 const rolesConfig = require('../../utils/rolesConfig.cjs');
 
 function getGroupFromRarityEnv(env) {
@@ -60,7 +54,7 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // 🧹 CLEAR ALL (RARITY + POKÉMON ONLY)
+    // 🧹 CLEAR ALL
     // ──────────────────────────────
     if (customId === 'roles_clear_all') {
       await interaction.deferReply({ ephemeral: true }).catch(() => {});
@@ -104,60 +98,32 @@ module.exports = {
 
       const hasRole = member.roles.cache.has(roleId);
 
-      // Determine intent
       let targetOn;
       if (mode === 'on') targetOn = true;
       else if (mode === 'off') targetOn = false;
       else targetOn = !hasRole;
 
-      // Check if rarity role
       const rarityEntry = rolesConfig.rarityRoles.find(
         r => process.env[r.env] === roleId
       );
 
-   // ───────── RARITY GROUP LOGIC ─────────
-// FIX: rarity roles no longer grant/revoke Pokémon roles
-if (rarityEntry) {
-  if (targetOn) {
-    if (!hasRole) {
-      await member.roles.add(roleId).catch(() => {});
-    }
-  } else {
-    if (hasRole) {
-      await member.roles.remove(roleId).catch(() => {});
-    }
-  }
-}
-  
-      // ───────── INDIVIDUAL POKÉMON ─────────
-      else {
-        if (targetOn) {
-          if (!hasRole) await member.roles.add(roleId).catch(() => {});
-        } else {
-          if (hasRole) await member.roles.remove(roleId).catch(() => {});
+      if (rarityEntry) {
+        if (targetOn && !hasRole) {
+          await member.roles.add(roleId).catch(() => {});
+        } else if (!targetOn && hasRole) {
+          await member.roles.remove(roleId).catch(() => {});
+        }
+      } else {
+        if (targetOn && !hasRole) {
+          await member.roles.add(roleId).catch(() => {});
+        } else if (!targetOn && hasRole) {
+          await member.roles.remove(roleId).catch(() => {});
         }
       }
 
-      // ──────────────────────────────
-      // 🎨 UPDATE BUTTON STYLES
-      // ──────────────────────────────
-      const nowHasRole = member.roles.cache.has(roleId);
-      const row = interaction.message.components?.[0];
-      if (!row) return;
-
-      const newRow = new ActionRowBuilder();
-
-      for (const c of row.components) {
-        const b = ButtonBuilder.from(c);
-
-        if (String(b.data.custom_id).endsWith(':on')) {
-          b.setStyle(nowHasRole ? ButtonStyle.Success : ButtonStyle.Secondary);
-        }
-
-        newRow.addComponents(b);
-      }
-
-      await interaction.message.edit({ components: [newRow] }).catch(() => {});
+      // 🚫 NO BUTTON STYLE UPDATES
+      // 🚫 NO MESSAGE EDITING
+      // Buttons remain static (green ON / red OFF)
     }
   }
 };
