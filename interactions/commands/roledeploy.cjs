@@ -39,6 +39,27 @@ function getSpriteForLabel(label) {
     : null;
 }
 
+// Map your rarity env names to the DB rarity_key format
+function rarityEnvToDbKey(env) {
+  const e = String(env || '').toUpperCase();
+  if (e === 'ROLE_PARADOX') return 'paradox';
+  if (e === 'ROLE_ROAMERMONTH') return 'roamer_month';
+  if (e === 'ROLE_LEGENDARY') return 'legendary';
+  if (e === 'ROLE_RARE') return 'rare';
+  if (e === 'ROLE_COMMON') return 'common';
+  return null;
+}
+
+// DB pokemon_key should match your normalizeDbKey() convention used elsewhere
+function labelToDbPokemonKey(label) {
+  return String(label || '')
+    .toLowerCase()
+    .replace(/[()']/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('roledeploy')
@@ -70,7 +91,7 @@ module.exports = {
     const isMain = guild.id === process.env.GUILD_ID;
 
     // ──────────────────────────────
-    // INTRO
+    // INTRO + GLOBAL ACTIONS (KEEP YOUR TEXT)
     // ──────────────────────────────
     await channel.send({
       embeds: [{
@@ -83,11 +104,12 @@ module.exports = {
           '• Select **individual Pokémon** to receive notifications for *specific roamers only*',
           '',
           '**Buttons explained:**',
-          '• **ON / OFF** — turn notifications on or off',
-          '• **View my notifications** — shows your current selections',
-          '• **Clear all** — removes all notification roles',
+          '• **ON / OFF** — turn notifications on or off for that rarity group or Pokémon',
+          '• **View my notifications** — shows a private list of all your current selections',
+          '  *(This appears as a private message at the bottom of the channel, visible only to you.)*',
+          '• **Clear all** — removes **all** roaming notification roles (both rarity groups and individual Pokémon)',
           '',
-          'You can change your preferences at any time.'
+          'You can change your preferences at any time, and your selections take effect immediately.'
         ].join('\n')
       }],
       components: [
@@ -105,48 +127,36 @@ module.exports = {
     });
 
     // ──────────────────────────────
-    // RARITY GROUPS
+    // RARITY GROUPS (ORDER FROM rolesConfig)
     // ──────────────────────────────
-    let rarityMappings = [];
+    let rarityRoleIdByKey = new Map();
 
-    if (isMain) {
-      rarityMappings = rolesConfig.rarityRoles.map(r => ({
-        label: r.label,
-        roleId: process.env[r.env]
-      }));
-    } else {
+    if (!isMain) {
       const rows = await db.getGuildRarityRoles(guild.id);
-
-      rarityMappings = rows.map(row => {
-        const config = rolesConfig.rarityRoles.find(
-          r =>
-            r.key === row.rarity_key ||
-            r.env.toLowerCase().includes(row.rarity_key)
-        );
-
-        return {
-          label: config ? config.label : row.rarity_key,
-          roleId: row.role_id
-        };
-      });
+      // rows: { rarity_key, role_id }
+      rarityRoleIdByKey = new Map(rows.map(r => [r.rarity_key, r.role_id]));
     }
 
-    for (const r of rarityMappings) {
-      if (!r.roleId) continue;
+    for (const r of rolesConfig.rarityRoles) {
+      const roleId = isMain
+        ? process.env[r.env]
+        : rarityRoleIdByKey.get(rarityEnvToDbKey(r.env));
+
+      if (!roleId) continue;
 
       await channel.send({
         embeds: [{
-          title: r.label,
+          title: r.label, // ALWAYS use config label (fixes roamer_month title)
           color: 0x64748b
         }],
         components: [
           new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-              .setCustomId(`roles_manage_${r.roleId}:on`)
+              .setCustomId(`roles_manage_${roleId}:on`)
               .setLabel('ON')
               .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
-              .setCustomId(`roles_manage_${r.roleId}:off`)
+              .setCustomId(`roles_manage_${roleId}:off`)
               .setLabel('OFF')
               .setStyle(ButtonStyle.Danger)
           )
@@ -155,63 +165,64 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // POKÉMON
+    // INDIVIDUAL POKÉMON (KEEP ORIGINAL GROUP ORDER)
     // ──────────────────────────────
-    let pokemonMappings = [];
+    const orderedGroups = [
+      'paradox',
+      'roamerMonth',
+      'legendary',
+      'rare',
+      'common'
+    ];
 
-    if (isMain) {
-      pokemonMappings = rolesConfig.pokemonRoles.map(p => ({
-        label: p.label,
-        roleId: process.env[p.env]
-      }));
-    } else {
+    let pokemonRoleIdByKey = new Map();
+
+    if (!isMain) {
       const rows = await db.getGuildPokemonRoles(guild.id);
-
-      pokemonMappings = rows.map(row => {
-        const config = rolesConfig.pokemonRoles.find(
-          p =>
-            p.key === row.pokemon_key ||
-            p.env.toLowerCase().endsWith(row.pokemon_key)
-        );
-
-        return {
-          label: config ? config.label : row.pokemon_key,
-          roleId: row.role_id
-        };
-      });
+      // rows: { pokemon_key, role_id }
+      pokemonRoleIdByKey = new Map(rows.map(r => [r.pokemon_key, r.role_id]));
     }
 
-    for (const p of pokemonMappings) {
-      if (!p.roleId) continue;
+    for (const group of orderedGroups) {
+      const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
 
-      const sprite = getSpriteForLabel(p.label);
-      const files = [];
-      const embed = {
-        title: p.label,
-        color: 0x1f2937
-      };
+      for (const p of pokemon) {
+        const roleId = isMain
+          ? process.env[p.env]
+          : pokemonRoleIdByKey.get(labelToDbPokemonKey(p.label));
 
-      if (sprite) {
-        embed.image = { url: `attachment://${sprite.name}` };
-        files.push(sprite);
+        if (!roleId) continue;
+
+        const sprite = getSpriteForLabel(p.label);
+
+        const files = [];
+        const embed = {
+          title: p.label,
+          color: 0x1f2937
+        };
+
+        if (sprite) {
+          embed.image = { url: `attachment://${sprite.name}` };
+          files.push(sprite);
+        }
+
+        await channel.send({
+          embeds: [embed],
+          files,
+          components: [
+            new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`roles_manage_${roleId}:on`)
+                .setLabel('ON')
+                .setStyle(ButtonStyle.Success),
+              new ButtonBuilder()
+                .setCustomId(`roles_manage_${roleId}:off`)
+                .setLabel('OFF')
+                .setStyle(ButtonStyle.Danger)
+            )
+          ]
+        });
       }
-
-      await channel.send({
-        embeds: [embed],
-        files,
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`roles_manage_${p.roleId}:on`)
-              .setLabel('ON')
-              .setStyle(ButtonStyle.Success),
-            new ButtonBuilder()
-              .setCustomId(`roles_manage_${p.roleId}:off`)
-              .setLabel('OFF')
-              .setStyle(ButtonStyle.Danger)
-          )
-        ]
-      });
     }
 
     await interaction.editReply('✅ Role panel deployed successfully.');
