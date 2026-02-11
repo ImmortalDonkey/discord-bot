@@ -115,7 +115,20 @@ module.exports = {
         roleId: process.env[r.env]
       }));
     } else {
-      rarityMappings = await db.getGuildRarityRoles(guild.id);
+      const rows = await db.getGuildRarityRoles(guild.id);
+
+      rarityMappings = rows.map(row => {
+        const config = rolesConfig.rarityRoles.find(
+          r =>
+            r.key === row.rarity_key ||
+            r.env.toLowerCase().includes(row.rarity_key)
+        );
+
+        return {
+          label: config ? config.label : row.rarity_key,
+          roleId: row.role_id
+        };
+      });
     }
 
     for (const r of rarityMappings) {
@@ -152,7 +165,20 @@ module.exports = {
         roleId: process.env[p.env]
       }));
     } else {
-      pokemonMappings = await db.getGuildPokemonRoles(guild.id);
+      const rows = await db.getGuildPokemonRoles(guild.id);
+
+      pokemonMappings = rows.map(row => {
+        const config = rolesConfig.pokemonRoles.find(
+          p =>
+            p.key === row.pokemon_key ||
+            p.env.toLowerCase().endsWith(row.pokemon_key)
+        );
+
+        return {
+          label: config ? config.label : row.pokemon_key,
+          roleId: row.role_id
+        };
+      });
     }
 
     for (const p of pokemonMappings) {
