@@ -4,7 +4,6 @@
  * Deploys the Roamer Notification role panel.
  *
  * RULES:
- * - Subscriber safe
  * - Admin only (Discord permission based)
  * - Channel specified at command usage
  * - Uses LOCAL sprite files from /sprites
@@ -63,7 +62,6 @@ function getSpriteForLabel(label) {
 // COMMAND
 // ──────────────────────────────
 module.exports = {
-  subscriberSafe: true,
 
   data: new SlashCommandBuilder()
     .setName('roledeploy')
