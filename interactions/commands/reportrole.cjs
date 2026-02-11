@@ -55,6 +55,7 @@ module.exports = {
 
   async execute(client, interaction) {
     const { guild } = interaction;
+
     if (!guild) {
       return interaction.reply({
         content: '❌ Guild context missing.',
@@ -62,22 +63,23 @@ module.exports = {
       });
     }
 
+    // 🔥 CRITICAL FIX: acknowledge interaction immediately
+    await interaction.deferReply({ ephemeral: true });
+
     const type = interaction.options.getString('type');
     const rawId = interaction.options.getString('id');
     const role = interaction.options.getRole('role');
 
     // role hierarchy safety
     if (role.managed) {
-      return interaction.reply({
-        content: '❌ Managed roles cannot be used.',
-        ephemeral: true
+      return interaction.editReply({
+        content: '❌ Managed roles cannot be used.'
       });
     }
 
     if (role.position >= guild.members.me.roles.highest.position) {
-      return interaction.reply({
-        content: '❌ Role is above the bot’s highest role.',
-        ephemeral: true
+      return interaction.editReply({
+        content: '❌ Role is above the bot’s highest role.'
       });
     }
 
@@ -86,9 +88,8 @@ module.exports = {
         const rarityKey = normalizeDbKey(rawId);
 
         if (!VALID_RARITIES.has(rarityKey)) {
-          return interaction.reply({
-            content: `❌ Invalid rarity key: \`${rarityKey}\``,
-            ephemeral: true
+          return interaction.editReply({
+            content: `❌ Invalid rarity key: \`${rarityKey}\``
           });
         }
 
@@ -99,12 +100,11 @@ module.exports = {
           enabled: 1
         });
 
-        return interaction.reply({
+        return interaction.editReply({
           content:
             `✅ Rarity role mapped\n` +
             `**Rarity:** ${rarityKey}\n` +
-            `**Role:** <@&${role.id}>`,
-          ephemeral: true
+            `**Role:** <@&${role.id}>`
         });
       }
 
@@ -112,9 +112,8 @@ module.exports = {
         const pokemonKey = normalizeDbKey(rawId);
 
         if (!pokemonKey) {
-          return interaction.reply({
-            content: '❌ Invalid Pokémon identifier.',
-            ephemeral: true
+          return interaction.editReply({
+            content: '❌ Invalid Pokémon identifier.'
           });
         }
 
@@ -125,25 +124,22 @@ module.exports = {
           enabled: 1
         });
 
-        return interaction.reply({
+        return interaction.editReply({
           content:
             `✅ Pokémon role mapped\n` +
             `**Pokémon key:** ${pokemonKey}\n` +
-            `**Role:** <@&${role.id}>`,
-          ephemeral: true
+            `**Role:** <@&${role.id}>`
         });
       }
 
-      return interaction.reply({
-        content: '❌ Unknown mapping type.',
-        ephemeral: true
+      return interaction.editReply({
+        content: '❌ Unknown mapping type.'
       });
 
     } catch (err) {
       console.error('reportrole error:', err);
-      return interaction.reply({
-        content: '❌ Failed to save role mapping.',
-        ephemeral: true
+      return interaction.editReply({
+        content: '❌ Failed to save role mapping.'
       });
     }
   }
