@@ -10,6 +10,9 @@ function isMainGuild(guildId) {
   return !!guildId && guildId === process.env.GUILD_ID;
 }
 
+// 🔥 Extra guild allowed for roledeploy
+const EXTRA_ROLEDEPLOY_GUILD = '1470832555694756155';
+
 /**
  * Enforce command availability rules.
  *
@@ -19,6 +22,7 @@ function isMainGuild(guildId) {
  *   - Guild must be onboarded
  *   - Command must NOT be mainGuildOnly
  *   - Command must be subscriberSafe
+ *   - EXCEPTION: roledeploy allowed in EXTRA_ROLEDEPLOY_GUILD
  */
 async function enforceGuildCommandPolicy(interaction, cmd) {
   // No guild context
@@ -53,6 +57,14 @@ async function enforceGuildCommandPolicy(interaction, cmd) {
       reason:
         '❌ This command is only available in the main Roaming Companion server.'
     };
+  }
+
+  // 🔥 EXCEPTION: allow roledeploy in specific subscriber guild
+  if (
+    cmd.data?.name === 'roledeploy' &&
+    interaction.guildId === EXTRA_ROLEDEPLOY_GUILD
+  ) {
+    return { allowed: true };
   }
 
   // Must be explicitly subscriber-safe
