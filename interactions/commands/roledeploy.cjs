@@ -1,14 +1,4 @@
-/**
- * /roledeploy
- *
- * Deploys the Roamer Notification role panel.
- *
- * RULES:
- * - Admin only (Discord permission based)
- * - Channel specified at command usage
- * - Uses LOCAL sprite files from /sprites
- * - Always clears & redeploys entire panel
- */
+// interactions/commands/roledeploy.cjs
 
 const {
   SlashCommandBuilder,
@@ -21,20 +11,11 @@ const {
 
 const fs = require('fs');
 const path = require('path');
-
-// ──────────────────────────────
-// LOCAL SPRITES
-// ──────────────────────────────
-const SPRITES_DIR = path.join(__dirname, '..', '..', 'sprites');
-
-// ──────────────────────────────
-// ROLES CONFIG (SOURCE OF TRUTH)
-// ──────────────────────────────
+const db = require('../../database.cjs');
 const rolesConfig = require('../../utils/rolesConfig.cjs');
 
-// ──────────────────────────────
-// HELPERS
-// ──────────────────────────────
+const SPRITES_DIR = path.join(__dirname, '..', '..', 'sprites');
+
 const normalize = s =>
   String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -58,11 +39,7 @@ function getSpriteForLabel(label) {
     : null;
 }
 
-// ──────────────────────────────
-// COMMAND
-// ──────────────────────────────
 module.exports = {
-
   data: new SlashCommandBuilder()
     .setName('roledeploy')
     .setDescription('Deploy the roamer notification role panel')
@@ -77,10 +54,11 @@ module.exports = {
 
   async execute(client, interaction) {
     const channel = interaction.options.getChannel('channel');
+    const guild = interaction.guild;
 
     await interaction.reply({
       content: `⏳ Deploying role panel to <#${channel.id}>…`,
-      ephemeral: true
+      flags: 64
     });
 
     // Clear channel
@@ -89,8 +67,10 @@ module.exports = {
       if (msgs.size) await channel.bulkDelete(msgs, true).catch(() => {});
     } catch {}
 
+    const isMain = guild.id === process.env.GUILD_ID;
+
     // ──────────────────────────────
-    // INTRO + GLOBAL ACTIONS (ORIGINAL TEXT RESTORED)
+    // INTRO
     // ──────────────────────────────
     await channel.send({
       embeds: [{
@@ -103,12 +83,11 @@ module.exports = {
           '• Select **individual Pokémon** to receive notifications for *specific roamers only*',
           '',
           '**Buttons explained:**',
-          '• **ON / OFF** — turn notifications on or off for that rarity group or Pokémon',
-          '• **View my notifications** — shows a private list of all your current selections',
-          '  *(This appears as a private message at the bottom of the channel, visible only to you.)*',
-          '• **Clear all** — removes **all** roaming notification roles (both rarity groups and individual Pokémon)',
+          '• **ON / OFF** — turn notifications on or off',
+          '• **View my notifications** — shows your current selections',
+          '• **Clear all** — removes all notification roles',
           '',
-          'You can change your preferences at any time, and your selections take effect immediately.'
+          'You can change your preferences at any time.'
         ].join('\n')
       }],
       components: [
@@ -128,7 +107,20 @@ module.exports = {
     // ──────────────────────────────
     // RARITY GROUPS
     // ──────────────────────────────
-    for (const r of rolesConfig.rarityRoles) {
+    let rarityMappings = [];
+
+    if (isMain) {
+      rarityMappings = rolesConfig.rarityRoles.map(r => ({
+        label: r.label,
+        roleId: process.env[r.env]
+      }));
+    } else {
+      rarityMappings = await db.getGuildRarityRoles(guild.id);
+    }
+
+    for (const r of rarityMappings) {
+      if (!r.roleId) continue;
+
       await channel.send({
         embeds: [{
           title: r.label,
@@ -137,11 +129,11 @@ module.exports = {
         components: [
           new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-              .setCustomId(`roles_manage_${process.env[r.env]}:on`)
+              .setCustomId(`roles_manage_${r.roleId}:on`)
               .setLabel('ON')
               .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
-              .setCustomId(`roles_manage_${process.env[r.env]}:off`)
+              .setCustomId(`roles_manage_${r.roleId}:off`)
               .setLabel('OFF')
               .setStyle(ButtonStyle.Danger)
           )
@@ -150,50 +142,50 @@ module.exports = {
     }
 
     // ──────────────────────────────
-    // INDIVIDUAL POKÉMON
+    // POKÉMON
     // ──────────────────────────────
-    const orderedGroups = [
-      'paradox',
-      'roamerMonth',
-      'legendary',
-      'rare',
-      'common'
-    ];
+    let pokemonMappings = [];
 
-    for (const group of orderedGroups) {
-      const pokemon = rolesConfig.pokemonRoles.filter(p => p.group === group);
+    if (isMain) {
+      pokemonMappings = rolesConfig.pokemonRoles.map(p => ({
+        label: p.label,
+        roleId: process.env[p.env]
+      }));
+    } else {
+      pokemonMappings = await db.getGuildPokemonRoles(guild.id);
+    }
 
-      for (const p of pokemon) {
-        const sprite = getSpriteForLabel(p.label);
+    for (const p of pokemonMappings) {
+      if (!p.roleId) continue;
 
-        const files = [];
-        const embed = {
-          title: p.label,
-          color: 0x1f2937
-        };
+      const sprite = getSpriteForLabel(p.label);
+      const files = [];
+      const embed = {
+        title: p.label,
+        color: 0x1f2937
+      };
 
-        if (sprite) {
-          embed.image = { url: `attachment://${sprite.name}` };
-          files.push(sprite);
-        }
-
-        await channel.send({
-          embeds: [embed],
-          files,
-          components: [
-            new ActionRowBuilder().addComponents(
-              new ButtonBuilder()
-                .setCustomId(`roles_manage_${process.env[p.env]}:on`)
-                .setLabel('ON')
-                .setStyle(ButtonStyle.Success),
-              new ButtonBuilder()
-                .setCustomId(`roles_manage_${process.env[p.env]}:off`)
-                .setLabel('OFF')
-                .setStyle(ButtonStyle.Danger)
-            )
-          ]
-        });
+      if (sprite) {
+        embed.image = { url: `attachment://${sprite.name}` };
+        files.push(sprite);
       }
+
+      await channel.send({
+        embeds: [embed],
+        files,
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`roles_manage_${p.roleId}:on`)
+              .setLabel('ON')
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId(`roles_manage_${p.roleId}:off`)
+              .setLabel('OFF')
+              .setStyle(ButtonStyle.Danger)
+          )
+        ]
+      });
     }
 
     await interaction.editReply('✅ Role panel deployed successfully.');
