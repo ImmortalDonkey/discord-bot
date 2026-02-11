@@ -1,6 +1,7 @@
 // interactions/buttons/rolesButtons.cjs
 
 const rolesConfig = require('../../utils/rolesConfig.cjs');
+const db = require('../../database.cjs');
 
 function parseManageCustomId(customId) {
   const raw = customId.replace('roles_manage_', '');
@@ -8,73 +9,94 @@ function parseManageCustomId(customId) {
   return { roleId, mode: mode || null };
 }
 
+// ENV → DB rarity_key mapping
+function rarityEnvToDbKey(env) {
+  const e = String(env || '').toUpperCase();
+  if (e === 'ROLE_PARADOX') return 'paradox';
+  if (e === 'ROLE_ROAMERMONTH') return 'roamer_month';
+  if (e === 'ROLE_LEGENDARY') return 'legendary';
+  if (e === 'ROLE_RARE') return 'rare';
+  if (e === 'ROLE_COMMON') return 'common';
+  return null;
+}
+
+// Label → DB pokemon_key
+function labelToDbPokemonKey(label) {
+  return String(label || '')
+    .toLowerCase()
+    .replace(/[()']/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
 module.exports = {
   ids: ['roles_manage_', 'roles_clear_all', 'roles_view_status'],
 
   async execute(client, interaction) {
     const { customId } = interaction;
-    const member = interaction.member;
     const guild = interaction.guild;
 
-    if (!member || !guild) return;
+    if (!guild) return;
+
+    const member = await guild.members.fetch(interaction.user.id);
+    const isMain = guild.id === process.env.GUILD_ID;
 
     // ──────────────────────────────
     // 👁 VIEW MY NOTIFICATIONS
     // ──────────────────────────────
-if (customId === 'roles_view_status') {
-  const db = require('../../database.cjs');
-  const isMain = guild.id === process.env.GUILD_ID;
+    if (customId === 'roles_view_status') {
+      const lines = [];
 
-  // 🔥 IMPORTANT: Fetch fresh member state
-  const freshMember = await guild.members.fetch(interaction.user.id);
+      // ───── RARITY GROUPS ─────
+      lines.push('**Rarity Groups**');
 
-  const lines = [];
+      for (const r of rolesConfig.rarityRoles) {
+        let roleId = null;
 
-  // ───── RARITY GROUPS ─────
-  lines.push('**Rarity Groups**');
+        if (isMain) {
+          roleId = process.env[r.env];
+        } else {
+          const dbKey = rarityEnvToDbKey(r.env);
+          if (dbKey) {
+            const row = await db.getGuildRarityRole(guild.id, dbKey);
+            roleId = row?.role_id || null;
+          }
+        }
 
-  for (const r of rolesConfig.rarityRoles) {
-    let roleId = null;
+        const has = roleId && member.roles.cache.has(roleId);
+        lines.push(`${has ? '✅' : '❌'} ${r.label}`);
+      }
 
-    if (isMain) {
-      roleId = process.env[r.env];
-    } else {
-      const row = await db.getGuildRarityRole(guild.id, r.key);
-      roleId = row?.role_id || null;
+      lines.push('');
+      lines.push('**Individual Pokémon**');
+
+      for (const p of rolesConfig.pokemonRoles) {
+        let roleId = null;
+
+        if (isMain) {
+          roleId = process.env[p.env];
+        } else {
+          const pokemonKey = labelToDbPokemonKey(p.label);
+          const row = await db.getGuildPokemonRole(guild.id, pokemonKey);
+          roleId = row?.role_id || null;
+        }
+
+        const has = roleId && member.roles.cache.has(roleId);
+        lines.push(`${has ? '✅' : '❌'} ${p.label}`);
+      }
+
+      return interaction.reply({
+        embeds: [{
+          title: '🔔 Your Roamer Notifications',
+          description: lines.join('\n'),
+          color: 0x22c55e
+        }],
+        flags: 64
+      }).catch(err => {
+        console.error('View status error:', err);
+      });
     }
-
-    const has = roleId && freshMember.roles.cache.has(roleId);
-    lines.push(`${has ? '✅' : '❌'} ${r.label}`);
-  }
-
-  lines.push('');
-  lines.push('**Individual Pokémon**');
-
-  for (const p of rolesConfig.pokemonRoles) {
-    let roleId = null;
-
-    if (isMain) {
-      roleId = process.env[p.env];
-    } else {
-      const row = await db.getGuildPokemonRole(guild.id, p.key);
-      roleId = row?.role_id || null;
-    }
-
-    const has = roleId && freshMember.roles.cache.has(roleId);
-    lines.push(`${has ? '✅' : '❌'} ${p.label}`);
-  }
-
-  return interaction.reply({
-    embeds: [{
-      title: '🔔 Your Roamer Notifications',
-      description: lines.join('\n'),
-      color: 0x22c55e
-    }],
-    flags: 64
-  }).catch(err => {
-    console.error('View status error:', err);
-  });
-}
 
     // ──────────────────────────────
     // 🧹 CLEAR ALL
@@ -140,7 +162,7 @@ if (customId === 'roles_view_status') {
         console.error('Role toggle error:', err);
       }
 
-      // 🔒 Buttons remain static — no style mutation
+      // Buttons remain static (no style mutation)
     }
   }
 };
