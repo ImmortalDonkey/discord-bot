@@ -21,23 +21,59 @@ module.exports = {
     // ──────────────────────────────
     // 👁 VIEW MY NOTIFICATIONS
     // ──────────────────────────────
-    if (customId === 'roles_view_status') {
-      const lines = [];
+if (customId === 'roles_view_status') {
+  const db = require('../../database.cjs');
+  const isMain = guild.id === process.env.GUILD_ID;
 
-      lines.push('**Your Active Roles**');
-      for (const role of member.roles.cache.values()) {
-        if (role.name !== '@everyone') {
-          lines.push(`• ${role.name}`);
-        }
-      }
+  const lines = [];
 
-      return interaction.reply({
-        content: lines.length > 1 ? lines.join('\n') : '🔕 No notification roles selected.',
-        flags: 64
-      }).catch(err => {
-        console.error('View status error:', err);
-      });
+  // ───── RARITY GROUPS ─────
+  lines.push('**Rarity Groups**');
+
+  for (const r of rolesConfig.rarityRoles) {
+    let roleId = null;
+
+    if (isMain) {
+      roleId = process.env[r.env];
+    } else {
+      const row = await db.getGuildRarityRole(guild.id, r.key);
+      roleId = row?.role_id || null;
     }
+
+    const has = roleId && member.roles.cache.has(roleId);
+    lines.push(`${has ? '✅' : '❌'} ${r.label}`);
+  }
+
+  lines.push('');
+  lines.push('**Individual Pokémon**');
+
+  // ───── POKÉMON ─────
+  for (const p of rolesConfig.pokemonRoles) {
+    let roleId = null;
+
+    if (isMain) {
+      roleId = process.env[p.env];
+    } else {
+      const row = await db.getGuildPokemonRole(guild.id, p.key);
+      roleId = row?.role_id || null;
+    }
+
+    const has = roleId && member.roles.cache.has(roleId);
+    lines.push(`${has ? '✅' : '❌'} ${p.label}`);
+  }
+
+  return interaction.reply({
+    embeds: [{
+      title: '🔔 Your Roamer Notifications',
+      description: lines.join('\n'),
+      color: 0x22c55e
+    }],
+    flags: 64
+  }).catch(err => {
+    console.error('View status error:', err);
+  });
+}
+
 
     // ──────────────────────────────
     // 🧹 CLEAR ALL
