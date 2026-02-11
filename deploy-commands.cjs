@@ -7,6 +7,9 @@
 //
 // MAIN GUILD:
 //   - ALL commands (including subscriberSafe)
+//
+// EXTRA GUILD:
+//   - /roledeploy only
 // ------------------------------------------------------
 
 // ──────────────────────────────────────
@@ -24,6 +27,9 @@ require('dotenv').config({ path: envFile });
 const fs = require('fs');
 const path = require('path');
 const { REST, Routes } = require('discord.js');
+
+// 🔥 EXTRA GUILD FOR ROLEDEPLOY
+const EXTRA_GUILD_ROLEDEPLOY = '1470832555694756155';
 
 // Location of your modular commands
 const commandsPath = path.join(__dirname, 'interactions', 'commands');
@@ -105,7 +111,7 @@ const rest = new REST({ version: '10' }).setToken(
     );
     console.log('🌍 Global subscriber commands deployed');
 
-    // 2️⃣ MAIN GUILD COMMANDS (instant dev)
+    // 2️⃣ MAIN GUILD COMMANDS (all commands)
     await rest.put(
       Routes.applicationGuildCommands(
         process.env.CLIENT_ID,
@@ -114,6 +120,25 @@ const rest = new REST({ version: '10' }).setToken(
       { body: allCommands }
     );
     console.log('🏠 Main guild commands deployed');
+
+    // 3️⃣ EXTRA GUILD - roledeploy only
+    const roleDeployCommand = allCommands.find(
+      cmd => cmd.name === 'roledeploy'
+    );
+
+    if (roleDeployCommand) {
+      await rest.put(
+        Routes.applicationGuildCommands(
+          process.env.CLIENT_ID,
+          EXTRA_GUILD_ROLEDEPLOY
+        ),
+        { body: [roleDeployCommand] }
+      );
+
+      console.log('🎯 roledeploy deployed to extra subscriber guild');
+    } else {
+      console.log('⚠ roledeploy command not found during deploy');
+    }
 
     console.log('✅ Command deployment COMPLETE');
   } catch (err) {
