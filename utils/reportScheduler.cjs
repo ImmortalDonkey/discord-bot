@@ -134,12 +134,60 @@ async function cleanupReports(nowMs) {
 }
 
 /**
+ * Expire onboarding sessions older than 10 minutes.
+ * Assigns guest role and archives thread.
+ */
+async function expireOnboardingSessions(client, nowMs) {
+  const cutoff = nowMs - 10 * 60 * 1000;
+  let sessions;
+  try {
+    sessions = await db.getExpiredOnboardingSessions(cutoff);
+  } catch { return; }
+  if (!sessions.length) return;
+
+  for (const s of sessions) {
+    try {
+      const guild = await client.guilds.fetch(s.guild_id).catch(() => null);
+      if (!guild) continue;
+
+      const config = await db.getOnboardingConfig(s.guild_id).catch(() => null);
+
+      if (config?.guest_role_id) {
+        const member = await guild.members.fetch(s.discord_id).catch(() => null);
+        if (member) {
+          await member.roles.add(config.guest_role_id).catch(() => {});
+        }
+      }
+
+      if (s.thread_id) {
+        const thread = await client.channels.fetch(s.thread_id).catch(() => null);
+        if (thread?.isThread()) {
+          await thread.send('⏰ Onboarding timed out — you\'ve been assigned as a guest. You can update your roles in the roles channel.').catch(() => {});
+          await thread.setArchived(true).catch(() => {});
+        }
+      }
+
+      await db.upsertOnboardingSession({
+        discordId: s.discord_id,
+        guildId: s.guild_id,
+        completed: 1
+      });
+
+      console.log(`[onboarding] session timed out — ${s.discord_id} in guild ${s.guild_id}`);
+    } catch (err) {
+      console.error(`[onboarding] timeout error for ${s.discord_id}:`, err);
+    }
+  }
+}
+
+/**
  * Called from index.cjs on interval (e.g. every 60s)
  */
 async function runReportScheduler(client) {
   const nowMs = Date.now();
   await expireDueReports(client, nowMs);
   await cleanupReports(nowMs);
+  await expireOnboardingSessions(client, nowMs);
 }
 
 module.exports = {

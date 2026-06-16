@@ -616,6 +616,37 @@ await run(`CREATE TABLE IF NOT EXISTS report_card_prefs (
   updated_at INTEGER
 )`);
 
+  // -------- ONBOARDING CONFIG --------
+  await run(`CREATE TABLE IF NOT EXISTS guild_onboarding_config (
+    guild_id               TEXT PRIMARY KEY,
+    onboarding_channel_id  TEXT,
+    roles_channel_id       TEXT,
+    rules_channel_id       TEXT,
+    guest_role_id          TEXT,
+    player_role_id         TEXT,
+    updated_at             INTEGER
+  )`);
+
+  // -------- ONBOARDING SESSIONS --------
+  await run(`CREATE TABLE IF NOT EXISTS onboarding_sessions (
+    discord_id       TEXT NOT NULL,
+    guild_id         TEXT NOT NULL,
+    thread_id        TEXT,
+    step             TEXT DEFAULT 'welcome',
+    selections_json  TEXT DEFAULT '{}',
+    started_at       INTEGER,
+    completed        INTEGER DEFAULT 0,
+    PRIMARY KEY (discord_id, guild_id)
+  )`);
+
+  // -------- GUILD ROUTE ROLES --------
+  await run(`CREATE TABLE IF NOT EXISTS guild_route_roles (
+    guild_id  TEXT NOT NULL,
+    location  TEXT NOT NULL,
+    role_id   TEXT NOT NULL,
+    PRIMARY KEY (guild_id, location)
+  )`);
+
   await loadBountiesFromDB();
   await loadClaimsFromDB();
 
@@ -1432,6 +1463,106 @@ async function findActiveReportThisHour(pokemonName, nowMs = Date.now()) {
 }
 
 // ------------------------------------------------------
+// ONBOARDING CONFIG
+// ------------------------------------------------------
+
+async function getOnboardingConfig(guildId) {
+  return await get(`SELECT * FROM guild_onboarding_config WHERE guild_id = ?`, [guildId]);
+}
+
+async function upsertOnboardingConfig({
+  guildId, onboardingChannelId, rolesChannelId, rulesChannelId, guestRoleId, playerRoleId
+}) {
+  const now = Date.now();
+  const ex = (await getOnboardingConfig(guildId)) || {};
+  await run(
+    `INSERT OR REPLACE INTO guild_onboarding_config
+     (guild_id, onboarding_channel_id, roles_channel_id, rules_channel_id,
+      guest_role_id, player_role_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      guildId,
+      onboardingChannelId  ?? ex.onboarding_channel_id  ?? null,
+      rolesChannelId       ?? ex.roles_channel_id        ?? null,
+      rulesChannelId       ?? ex.rules_channel_id        ?? null,
+      guestRoleId          ?? ex.guest_role_id           ?? null,
+      playerRoleId         ?? ex.player_role_id          ?? null,
+      now
+    ]
+  );
+}
+
+// ------------------------------------------------------
+// ONBOARDING SESSIONS
+// ------------------------------------------------------
+
+async function getOnboardingSession(discordId, guildId) {
+  return await get(
+    `SELECT * FROM onboarding_sessions WHERE discord_id = ? AND guild_id = ?`,
+    [discordId, guildId]
+  );
+}
+
+async function upsertOnboardingSession({
+  discordId, guildId, threadId, step, selectionsJson, startedAt, completed
+}) {
+  const ex = (await getOnboardingSession(discordId, guildId)) || {};
+  await run(
+    `INSERT OR REPLACE INTO onboarding_sessions
+     (discord_id, guild_id, thread_id, step, selections_json, started_at, completed)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      discordId,
+      guildId,
+      threadId       ?? ex.thread_id        ?? null,
+      step           ?? ex.step             ?? 'welcome',
+      selectionsJson ?? ex.selections_json  ?? '{}',
+      startedAt      ?? ex.started_at       ?? Date.now(),
+      completed      ?? ex.completed        ?? 0
+    ]
+  );
+}
+
+async function deleteOnboardingSession(discordId, guildId) {
+  await run(
+    `DELETE FROM onboarding_sessions WHERE discord_id = ? AND guild_id = ?`,
+    [discordId, guildId]
+  );
+}
+
+async function getExpiredOnboardingSessions(cutoffMs) {
+  return await all(
+    `SELECT * FROM onboarding_sessions WHERE completed = 0 AND started_at < ?`,
+    [cutoffMs]
+  );
+}
+
+// ------------------------------------------------------
+// GUILD ROUTE ROLES
+// ------------------------------------------------------
+
+async function getGuildRouteRole(guildId, location) {
+  return await get(
+    `SELECT role_id FROM guild_route_roles WHERE guild_id = ? AND location = ?`,
+    [guildId, location]
+  );
+}
+
+async function upsertGuildRouteRole({ guildId, location, roleId }) {
+  await run(
+    `INSERT OR REPLACE INTO guild_route_roles (guild_id, location, role_id) VALUES (?, ?, ?)`,
+    [guildId, location, roleId]
+  );
+}
+
+async function getGuildRouteRoles(guildId) {
+  return await all(
+    `SELECT location, role_id FROM guild_route_roles WHERE guild_id = ?`,
+    [guildId]
+  );
+}
+
+// ------------------------------------------------------
 // EXPORT
 // ------------------------------------------------------
 module.exports = {
@@ -1536,5 +1667,20 @@ module.exports = {
 
   // Vortex API dedup
   hasVortexRoamer,
-  insertVortexRoamer
+  insertVortexRoamer,
+
+  // Onboarding config
+  getOnboardingConfig,
+  upsertOnboardingConfig,
+
+  // Onboarding sessions
+  getOnboardingSession,
+  upsertOnboardingSession,
+  deleteOnboardingSession,
+  getExpiredOnboardingSessions,
+
+  // Guild route roles
+  getGuildRouteRole,
+  upsertGuildRouteRole,
+  getGuildRouteRoles
 };

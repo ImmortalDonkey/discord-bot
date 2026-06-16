@@ -194,6 +194,33 @@ Rarity groups
 
 ━━━━━━━━━━━━━━━━━━━━ Module Separation Rules (LOCKED) ━━━━━━━━━━━━━━━━━━━━ Layer | Responsibility DB (database.cjs) | Persistent truth Utils (utils/) | Business logic, integrations, schedulers Interactions (interactions/) | Discord UI definitions Handlers (handlers/) | Routing to correct module Renderers (renderers/) | Visual output only Dispatcher (reportDispatcher.cjs) | Discord posting only
 
+━━━━━━━━━━━━━━━━━━━━ Onboarding System ━━━━━━━━━━━━━━━━━━━━
+
+Triggered by: guildMemberAdd event (events/guildMemberAdd.cjs)
+
+Flow:
+  1. Private thread created in guild_onboarding_config.onboarding_channel_id
+  2. Welcome embed with [I play Vortex!] / [Just browsing] buttons
+  3. "Just browsing" → assign guest_role_id → archive thread
+  4. "I play Vortex!" → IGN step (modal or skip) → Routes → Rarities → Pokémon → Summary → Confirm
+  5. Confirm → assign player_role_id + selected route/rarity/pokémon roles → archive thread
+  6. 10-min timeout → auto-assign guest role → archive (handled by reportScheduler)
+
+DB tables:
+  guild_onboarding_config  — channel + role config per guild
+  onboarding_sessions      — per-user session state + selections_json
+  guild_route_roles        — location → role_id mapping (populated by /roledeploy create-route-roles:true)
+
+Route roles:
+  Created via /roledeploy with create-route-roles:true option
+  Stored in guild_route_roles table
+  Pinged by reportDispatcher when a roamer report matches the location
+
+Commands:
+  /onboardingconfig — set onboarding_channel, roles_channel, rules_channel, guest_role, player_role
+  /roledeploy       — deploy roles panel + optional route role creation
+
+
 ━━━━━━━━━━━━━━━━━━━━ Known Issues (tracked) ━━━━━━━━━━━━━━━━━━━━
 
 Points identity mismatch (Discord vs IGN)

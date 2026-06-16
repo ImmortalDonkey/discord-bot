@@ -37,6 +37,7 @@ const {
 } = require('./handlers/modalHandler.cjs');
 
 const handleAutocompleteInteraction = require('./handlers/autocompleteHandler.cjs');
+const { initEventHandlers } = require('./handlers/eventHandler.cjs');
 
 // Schedulers
 const { startBountyScheduler } = require('./utils/bountyScheduler.cjs');
@@ -149,6 +150,7 @@ client.once('ready', async () => {
     initCommandHandlers(client);
     initButtonHandlers(client);
     initModalHandlers(client);
+    initEventHandlers(client);
     console.log('✅ Handlers initialised');
   } catch (err) {
     console.error('❌ Handler init failed:', err);
@@ -200,28 +202,6 @@ client.on('interactionCreate', async interaction => {
     } catch {}
   }
 });
-
-// ──────────────────────────────────────
-// DEV-ONLY ONBOARDING
-// ──────────────────────────────────────
-if (
-  process.env.NODE_ENV === 'dev' ||
-  process.env.ENV === 'dev'
-) {
-  const onboardingHandler = require('./events/guildMemberAdd.cjs');
-
-  client.on('guildMemberAdd', async member => {
-    try {
-      await onboardingHandler(client, member);
-    } catch (err) {
-      console.error('❌ Onboarding error:', err);
-    }
-  });
-
-  console.log('🧪 Onboarding ENABLED (DEV ONLY)');
-} else {
-  console.log('🛑 Onboarding DISABLED (LIVE)');
-}
 
 // ──────────────────────────────────────
 // LOGIN + HEARTBEAT

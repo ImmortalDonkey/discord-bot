@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../../database.cjs');
 const rolesConfig = require('../../utils/rolesConfig.cjs');
+const { availableLocations } = require('../../utils/locations.cjs');
 
 const SPRITES_DIR = path.join(__dirname, '..', '..', 'sprites');
 
@@ -71,16 +72,49 @@ module.exports = {
         .addChannelTypes(ChannelType.GuildText)
         .setRequired(true)
     )
+    .addBooleanOption(opt =>
+      opt
+        .setName('create-route-roles')
+        .setDescription('Create Discord roles for all 30 locations and store them in DB')
+        .setRequired(false)
+    )
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(client, interaction) {
     const channel = interaction.options.getChannel('channel');
     const guild = interaction.guild;
+    const createRouteRoles = interaction.options.getBoolean('create-route-roles') ?? false;
 
     await interaction.reply({
       content: `⏳ Deploying role panel to <#${channel.id}>…`,
       flags: 64
     });
+
+    // ──────────────────────────────
+    // ROUTE ROLES CREATION (optional)
+    // ──────────────────────────────
+    if (createRouteRoles) {
+      await interaction.editReply('⏳ Creating route roles…');
+      let created = 0;
+      for (const location of availableLocations) {
+        try {
+          const existing = await db.getGuildRouteRole(guild.id, location);
+          if (existing) continue;
+
+          const role = await guild.roles.create({
+            name: location,
+            mentionable: true,
+            reason: 'Route role created by /roledeploy'
+          });
+
+          await db.upsertGuildRouteRole({ guildId: guild.id, location, roleId: role.id });
+          created++;
+        } catch (err) {
+          console.error(`[roledeploy] failed to create route role for "${location}":`, err);
+        }
+      }
+      await interaction.editReply(`✅ Route roles created (${created} new). Deploying panel…`);
+    }
 
     // Clear channel
     try {

@@ -260,6 +260,7 @@ async function postToGuild({
   channelId,
   pokemonRoleId,
   rarityRoleId,
+  routeRoleId,
   report,
   renderCard,
   components
@@ -273,6 +274,7 @@ async function postToGuild({
   const mentions = [];
   if (pokemonRoleId) mentions.push(`<@&${pokemonRoleId}>`);
   if (rarityRoleId) mentions.push(`<@&${rarityRoleId}>`);
+  if (routeRoleId) mentions.push(`<@&${routeRoleId}>`);
 
   const { buffer, filename } = await renderCard();
 
@@ -316,12 +318,19 @@ async function dispatchReport({
   if (mainChannelId) {
     const pokemonKeyEnv = normalizePokemonKeyEnv(report.pokemonKey);
 
+    let mainRouteRoleId = null;
+    if (report.location) {
+      const routeRow = await db.getGuildRouteRole(mainGuildId, report.location).catch(() => null);
+      mainRouteRoleId = routeRow?.role_id || null;
+    }
+
     await postToGuild({
       client,
       guildId: mainGuildId,
       channelId: mainChannelId,
       pokemonRoleId: process.env[`ROLE_POKEMON_${pokemonKeyEnv}`],
       rarityRoleId: process.env[`ROLE_${envRarityKey}`],
+      routeRoleId: mainRouteRoleId,
       report,
       renderCard,
       components
@@ -367,12 +376,20 @@ async function dispatchReport({
         g.report_channel_id
       );
 
+      // ── Route role lookup
+      let subRouteRole = null;
+      if (report.location) {
+        const rr = await db.getGuildRouteRole(g.guild_id, report.location).catch(() => null);
+        subRouteRole = rr?.role_id || null;
+      }
+
       await postToGuild({
         client,
         guildId: g.guild_id,
         channelId: targetChannelId,
         pokemonRoleId: pokemonRole?.role_id || null,
         rarityRoleId: rarityRole?.role_id || null,
+        routeRoleId: subRouteRole,
         report,
         renderCard,
         components
